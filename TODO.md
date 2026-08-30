@@ -242,7 +242,9 @@ presets, with the `Tools.md` values as the shipped defaults.
       rest of the contract.
 - [x] 15.4 planner (params persisted on run; gateway attaches to each job): merge the selected profile's params into each job envelope.
 - [x] 15.5 api: CRUD for scan profiles + pick one when starting a run.
-- [~] 15.6 UI param editor — backend + specs endpoint done; the modal editor is the remaining piece: scan-launch modal with a per-tool parameter editor (rate, ports, wordlist,
+- [x] 15.6 UI: scan-launch modal has a **Manual setup** toggle opening a per-tool parameter
+      editor (14 params across 8 tools), with defaults shown, changed-badges, preset
+      load/save and reset. Verified live: preset overrides merge with defaults onto the run.: scan-launch modal with a per-tool parameter editor (rate, ports, wordlist,
       timeouts, templates, depth) and "save as preset".
 - [x] 15.7 **Security: whitelist every settable parameter.** These values become process
       arguments on a scan box — never pass raw user strings to `exec`. Validate each field

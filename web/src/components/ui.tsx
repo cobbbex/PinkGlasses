@@ -3,10 +3,10 @@ import { ReactNode, useEffect, useRef, useState, createContext, useContext, useC
 /* ---------- Modal ---------- */
 
 export function Modal({
-  title, open, onClose, children, footer,
+  title, open, onClose, children, footer, wide,
 }: {
   title: string; open: boolean; onClose: () => void;
-  children: ReactNode; footer?: ReactNode;
+  children: ReactNode; footer?: ReactNode; wide?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -18,7 +18,7 @@ export function Modal({
   if (!open) return null;
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <div className={"modal" + (wide ? " wide" : "")} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <div className="modal-head">
           <h3>{title}</h3>
           <button className="icon" onClick={onClose} aria-label="Close">✕</button>

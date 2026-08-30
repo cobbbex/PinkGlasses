@@ -80,18 +80,18 @@ func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanpro
 			Type: scanproto.ObsSubdomain, Domain: n, Source: strings.Join(srcs, ","),
 		})
 	}
-	obs = append(obs, s.resolveNames(ctx, names)...)
+	obs = append(obs, s.resolveNames(ctx, names, jobParams(job))...)
 	return obs, nil
 }
 
 // resolveNames turns candidate names into A/AAAA observations. dnsx is the
 // primary resolver (Tools.md); the stdlib resolver is the no-binary fallback.
-func (s *Scanner) resolveNames(ctx context.Context, names []string) []scanproto.Observation {
+func (s *Scanner) resolveNames(ctx context.Context, names []string, pr params) []scanproto.Observation {
 	if len(names) == 0 {
 		return nil
 	}
 	if have("dnsx") {
-		if obs := s.resolveWithDNSX(ctx, names); obs != nil {
+		if obs := s.resolveWithDNSX(ctx, names, pr); obs != nil {
 			return obs
 		}
 	}
@@ -110,9 +110,10 @@ func (s *Scanner) resolveNames(ctx context.Context, names []string) []scanproto.
 
 // resolveWithDNSX pipes the candidate list through `dnsx -silent -json`, which
 // also filters wildcard responses that would otherwise create phantom hosts.
-func (s *Scanner) resolveWithDNSX(ctx context.Context, names []string) []scanproto.Observation {
+func (s *Scanner) resolveWithDNSX(ctx context.Context, names []string, pr params) []scanproto.Observation {
 	rows, err := runJSONLStdin(ctx, 5*time.Minute, strings.Join(names, "\n"),
-		"dnsx", "-silent", "-json", "-a", "-aaaa", "-resp")
+		"dnsx", "-silent", "-json", "-a", "-aaaa", "-resp",
+		"-t", pr.intStr("dnsx_threads", "100"))
 	if err != nil || len(rows) == 0 {
 		return nil
 	}

@@ -39,6 +39,17 @@ export interface Finding {
   id: string; asset_kind: string; asset_id: string; kind: string;
   severity: string; title: string; status: string; first_seen: string; last_seen: string;
 }
+export interface ParamSpec {
+  key: string; tool: string; label: string;
+  kind: "int" | "enum" | "ports" | "wordlist" | "bool";
+  min?: number; max?: number; enum?: string[];
+  default: string; help: string;
+}
+export interface ScanProfilePreset {
+  id: string; name: string; owner?: string | null;
+  scope_id?: string | null; params: Record<string, string>; is_default: boolean;
+}
+
 export interface SearchResult {
   service_id: string; scope_id?: string; company?: string;
   ip: string; port: number; product?: string | null;
@@ -73,6 +84,11 @@ export const api = {
   patchFinding: (id: string, status: string) =>
     req(`/findings/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
   runs: (s: string) => req<Run[] | null>(`/scopes/${s}/runs`).then((x) => x ?? []),
+  scanParams: () => req<ParamSpec[] | null>("/scan-params").then((x) => x ?? []),
+  scanProfiles: (s: string) =>
+    req<ScanProfilePreset[] | null>(`/scopes/${s}/scan-profiles`).then((x) => x ?? []),
+  saveScanProfile: (s: string, body: unknown) =>
+    req<{ id: string }>(`/scopes/${s}/scan-profiles`, { method: "POST", body: JSON.stringify(body) }),
   createRun: (s: string, body: unknown) =>
     req<Run>(`/scopes/${s}/runs`, { method: "POST", body: JSON.stringify(body) }),
   run: (id: string) => req<{ run: Run; progress: any }>(`/runs/${id}`),

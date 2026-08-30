@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, RunTarget } from "../api";
 import { Badge, useToast, Modal } from "../components/ui";
+import ScanSettings from "../components/ScanSettings";
 
 const PROFILES = [
   { id: "passive", label: "Passive", desc: "CT logs, DNS and public APIs only. No packets are sent to the target — always safe to run." },
@@ -75,12 +76,24 @@ function LaunchModal({
   const [profile, setProfile] = useState("passive");
   const [busy, setBusy] = useState(false);
 
+  // Manual setup: per-tool parameter overrides, off by default so the common
+  // case stays a two-click scan.
+  const [manual, setManual] = useState(false);
+  const [params, setParams] = useState<Record<string, string>>({});
+  const [presetID, setPresetID] = useState("");
+
   async function start() {
     setBusy(true);
     try {
-      await api.createRun(scopeID, { profile, all: true });
+      await api.createRun(scopeID, {
+        profile,
+        all: true,
+        ...(presetID ? { profile_id: presetID } : {}),
+        ...(Object.keys(params).length ? { params } : {}),
+      });
       toast("ok", `${profile} scan started`);
-      onDone(); onClose();
+      onDone();
+      onClose();
     } catch (e) {
       toast("err", String(e));
     } finally {
@@ -88,18 +101,26 @@ function LaunchModal({
     }
   }
 
+  function close() {
+    setManual(false);
+    onClose();
+  }
+
+  const overrides = Object.keys(params).length;
+
   return (
     <Modal
-      title="Start a scan" open={open} onClose={onClose}
+      title="Start a scan" open={open} onClose={close} wide={manual}
       footer={<>
-        <button className="ghost" onClick={onClose}>Cancel</button>
+        <button className="ghost" onClick={close}>Cancel</button>
         <button onClick={start} disabled={busy}>{busy ? "Starting…" : "Start scan"}</button>
       </>}
     >
       <p className="muted" style={{ marginTop: 0 }}>
-        The run covers every non-excluded target in this scope. Targets without an
+        The run covers every non-excluded target in this company. Targets without an
         active-scanning authorization are skipped automatically.
       </p>
+
       {PROFILES.map((p) => (
         <label key={p.id} className="check" style={{ cursor: "pointer" }}>
           <input type="radio" name="profile" checked={profile === p.id} onChange={() => setProfile(p.id)} />
@@ -109,6 +130,29 @@ function LaunchModal({
           </span>
         </label>
       ))}
+
+      <div className="manual-bar">
+        <button className="ghost sm" onClick={() => setManual((m) => !m)}>
+          {manual ? "▾ Hide manual setup" : "▸ Manual setup"}
+        </button>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {overrides > 0
+            ? `${overrides} tool setting${overrides === 1 ? "" : "s"} overridden`
+            : "Using default parameters for every tool"}
+        </span>
+      </div>
+
+      {manual && (
+        <div className="manual-panel">
+          <ScanSettings
+            scopeID={scopeID}
+            values={params}
+            onChange={setParams}
+            presetID={presetID}
+            onPresetChange={setPresetID}
+          />
+        </div>
+      )}
     </Modal>
   );
 }

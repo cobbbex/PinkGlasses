@@ -45,7 +45,9 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 		// simplest and robust. (-json is not a valid flag and aborts the run.)
 		lines, _ := runLines(ctx, 90*time.Second, "katana",
 			"-d", jobParams(job).intStr("katana_depth", "3"),
-			"-c", "3", "-p", "3", "-rl", "10", "-silent", "-u", base)
+			"-c", "3", "-p", "3",
+			"-rl", jobParams(job).intStr("katana_rate_limit", "10"),
+			"-silent", "-u", base)
 		for i, u := range lines {
 			if i >= 2000 { // a crawl can return tens of thousands; keep it bounded
 				break
