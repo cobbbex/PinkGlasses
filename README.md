@@ -194,6 +194,28 @@ npm run dev           # :5173, proxies /api to :8080
 npm run build         # emits web/dist, served by the api binary
 ```
 
+## Passive discovery API keys
+
+Passive enumeration finds subdomains without sending a single packet to the target, and
+it gets substantially better with API keys. Copy `.env.example` to `.env` and fill in
+whichever you have — **every one is optional**, and blanks are skipped:
+
+```
+DNSDUMPSTER_API_KEY=      SHODAN_API_KEY=          CENSYS_API_ID= / _SECRET=
+SECURITYTRAILS_API_KEY=   VIRUSTOTAL_API_KEY=      NETLAS_API_KEY=
+ZOOMEYE_API_KEY=          QUAKE_API_KEY=           FOFA_EMAIL= / FOFA_API_KEY=
+HUNTER_API_KEY=           BINARYEDGE_API_KEY=      LEAKIX_API_KEY=
+WHOISXMLAPI_API_KEY=      BEVIGIL_API_KEY=         INTELX_HOST= / INTELX_API_KEY=
+CHAOS_API_KEY=            GITHUB_TOKEN=
+```
+
+Compose passes them to the worker, which renders subfinder's `provider-config.yaml` from
+them at startup. Keys live only in `.env` (git-ignored) and on the worker — they are never
+stored in the database or shown in the UI.
+
+> Wiring these into subfinder is TODO 13.0.4 — the variables are defined and delivered to
+> the worker, but nothing reads them yet.
+
 ## Safety & authorization
 
 This tool sends packets to real infrastructure. Read `architecture.md` §10 first.

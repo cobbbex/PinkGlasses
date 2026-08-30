@@ -112,6 +112,28 @@ services:
       # name is left unset so each replica registers under its container
       # hostname and they are distinguishable in the fleet list
       ASM_WORKER_MAX_CONCURRENCY: "8"
+      # Passive discovery API keys — all optional, blanks are skipped.
+      # The worker renders these into subfinder's provider-config.yaml.
+      DNSDUMPSTER_API_KEY: "${DNSDUMPSTER_API_KEY:-}"
+      SHODAN_API_KEY: "${SHODAN_API_KEY:-}"
+      CENSYS_API_ID: "${CENSYS_API_ID:-}"
+      CENSYS_API_SECRET: "${CENSYS_API_SECRET:-}"
+      SECURITYTRAILS_API_KEY: "${SECURITYTRAILS_API_KEY:-}"
+      NETLAS_API_KEY: "${NETLAS_API_KEY:-}"
+      ZOOMEYE_API_KEY: "${ZOOMEYE_API_KEY:-}"
+      QUAKE_API_KEY: "${QUAKE_API_KEY:-}"
+      FOFA_EMAIL: "${FOFA_EMAIL:-}"
+      FOFA_API_KEY: "${FOFA_API_KEY:-}"
+      HUNTER_API_KEY: "${HUNTER_API_KEY:-}"
+      BINARYEDGE_API_KEY: "${BINARYEDGE_API_KEY:-}"
+      LEAKIX_API_KEY: "${LEAKIX_API_KEY:-}"
+      VIRUSTOTAL_API_KEY: "${VIRUSTOTAL_API_KEY:-}"
+      WHOISXMLAPI_API_KEY: "${WHOISXMLAPI_API_KEY:-}"
+      BEVIGIL_API_KEY: "${BEVIGIL_API_KEY:-}"
+      INTELX_HOST: "${INTELX_HOST:-}"
+      INTELX_API_KEY: "${INTELX_API_KEY:-}"
+      CHAOS_API_KEY: "${CHAOS_API_KEY:-}"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
     depends_on: [gateway]
 
 volumes:
