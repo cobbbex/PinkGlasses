@@ -29,6 +29,9 @@ func (s *Store) InsertTasks(ctx context.Context, runID uuid.UUID, specs []TaskSp
 
 	ids := make([]uuid.UUID, 0, len(specs))
 	for _, sp := range specs {
+		if sp.Requires == nil {
+			sp.Requires = []string{} // column is NOT NULL
+		}
 		tgt, _ := json.Marshal(sp.Target)
 		var id uuid.UUID
 		if err := tx.QueryRow(ctx, `

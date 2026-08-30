@@ -9,9 +9,14 @@ CREATE TABLE scan_profile (
     scope_id   uuid REFERENCES scope(id) ON DELETE CASCADE,  -- null = available to all companies
     params     jsonb NOT NULL DEFAULT '{}',
     is_default boolean NOT NULL DEFAULT false,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (coalesce(scope_id, '00000000-0000-0000-0000-000000000000'::uuid), name)
+    created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Unique per (company, name), treating global presets (scope_id NULL) as one
+-- namespace. A table-level UNIQUE cannot hold an expression, so this is a
+-- unique index over a coalesced key.
+CREATE UNIQUE INDEX uq_scan_profile_scope_name
+  ON scan_profile (coalesce(scope_id, '00000000-0000-0000-0000-000000000000'::uuid), name);
 
 -- runs remember which preset they used, for reproducibility.
 ALTER TABLE scan_run ADD COLUMN profile_id uuid REFERENCES scan_profile(id) ON DELETE SET NULL;

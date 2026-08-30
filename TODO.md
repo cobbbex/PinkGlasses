@@ -209,7 +209,7 @@ Each step is `.1` implement · `.2` image + reporting · `.3` **GATE** (must pas
       this is the loudest stage in the pipeline.
 
 ### Step 14 — Close-out
-- [ ] 13.14.1 End-to-end run over a scope you own with every tool enabled; confirm the full
+- [~] 13.14.1 End-to-end run over a scope you own with every tool enabled; confirm the full
       `Tools.md` sequence executes in order and the asset graph is populated at each stage.
 - [ ] 13.14.2 Update `worker-pipeline.md` to match what is actually implemented.
 

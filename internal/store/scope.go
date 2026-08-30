@@ -46,6 +46,9 @@ func (s *Store) GetScope(ctx context.Context, id uuid.UUID) (domain.Scope, error
 
 // AddTarget inserts or updates a scope target.
 func (s *Store) AddTarget(ctx context.Context, t domain.ScopeTarget) (domain.ScopeTarget, error) {
+	if t.Tags == nil {
+		t.Tags = []string{} // column is NOT NULL; nil would violate the constraint
+	}
 	err := s.Pool.QueryRow(ctx, `
 		INSERT INTO scope_target (scope_id, kind, value, tags, mode, pool_id, authorized_by, authorized_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
