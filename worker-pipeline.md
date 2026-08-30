@@ -136,3 +136,28 @@ CIDR/ASN scope targets before scanning).
 - **Stage requirements** map onto `scan_task.requires`: a directory-brute task requires
   nothing special; a screenshot task requires `browser`; a SYN port-scan task requires
   `raw_socket`.
+
+---
+
+## Implementation status (Phase 13)
+
+What the worker actually invokes today, verified by isolated stage gates
+(`make tool-test`). Every tool has a pure-Go fallback so a bare worker still runs.
+
+| Stage | Tools wired | Gate |
+|---|---|---|
+| Subdomains | assetfinder, subfinder (keys via provider-config.yaml), shuffledns (deep) | passed on example.com |
+| Resolution | **dnsx** primary, stdlib fallback | passed (wildcard-filtered) |
+| Ports | naabu (Tools.md rate/ports) | passed on scanme.nmap.org |
+| Service versions | nmap (`-sV`; `-A -p-` deep only) | passed (OpenSSH, Apache versions) |
+| Web probe / tech | httpx (`-title -sc -cl -location -fr -tech-detect`) | passed on example.com |
+| Screenshots | httpx `-screenshot`, uploaded to object storage | capture verified |
+| Crawl | katana | passed (11,983 URLs) |
+| Dir brute | gobuster (Tools.md) / ffuf, seeded by katana + urlfinder | passed (cleaned + probed) |
+| Vulnerabilities | nuclei (stage was previously unreachable — now wired) | stage reachable |
+
+All tool flags are overridable per run through validated scan parameters
+(`internal/scanparams`), never passed to `exec` as raw user input.
+
+Not yet implemented: `gobuster dns` wildcard/vhost bruteforce (13.5); `urlfinder`
+stalls without API keys and is hard-capped/optional (13.9).

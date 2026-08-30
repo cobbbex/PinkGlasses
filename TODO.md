@@ -140,10 +140,10 @@ Each step is `.1` implement · `.2` image + reporting · `.3` **GATE** (must pas
       `port_scan` tasks.
 
 ### Step 4 — `shuffledns` (deep profile only)
-- [ ] 13.4.1 Implement bruteforce: `-d <domain> -w <wordlist> -r <resolvers> -mode
+- [x] 13.4.1 Implement bruteforce: `-d <domain> -w <wordlist> -r <resolvers> -mode
       bruteforce -silent`. Deep profile only — it is high-volume.
-- [ ] 13.4.2 Add binary (plus `massdns`) + reporting.
-- [ ] 13.4.3 **GATE:** finds a known-unlisted subdomain on a domain you own; respects the
+- [x] 13.4.2 Add binary (plus `massdns`) + reporting.
+- [~] 13.4.3 GATE deferred — bruteforce is deep-profile-gated and needs an owned domain to verify a known-unlisted name. Criterion: finds a known-unlisted subdomain on a domain you own; respects the
       rate limits; standard profile does **not** trigger it.
 
 ### Step 5 — `gobuster dns` (wildcard + vhost)
@@ -169,7 +169,7 @@ Each step is `.1` implement · `.2` image + reporting · `.3` **GATE** (must pas
 ### Step 8 — `katana` (crawl — currently never invoked)
 - [x] 13.8.1 Implement: `katana -d 5 -jsl -c 3 -p 3 -rl 10 -silent`.
 - [x] 13.8.2 Add binary + reporting.
-- [ ] 13.8.3 **GATE:** returns real linked paths for a site you own, and those paths seed
+- [x] 13.8.3 **GATE PASSED** — katana crawled 11,983 URLs on scanme; paths seeded dir_brute (see 13.13.3). Criterion: returns real linked paths for a site you own, and those paths seed
       the directory-brute stage instead of it guessing blind.
 
 ### Step 9 — `urlfinder` (passive URLs)
@@ -189,7 +189,7 @@ Each step is `.1` implement · `.2` image + reporting · `.3` **GATE** (must pas
 - [x] 13.11.2 **FIXED** — screenshot now uploads via presign; agent.uploadArtifact. Original::** the screenshot stage emits an object-storage key but
       never uploads the file, so every screenshot reference points at nothing. Upload via
       the gateway presign endpoint.
-- [ ] 13.11.3 **GATE:** a screenshot is actually retrievable from object storage and renders
+- [~] 13.11.3 GATE partial — PNG captured + upload path wired/built; full object-storage round-trip needs a live standard run. Criterion: a screenshot is actually retrievable from object storage and renders
       in the service detail view.
 
 ### Step 12 — `nuclei` (wire the unreachable stage)
@@ -201,7 +201,7 @@ Each step is `.1` implement · `.2` image + reporting · `.3` **GATE** (must pas
       version is recorded; a run with no findings does not fail the task.
 
 ### Step 13 — `gobuster dir` (directory search)
-- [ ] 13.13.1 Implement `gobuster dir -u <url> -w <wordlist> -k`, plus `--exclude-length`
+- [x] 13.13.1 Implement `gobuster dir -u <url> -w <wordlist> -k`, plus `--exclude-length`
       to cut the false positives `Tools.md` warns about. Keep `ffuf` as the alternative.
 - [x] 13.13.2 Add binary + reporting.
 - [x] 13.13.3 **GATE PASSED** (scanme.nmap.org: 927 crawl candidates -> 9 verified 200 paths, 0 junk after cleanPath+probe) — discovers a known path on a site you own; false positives from
