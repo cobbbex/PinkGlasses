@@ -3,44 +3,154 @@ package scanner
 import (
 	"context"
 	"net"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/benlik386/asm/internal/scanproto"
 )
 
-// passiveEnum: subfinder -> subdomains, then resolve each (worker-pipeline.md §1).
+// candidate is a discovered name plus the tool that found it, so provenance
+// survives into the asset graph's `sources` array.
+type candidate struct{ name, source string }
+
+// passiveEnum runs the passive subdomain sources in Tools.md order
+// (assetfinder, subfinder), merges their candidates, then resolves them.
+// Each tool is optional: a missing binary is skipped, never fatal.
 func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanproto.Observation, error) {
 	if len(job.Targets) == 0 || job.Targets[0].Domain == "" {
 		return nil, nil
 	}
 	root := job.Targets[0].Domain
-	names := map[string]bool{root: true}
 
+	// name -> sources that found it
+	found := map[string]map[string]bool{}
+	add := func(name, source string) {
+		name = normalizeHost(name)
+		if !inScope(name, root) {
+			return
+		}
+		if found[name] == nil {
+			found[name] = map[string]bool{}
+		}
+		found[name][source] = true
+	}
+	add(root, "seed")
+
+	// --- assetfinder (Tools.md: `assetfinder example.com`) ---
+	if have("assetfinder") {
+		lines, _ := runLines(ctx, 2*time.Minute, "assetfinder", root)
+		for _, l := range lines {
+			add(l, "assetfinder")
+		}
+	}
+
+	// --- subfinder (Tools.md: `subfinder -d example.com`) ---
 	if have("subfinder") {
-		rows, _ := runJSONL(ctx, 3*time.Minute, "subfinder", "-silent", "-json", "-d", root)
+		args := []string{"-silent", "-json", "-d", root}
+		if s.ProviderConfig != "" {
+			args = append(args, "-provider-config", s.ProviderConfig)
+		}
+		rows, _ := runJSONL(ctx, 3*time.Minute, "subfinder", args...)
 		for _, r := range rows {
 			if h := str(r, "host"); h != "" {
-				names[h] = true
+				add(h, "subfinder")
 			}
 		}
 	}
-	// alterx permutations would expand `names` here when present.
+
+	// --- shuffledns bruteforce: deep profile only (Tools.md) ---
+	if job.Profile == "deep" && have("shuffledns") &&
+		fileExists(wordlistDNS()) && fileExists(resolversFile()) {
+		lines, _ := runLines(ctx, 10*time.Minute, "shuffledns",
+			"-d", root, "-w", wordlistDNS(), "-r", resolversFile(),
+			"-mode", "bruteforce", "-silent")
+		for _, l := range lines {
+			add(l, "shuffledns")
+		}
+	}
+
+	// --- emit + resolve ---
+	names := make([]string, 0, len(found))
+	for n := range found {
+		names = append(names, n)
+	}
+	sort.Strings(names)
 
 	var obs []scanproto.Observation
-	res := net.Resolver{}
-	for name := range names {
-		obs = append(obs, scanproto.Observation{Type: scanproto.ObsSubdomain, Domain: name, Source: "passive"})
-		// resolve so discovered names feed the coalesce barrier
-		ips, _ := res.LookupHost(withTimeout(ctx, 5*time.Second), name)
-		for _, ip := range ips {
-			rt := "A"
-			if isV6(ip) {
-				rt = "AAAA"
-			}
-			obs = append(obs, scanproto.Observation{Type: scanproto.ObsDNSRecord, Domain: name, RType: rt, Value: ip})
+	for _, n := range names {
+		srcs := make([]string, 0, len(found[n]))
+		for sc := range found[n] {
+			srcs = append(srcs, sc)
+		}
+		sort.Strings(srcs)
+		obs = append(obs, scanproto.Observation{
+			Type: scanproto.ObsSubdomain, Domain: n, Source: strings.Join(srcs, ","),
+		})
+	}
+	obs = append(obs, s.resolveNames(ctx, names)...)
+	return obs, nil
+}
+
+// resolveNames turns candidate names into A/AAAA observations. dnsx is the
+// primary resolver (Tools.md); the stdlib resolver is the no-binary fallback.
+func (s *Scanner) resolveNames(ctx context.Context, names []string) []scanproto.Observation {
+	if len(names) == 0 {
+		return nil
+	}
+	if have("dnsx") {
+		if obs := s.resolveWithDNSX(ctx, names); obs != nil {
+			return obs
 		}
 	}
-	return obs, nil
+	var obs []scanproto.Observation
+	res := net.Resolver{}
+	for _, name := range names {
+		ips, _ := res.LookupHost(withTimeout(ctx, 5*time.Second), name)
+		for _, ip := range ips {
+			obs = append(obs, scanproto.Observation{
+				Type: scanproto.ObsDNSRecord, Domain: name, RType: rtypeOf(ip), Value: ip,
+			})
+		}
+	}
+	return obs
+}
+
+// resolveWithDNSX pipes the candidate list through `dnsx -silent -json`, which
+// also filters wildcard responses that would otherwise create phantom hosts.
+func (s *Scanner) resolveWithDNSX(ctx context.Context, names []string) []scanproto.Observation {
+	rows, err := runJSONLStdin(ctx, 5*time.Minute, strings.Join(names, "\n"),
+		"dnsx", "-silent", "-json", "-a", "-aaaa", "-resp")
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	var obs []scanproto.Observation
+	for _, r := range rows {
+		host := str(r, "host")
+		if host == "" {
+			continue
+		}
+		for _, key := range []string{"a", "aaaa"} {
+			vals, _ := r[key].([]any)
+			for _, v := range vals {
+				ip, _ := v.(string)
+				if ip == "" {
+					continue
+				}
+				obs = append(obs, scanproto.Observation{
+					Type: scanproto.ObsDNSRecord, Domain: host, RType: rtypeOf(ip), Value: ip,
+				})
+			}
+		}
+	}
+	return obs
+}
+
+func rtypeOf(ip string) string {
+	if isV6(ip) {
+		return "AAAA"
+	}
+	return "A"
 }
 
 // dnsResolve: full record set for the target domain via dnsx or the stdlib.
@@ -111,4 +221,21 @@ func withTimeout(ctx context.Context, d time.Duration) context.Context {
 func isV6(ip string) bool {
 	parsed := net.ParseIP(ip)
 	return parsed != nil && parsed.To4() == nil
+}
+
+// normalizeHost lowercases a hostname and strips the trailing root dot.
+func normalizeHost(name string) string {
+	return strings.TrimSpace(strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), ".")))
+}
+
+// inScope reports whether a discovered name belongs to the target domain.
+//
+// The label boundary matters: a plain suffix match would accept
+// "notexample.com" and "evilexample.com" for root "example.com", which is how
+// a passive source can silently widen a scan far beyond what was authorised.
+func inScope(name, root string) bool {
+	if name == "" || root == "" {
+		return false
+	}
+	return name == root || strings.HasSuffix(name, "."+root)
 }

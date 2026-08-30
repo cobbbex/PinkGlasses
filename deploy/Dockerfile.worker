@@ -14,6 +14,25 @@ FROM projectdiscovery/naabu:latest     AS naabu
 FROM projectdiscovery/httpx:latest     AS httpx
 FROM projectdiscovery/katana:latest    AS katana
 FROM projectdiscovery/nuclei:latest    AS nuclei
+FROM projectdiscovery/shuffledns:latest AS shuffledns
+
+# massdns is shuffledns's resolver engine and is not packaged in Alpine, so it
+# is compiled here from source.
+FROM alpine:3.20 AS massdns
+RUN apk add --no-cache git build-base
+RUN git clone --depth 1 https://github.com/blechschmidt/massdns.git /src \
+ && make -C /src \
+ && cp /src/bin/massdns /massdns
+
+# --- tools without an official image: built from source ---
+# assetfinder (tomnomnom) and urlfinder (ProjectDiscovery) publish no image, and
+# gobuster is not in Alpine, so these three are compiled here.
+FROM golang:1.25-alpine AS gotools
+ENV GOTOOLCHAIN=auto
+RUN apk add --no-cache git
+RUN GOBIN=/gotools go install github.com/tomnomnom/assetfinder@latest && \
+    GOBIN=/gotools go install github.com/OJ/gobuster/v3@latest && \
+    GOBIN=/gotools go install github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest
 
 # --- our worker binary (stays on Go 1.23; local toolchain so it can't drift) ---
 FROM golang:1.23-alpine AS build
@@ -26,10 +45,33 @@ ARG VERSION=0.1.0
 RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/worker ./cmd/worker
 
 # --- final runtime ---
+# --- wordlists and resolvers (Tools.md) ---
+# Fetched at build time from upstream HEAD. Pin these URLs to a tag or commit
+# if you need byte-reproducible images. Kept to moderate sizes deliberately: the
+# multi-million-line assetnote lists belong on a mounted volume, not baked into
+# every worker image.
+FROM alpine:3.20 AS wordlists
+RUN apk add --no-cache curl
+WORKDIR /wordlists
+RUN set -eux; \
+    curl -sSfL -o dns-subdomains.txt \
+      https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-20000.txt; \
+    curl -sSfL -o dir-common.txt \
+      https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt; \
+    curl -sSfL -o resolvers.txt \
+      https://raw.githubusercontent.com/trickest/resolvers/main/resolvers.txt; \
+    wc -l *.txt
+
 FROM alpine:3.20
 # nmap for service versions (§2), ffuf for directory brute (§5), chromium for
 # screenshots (§4), libpcap as naabu's runtime dependency for SYN scans.
 RUN apk add --no-cache ca-certificates nmap nmap-scripts ffuf chromium libpcap
+
+# wordlists + resolvers used by shuffledns, gobuster dns and gobuster dir
+COPY --from=wordlists /wordlists/ /usr/share/asm/wordlists/
+ENV ASM_WORDLIST_DNS=/usr/share/asm/wordlists/dns-subdomains.txt \
+    ASM_WORDLIST_DIR=/usr/share/asm/wordlists/dir-common.txt \
+    ASM_RESOLVERS=/usr/share/asm/wordlists/resolvers.txt
 
 # prebuilt PD tools
 COPY --from=subfinder /usr/local/bin/subfinder /usr/local/bin/subfinder
@@ -38,6 +80,11 @@ COPY --from=naabu     /usr/local/bin/naabu     /usr/local/bin/naabu
 COPY --from=httpx     /usr/local/bin/httpx     /usr/local/bin/httpx
 COPY --from=katana    /usr/local/bin/katana    /usr/local/bin/katana
 COPY --from=nuclei    /usr/local/bin/nuclei    /usr/local/bin/nuclei
+COPY --from=shuffledns /usr/bin/shuffledns       /usr/local/bin/shuffledns
+
+# assetfinder, gobuster, urlfinder (built above)
+COPY --from=gotools /gotools/ /usr/local/bin/
+COPY --from=massdns /massdns /usr/local/bin/massdns
 
 # our binary
 COPY --from=build /out/worker /usr/local/bin/worker

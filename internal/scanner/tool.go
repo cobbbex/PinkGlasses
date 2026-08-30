@@ -49,6 +49,54 @@ func runJSONL(ctx context.Context, timeout time.Duration, name string, args ...s
 	return rows, nil
 }
 
+// runJSONLStdin pipes stdin into a command and parses newline-delimited JSON
+// from its stdout. Several Tools.md pipelines are `cat <list> | tool ...`.
+func runJSONLStdin(ctx context.Context, timeout time.Duration, stdin string, name string, args ...string) ([]map[string]any, error) {
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, name, args...)
+	cmd.Stdin = strings.NewReader(stdin)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	_ = cmd.Run() // tools may exit non-zero yet still emit useful lines
+
+	var rows []map[string]any
+	sc := bufio.NewScanner(&out)
+	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || line[0] != '{' {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err == nil {
+			rows = append(rows, m)
+		}
+	}
+	return rows, nil
+}
+
+// runLinesStdin pipes stdin into a command and returns its stdout lines.
+func runLinesStdin(ctx context.Context, timeout time.Duration, stdin string, name string, args ...string) ([]string, error) {
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, name, args...)
+	cmd.Stdin = strings.NewReader(stdin)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	_ = cmd.Run()
+
+	var lines []string
+	sc := bufio.NewScanner(&out)
+	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	for sc.Scan() {
+		if l := strings.TrimSpace(sc.Text()); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines, nil
+}
+
 // runLines executes a command and returns trimmed non-empty stdout lines.
 func runLines(ctx context.Context, timeout time.Duration, name string, args ...string) ([]string, error) {
 	cctx, cancel := context.WithTimeout(ctx, timeout)

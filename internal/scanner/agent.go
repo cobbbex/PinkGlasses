@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -39,20 +40,75 @@ type Agent struct {
 	workerID string
 	cred     string
 
+	// providerConfig is subfinder's generated provider-config.yaml, or "" when
+	// no API keys are configured.
+	providerConfig string
+
 	mu      sync.Mutex
 	running map[string]bool
 }
 
-// NewAgent builds a worker agent, detecting capabilities and tools.
+// NewAgent builds a worker agent, detecting capabilities and tools and
+// rendering the passive-source API keys into subfinder's provider config.
 func NewAgent(cfg AgentConfig) *Agent {
 	caps := DetectCapabilities()
-	return &Agent{
+
+	// Keys come from the environment; the file is 0600 and its contents are
+	// never logged, only the source names.
+	pcPath, sources, err := WriteProviderConfig(filepath.Dir(cfg.CredentialFile))
+	if err != nil {
+		slog.Warn("could not write subfinder provider config", "err", err)
+	} else if len(sources) > 0 {
+		slog.Info("passive sources configured", "count", len(sources), "sources", sources)
+	} else {
+		slog.Info("no passive-source API keys set; using free sources only")
+	}
+
+	a := &Agent{
+		providerConfig: pcPath,
 		cfg:     cfg,
 		caps:    caps,
-		scanner: New(caps),
+		scanner: &Scanner{Detected: caps, ProviderConfig: pcPath},
+		// Upload set below once the Agent exists (needs a.cfg/a.cred).
 		client:  &http.Client{Timeout: 30 * time.Second},
 		running: map[string]bool{},
 	}
+	a.scanner.Upload = a.uploadArtifact
+	return a
+}
+
+// uploadArtifact stores bytes in object storage: it asks the gateway to presign
+// a PUT and uploads directly, so artifacts never transit the gateway
+// (architecture.md §3.2). Returns the object key on success.
+func (a *Agent) uploadArtifact(ctx context.Context, key string, data []byte) (string, error) {
+	body, _ := json.Marshal(map[string]string{"key": key})
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+		a.cfg.GatewayURL+"/agent/v1/artifacts/presign", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Worker-Id", a.workerID)
+	req.Header.Set("X-Worker-Credential", a.cred)
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	var pr struct{ URL, Key string }
+	_ = json.NewDecoder(resp.Body).Decode(&pr)
+	resp.Body.Close()
+	if pr.URL == "" {
+		return "", fmt.Errorf("presign returned no url")
+	}
+
+	put, _ := http.NewRequestWithContext(ctx, http.MethodPut, pr.URL, bytes.NewReader(data))
+	put.Header.Set("Content-Type", "image/png")
+	pResp, err := a.client.Do(put)
+	if err != nil {
+		return "", err
+	}
+	pResp.Body.Close()
+	if pResp.StatusCode >= 300 {
+		return "", fmt.Errorf("artifact PUT failed: %s", pResp.Status)
+	}
+	return pr.Key, nil
 }
 
 // Run enrols if needed and then maintains the control channel forever.
@@ -272,7 +328,11 @@ func DetectCapabilities() map[scanproto.Capability]bool {
 // DetectTools reports the versions of installed scan tools for the fleet UI.
 func DetectTools() map[string]string {
 	tools := map[string]string{}
-	for _, t := range []string{"subfinder", "dnsx", "naabu", "httpx", "nuclei", "katana", "nmap", "ffuf", "feroxbuster"} {
+	for _, t := range []string{
+		"assetfinder", "subfinder", "shuffledns", "dnsx", "gobuster",
+		"naabu", "nmap", "katana", "urlfinder", "httpx", "nuclei",
+		"ffuf", "feroxbuster", "massdns",
+	} {
 		if have(t) {
 			tools[t] = toolVersion(t)
 		}

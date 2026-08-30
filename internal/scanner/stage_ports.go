@@ -14,21 +14,30 @@ import (
 var topPorts = []int{21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445,
 	993, 995, 1723, 3306, 3389, 5432, 5900, 6379, 8000, 8080, 8443, 8888, 9200, 27017}
 
-// portScan: naabu when present (SYN if raw_socket), else a Go connect scan;
-// then nmap -sV against the open ports for real service versions.
+// portScan follows Tools.md §Port Scanning: naabu finds open ports fast, then
+// nmap fingerprints only those ports. nmap is never asked to scan a full range
+// on the standard profile — that is reserved for `deep`.
 func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.Observation, error) {
 	if len(job.Targets) == 0 || job.Targets[0].IP == "" {
 		return nil, nil
 	}
 	ip := job.Targets[0].IP
+	deep := job.Profile == "deep"
 	var open []int
 
 	if have("naabu") {
-		args := []string{"-silent", "-json", "-host", ip, "-tp", "1000"}
-		if !s.Detected[scanproto.CapRawSocket] {
-			args = append(args, "-scan-type", "c") // connect scan
+		// Tools.md: naabu -c 4 -rate 20 -top-ports 100 -silent
+		args := []string{"-silent", "-json", "-host", ip,
+			"-c", "4", "-rate", "20"}
+		if deep {
+			args = append(args, "-p", "-") // full range on deep only
+		} else {
+			args = append(args, "-top-ports", "100")
 		}
-		rows, _ := runJSONL(ctx, 5*time.Minute, "naabu", args...)
+		if !s.Detected[scanproto.CapRawSocket] {
+			args = append(args, "-scan-type", "c") // connect scan without CAP_NET_RAW
+		}
+		rows, _ := runJSONL(ctx, 15*time.Minute, "naabu", args...)
 		for _, r := range rows {
 			if p := num(r, "port"); p > 0 {
 				open = append(open, p)
@@ -40,11 +49,14 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 
 	var obs []scanproto.Observation
 	for _, p := range open {
-		obs = append(obs, scanproto.Observation{Type: scanproto.ObsService, IP: ip, Port: p, Proto: "tcp", State: "open"})
+		obs = append(obs, scanproto.Observation{
+			Type: scanproto.ObsService, IP: ip, Port: p, Proto: "tcp", State: "open",
+		})
 	}
-	// nmap -sV on the open ports only (worker-pipeline.md §2 decision: keep nmap).
+	// nmap -sV over naabu's hits only (worker-pipeline.md §2: keep nmap for
+	// non-web service versions, never full-range).
 	if len(open) > 0 && have("nmap") {
-		obs = append(obs, nmapVersions(ctx, ip, open)...)
+		obs = append(obs, nmapVersions(ctx, ip, open, deep)...)
 	}
 	return obs, nil
 }
@@ -67,7 +79,9 @@ func connectScan(ctx context.Context, ip string, ports []int) []int {
 	return open
 }
 
-func nmapVersions(ctx context.Context, ip string, ports []int) []scanproto.Observation {
+// nmapVersions runs the Tools.md nmap profile against a known port list.
+// `-A` (OS + script + traceroute) is deep-only: it is slow and very loud.
+func nmapVersions(ctx context.Context, ip string, ports []int, deep bool) []scanproto.Observation {
 	list := ""
 	for i, p := range ports {
 		if i > 0 {
@@ -75,14 +89,35 @@ func nmapVersions(ctx context.Context, ip string, ports []int) []scanproto.Obser
 		}
 		list += strconv.Itoa(p)
 	}
-	// -oG - gives greppable output; we parse the Ports: field.
-	lines, _ := runLines(ctx, 5*time.Minute, "nmap", "-sV", "-Pn", "-p", list, "-oG", "-", ip)
+
+	args := []string{
+		"-Pn", "--open",
+		"--min-hostgroup", "256",
+		"--min-rate", "10000",
+		"--max-retries", "3",
+		"--defeat-rst-ratelimit",
+		"-p", list,
+	}
+	if deep {
+		args = append(args, "-A", "-vvv")
+	} else {
+		args = append(args, "-sV")
+	}
+	args = append(args, "-oG", "-", ip)
+
+	timeout := 10 * time.Minute
+	if deep {
+		timeout = 30 * time.Minute
+	}
+	lines, _ := runLines(ctx, timeout, "nmap", args...)
+
 	var obs []scanproto.Observation
 	for _, ln := range lines {
 		for _, entry := range parseNmapGrepPorts(ln) {
+			product, version := splitNmapProduct(entry.product)
 			obs = append(obs, scanproto.Observation{
 				Type: scanproto.ObsService, IP: ip, Port: entry.port, Proto: "tcp", State: "open",
-				Product: entry.product, Version: entry.version, Banner: entry.banner,
+				Product: product, Version: version, Banner: entry.banner,
 			})
 		}
 	}
@@ -120,4 +155,25 @@ func parseNmapGrepPorts(line string) []nmapPort {
 		out = append(out, np)
 	}
 	return out
+}
+
+// splitNmapProduct separates nmap's concatenated "product version extrainfo"
+// field, e.g. "OpenSSH 6.6.1p1 Ubuntu 2ubuntu2.13 (...)" -> ("OpenSSH",
+// "6.6.1p1") and "Apache httpd 2.4.7 ((Ubuntu))" -> ("Apache httpd", "2.4.7").
+//
+// The version is the first token beginning with a digit; everything before it
+// is the product name. Without this the whole string lands in `product` and
+// version-based search (`version:2.4.7`) never matches.
+func splitNmapProduct(field string) (product, version string) {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		return "", ""
+	}
+	tokens := strings.Fields(field)
+	for i, tok := range tokens {
+		if i > 0 && tok != "" && tok[0] >= '0' && tok[0] <= '9' {
+			return strings.Join(tokens[:i], " "), strings.Trim(tok, "()")
+		}
+	}
+	return field, ""
 }

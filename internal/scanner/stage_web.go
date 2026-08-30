@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -76,34 +78,58 @@ func (s *Scanner) serviceProbe(ctx context.Context, job scanproto.Job) ([]scanpr
 	return obs, nil
 }
 
-// techDetect: httpx -tech-detect / nuclei tech templates when present, else a
-// lightweight header/body fingerprint (worker-pipeline.md §3).
+// techDetect probes a URL with httpx using the Tools.md flag set and records
+// status, title, content-length, redirect chain and detected technologies.
 func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanproto.Observation, error) {
-	ip, port := targetIPPort(job)
-	url := job.Targets[0].URL
-	if url == "" && ip != "" {
-		url = "http://" + ip + portSuffix("http", port)
-	}
+	url := targetURL(job)
 	if url == "" {
 		return nil, nil
 	}
+	ip, port := targetIPPort(job)
 	var obs []scanproto.Observation
 
 	if have("httpx") {
-		rows, _ := runJSONL(ctx, 2*time.Minute, "httpx", "-silent", "-json", "-tech-detect", "-u", url)
+		// Tools.md: httpx -title -sc -cl -location -fr -silent -delay 1s
+		rows, _ := runJSONL(ctx, 3*time.Minute, "httpx",
+			"-silent", "-json", "-title", "-sc", "-cl", "-location", "-fr",
+			"-tech-detect", "-delay", "1s", "-u", url)
 		for _, r := range rows {
+			obs = append(obs, scanproto.Observation{
+				Type: scanproto.ObsHTTP, IP: ip, Port: port,
+				Status: num(r, "status_code"),
+				Title:  str(r, "title"),
+				Headers: map[string]string{
+					"server":         str(r, "webserver"),
+					"content-length": str(r, "content_length"),
+					"location":       str(r, "location"),
+				},
+				Favicon: str(r, "favicon"),
+				Product: str(r, "webserver"),
+			})
 			if techs, ok := r["tech"].([]any); ok {
 				for _, t := range techs {
-					if name, ok := t.(string); ok {
-						obs = append(obs, scanproto.Observation{Type: scanproto.ObsTech, IP: ip, Port: port, TechName: name, TechConfidence: 90})
+					name, _ := t.(string)
+					if name == "" {
+						continue
 					}
+					// httpx reports "Nginx:1.25.3" when it knows a version
+					n, v := name, ""
+					if i := strings.LastIndex(name, ":"); i > 0 {
+						n, v = name[:i], name[i+1:]
+					}
+					obs = append(obs, scanproto.Observation{
+						Type: scanproto.ObsTech, IP: ip, Port: port,
+						TechName: n, TechVersion: v, TechConfidence: 90,
+					})
 				}
 			}
 		}
-		return obs, nil
+		if len(obs) > 0 {
+			return obs, nil
+		}
 	}
 
-	// fallback fingerprint from Server header
+	// Fallback: stdlib probe, fingerprinting from response headers.
 	client := webClient()
 	req, _ := http.NewRequestWithContext(withTimeout(ctx, 8*time.Second), http.MethodGet, url, nil)
 	resp, err := client.Do(req)
@@ -113,31 +139,92 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 	defer resp.Body.Close()
 	if server := resp.Header.Get("Server"); server != "" {
 		name, version := splitProductVersion(server)
-		obs = append(obs, scanproto.Observation{Type: scanproto.ObsTech, IP: ip, Port: port, TechName: name, TechVersion: version, TechConfidence: 60})
+		obs = append(obs, scanproto.Observation{Type: scanproto.ObsTech, IP: ip, Port: port,
+			TechName: name, TechVersion: version, TechConfidence: 60})
 	}
 	if x := resp.Header.Get("X-Powered-By"); x != "" {
 		name, version := splitProductVersion(x)
-		obs = append(obs, scanproto.Observation{Type: scanproto.ObsTech, IP: ip, Port: port, TechName: name, TechVersion: version, TechConfidence: 60})
+		obs = append(obs, scanproto.Observation{Type: scanproto.ObsTech, IP: ip, Port: port,
+			TechName: name, TechVersion: version, TechConfidence: 60})
 	}
 	return obs, nil
 }
 
-// screenshot: httpx -screenshot / chromium when present. Requires the browser
-// capability; without it the stage is a no-op (worker-pipeline.md §4).
+// screenshot captures a page with httpx and uploads the PNG to object storage.
+//
+// Previously this emitted an object key without ever uploading the file, so
+// every screenshot reference in the UI pointed at nothing.
 func (s *Scanner) screenshot(ctx context.Context, job scanproto.Job) ([]scanproto.Observation, error) {
-	if !s.Detected[scanproto.CapBrowser] {
+	if !s.Detected[scanproto.CapBrowser] || !have("httpx") {
+		return nil, nil
+	}
+	url := targetURL(job)
+	if url == "" {
 		return nil, nil
 	}
 	ip, port := targetIPPort(job)
-	url := job.Targets[0].URL
-	if url == "" || !have("httpx") {
+
+	outDir, err := os.MkdirTemp("", "asm-shot-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(outDir)
+
+	// Tools.md: httpx -sc -title -tech-detect -screenshot -timeout 200 -screenshot-timeout 200
+	_, _ = runLines(ctx, 5*time.Minute, "httpx",
+		"-silent", "-sc", "-title", "-tech-detect", "-screenshot",
+		"-timeout", "200", "-screenshot-timeout", "200",
+		"-srd", outDir, "-u", url)
+
+	png := findFirstFile(outDir, ".png")
+	if png == "" {
+		return nil, nil // nothing captured; not an error
+	}
+	data, err := os.ReadFile(png)
+	if err != nil || len(data) == 0 {
 		return nil, nil
 	}
-	// httpx -screenshot writes files; a full implementation uploads them to the
-	// presigned URL and emits the object key. Here we emit the intended key.
-	key := "screenshots/" + strings.ReplaceAll(strings.ReplaceAll(url, "://", "_"), "/", "_") + ".png"
-	_, _ = runLines(ctx, 90*time.Second, "httpx", "-silent", "-screenshot", "-u", url)
-	return []scanproto.Observation{{Type: scanproto.ObsScreenshot, IP: ip, Port: port, ScreenshotKey: key}}, nil
+
+	key := "screenshots/" + job.RunID + "/" + sanitizeKey(url) + ".png"
+	if s.Upload == nil {
+		// stage-test mode: report what would be stored, without persisting.
+		return []scanproto.Observation{{
+			Type: scanproto.ObsScreenshot, IP: ip, Port: port,
+			ScreenshotKey: key + " (not uploaded: no store configured)",
+		}}, nil
+	}
+	stored, err := s.Upload(ctx, key, data)
+	if err != nil {
+		return nil, err
+	}
+	return []scanproto.Observation{{
+		Type: scanproto.ObsScreenshot, IP: ip, Port: port, ScreenshotKey: stored,
+	}}, nil
+}
+
+// findFirstFile returns the first file under dir with the given extension.
+func findFirstFile(dir, ext string) string {
+	var found string
+	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() || found != "" {
+			return nil
+		}
+		if strings.EqualFold(filepath.Ext(p), ext) && info.Size() > 0 {
+			found = p
+		}
+		return nil
+	})
+	return found
+}
+
+// sanitizeKey turns a URL into a safe object-storage key segment.
+func sanitizeKey(u string) string {
+	r := strings.NewReplacer("://", "_", "/", "_", ":", "_", "?", "_", "&", "_", "=", "_", " ", "_")
+	k := r.Replace(u)
+	if len(k) > 120 {
+		k = k[:120]
+	}
+	return k
 }
 
 func extractTitle(body []byte) string {

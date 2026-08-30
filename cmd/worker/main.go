@@ -5,10 +5,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/benlik386/asm/internal/config"
 	"github.com/benlik386/asm/internal/scanner"
@@ -18,6 +20,21 @@ import (
 var version = "0.1.0-dev"
 
 func main() {
+	// Single-stage test mode: run one tool locally and print its observations.
+	// Backs `make tool-test` and the Phase 13 gates.
+	stage := flag.String("stage", "", "run one pipeline stage locally and exit")
+	target := flag.String("target", "", "target for -stage (domain, IP or URL)")
+	timeout := flag.Duration("timeout", 5*time.Minute, "timeout for -stage")
+	flag.Parse()
+
+	if *stage != "" {
+		if *target == "" {
+			slog.Error("-target is required with -stage")
+			os.Exit(2)
+		}
+		os.Exit(runStageTest(*stage, *target, *timeout))
+	}
+
 	cfg := config.LoadWorker()
 	agent := scanner.NewAgent(scanner.AgentConfig{
 		GatewayURL:     cfg.GatewayURL,

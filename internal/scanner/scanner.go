@@ -10,6 +10,12 @@ import (
 // stage can pick SYN vs connect scan, etc.
 type Scanner struct {
 	Detected map[scanproto.Capability]bool
+	// ProviderConfig is subfinder's generated provider-config.yaml path, or ""
+	// when no passive-source API keys are configured.
+	ProviderConfig string
+	// Upload stores an artifact (screenshot, raw tool output) and returns the
+	// object key. Nil in stage-test mode, where nothing is persisted.
+	Upload func(ctx context.Context, key string, data []byte) (string, error)
 }
 
 // New builds a Scanner with detected capabilities.
@@ -34,6 +40,8 @@ func (s *Scanner) Run(ctx context.Context, job scanproto.Job) ([]scanproto.Obser
 		return s.screenshot(ctx, job)
 	case scanproto.StageDirBrute:
 		return s.dirBrute(ctx, job)
+	case scanproto.StageVulnCheck:
+		return s.vulnCheck(ctx, job)
 	default:
 		return nil, nil
 	}

@@ -26,3 +26,23 @@ migrate: build
 
 clean:
 	rm -rf $(BIN)
+
+# Run one pipeline stage in isolation and print the observations it produced.
+# Backs the Phase 13 gates:
+#   make tool-test STAGE=passive_enum TARGET=example.com
+#   make tool-test STAGE=port_scan    TARGET=scanme.nmap.org PROFILE=standard
+#
+# Runs inside the worker container so the real toolchain is present.
+STAGE   ?= dns_resolve
+TARGET  ?= example.com
+PROFILE ?= standard
+TIMEOUT ?= 5m
+
+.PHONY: tool-test tool-test-local
+tool-test:
+	docker compose exec -e ASM_TEST_PROFILE=$(PROFILE) worker \
+		/usr/local/bin/worker -stage $(STAGE) -target $(TARGET) -timeout $(TIMEOUT)
+
+# Same, but with the binary built on this host (Go fallbacks only).
+tool-test-local: build
+	ASM_TEST_PROFILE=$(PROFILE) $(BIN)/worker -stage $(STAGE) -target $(TARGET) -timeout $(TIMEOUT)

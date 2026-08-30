@@ -100,36 +100,42 @@ and `vuln_check` is defined in `scanproto` but never wired into `scanner.Run()`,
 Each step is `.1` implement · `.2` image + reporting · `.3` **GATE** (must pass).
 
 ### Step 0 — Prerequisites (blocks everything below)
-- [ ] 13.0.1 Pick and document authorized test targets. `scanme.nmap.org` is published by
+- [x] 13.0.1 Pick and document authorized test targets. `scanme.nmap.org` is published by
       the Nmap project explicitly for scan testing; `example.com` is safe for passive and
       DNS work. **Never gate-test against third-party infrastructure you do not own.**
-- [ ] 13.0.2 Test harness: a `make tool-test TOOL=<name> TARGET=<host>` that runs one stage
+- [x] 13.0.2 Test harness: a `make tool-test TOOL=<name> TARGET=<host>` that runs one stage
       on a worker and prints the observations it produced, so each gate is one command.
-- [ ] 13.0.3 Wordlists + resolvers baked into the worker image (assetnote DNS lists, a
+- [x] 13.0.3 Wordlists + resolvers baked into the worker image (assetnote DNS lists, a
       resolver list). Needed by shuffledns, gobuster dns, gobuster dir.
-- [ ] 13.0.4 Render subfinder's `provider-config.yaml` from the API-key env vars at worker
+- [x] 13.0.4 Render subfinder's `provider-config.yaml` from the API-key env vars at worker
       startup, skipping blanks. Keys already exist in `.env.example` and are passed to the
       worker in `docker-compose.yml`; nothing reads them yet.
-- [ ] 13.0.5 **GATE:** worker starts with keys set, `provider-config.yaml` is written with
+- [x] 13.0.5 **GATE:** worker starts with keys set, `provider-config.yaml` is written with
       only the populated sources, and no secret is logged.
 
 ### Step 1 — `assetfinder` (passive, no keys, safest first)
-- [ ] 13.1.1 Implement in `passive_enum`: `assetfinder <domain>`, merge into the candidate set.
-- [ ] 13.1.2 Add binary to the worker image + tool reporting.
-- [ ] 13.1.3 **GATE:** returns subdomains for `example.com`; results appear as `subdomain`
+> **Gate found a real bug:** the scope check used a plain suffix match, so
+> `notexample.com` passed as a subdomain of `example.com` (~25k out-of-scope names).
+> Fixed to enforce the label boundary, with a regression test in
+> `internal/scanner/stage_discovery_test.go`.
+- [x] 13.1.1 Implement in `passive_enum`: `assetfinder <domain>`, merge into the candidate set.
+- [x] 13.1.2 Add binary to the worker image + tool reporting.
+- [x] 13.1.3 **GATE PASSED** (assetfinder: 2 in-scope names; its out-of-scope output rejected) — returns subdomains for `example.com`; results appear as `subdomain`
       observations attributed to source `assetfinder`; absent binary degrades cleanly.
 
 ### Step 2 — `subfinder` (already present — align with `Tools.md`)
-- [ ] 13.2.1 Align flags, keep `-json` for parsing, confirm it consumes the keys from 13.0.4.
-- [ ] 13.2.2 Tool-version reporting shows configured sources count.
-- [ ] 13.2.3 **GATE:** with at least one API key set, subfinder returns strictly more
+- [x] 13.2.1 Align flags, keep `-json` for parsing, confirm it consumes the keys from 13.0.4.
+- [x] 13.2.2 Tool-version reporting shows configured sources count.
+- [~] 13.2.3 **GATE PARTIAL** — subfinder returned 24,948 candidates using free sources. The
+      "more with a key than without" half is **unverified**: no API keys are set in `.env`,
+      so `passive_sources=[]`. Re-run once a key is configured. Original criterion: with at least one API key set, subfinder returns strictly more
       subdomains than with none — proves the key plumbing actually works.
 
 ### Step 3 — `dnsx` (resolution backbone — everything downstream depends on it)
-- [ ] 13.3.1 Implement as the primary resolver: `dnsx -silent` over the deduped candidate
+- [x] 13.3.1 Implement as the primary resolver: `dnsx -silent` over the deduped candidate
       set; keep the stdlib resolver as the no-binary fallback.
-- [ ] 13.3.2 Add binary + reporting.
-- [ ] 13.3.3 **GATE:** only resolving names survive; wildcard domains do not produce
+- [x] 13.3.2 Add binary + reporting.
+- [x] 13.3.3 **GATE PASSED** (24,949 candidates -> 47 resolving names, 99.8% filtered; 0 out-of-scope) — only resolving names survive; wildcard domains do not produce
       thousands of phantom hosts; resolved IPs reach the coalesce barrier and become
       `port_scan` tasks.
 
@@ -147,57 +153,57 @@ Each step is `.1` implement · `.2` image + reporting · `.3` **GATE** (must pas
       false subdomains.
 
 ### Step 6 — `naabu` (already present — align with `Tools.md`)
-- [ ] 13.6.1 Align to `-c 4 -rate 20 -top-ports 100 -silent`; keep params overridable
+- [x] 13.6.1 Align to `-c 4 -rate 20 -top-ports 100 -silent`; keep params overridable
       (Phase 15). Confirm the connect-scan fallback without `CAP_NET_RAW`.
-- [ ] 13.6.2 **GATE:** finds the expected open ports on `scanme.nmap.org`, and its output
+- [x] 13.6.2 **GATE PASSED** (scanme.nmap.org: naabu found 22,80; fed to nmap) — finds the expected open ports on `scanme.nmap.org`, and its output
       is what feeds nmap — never a full-range nmap.
 
 ### Step 7 — `nmap` (expand from `-sV` to the `Tools.md` profile)
-- [ ] 13.7.1 Implement `-A -vvv -Pn --min-hostgroup 256 --min-rate 10000 --max-retries 3
+- [x] 13.7.1 Implement `-A -vvv -Pn --min-hostgroup 256 --min-rate 10000 --max-retries 3
       --defeat-rst-ratelimit --open -oA`. **Gate `-p-` behind the deep profile** — full-range
       `-A` on every host is very slow and very loud.
-- [ ] 13.7.2 Parse `-oA`/greppable output into product + version observations.
-- [ ] 13.7.3 **GATE:** service versions appear for non-HTTP ports (e.g. SSH) on
+- [x] 13.7.2 Parse `-oA`/greppable output into product + version observations.
+- [x] 13.7.3 **GATE PASSED** (OpenSSH 6.6.1p1, Apache 2.4.7 on scanme; version-split fixed + tested) — service versions appear for non-HTTP ports (e.g. SSH) on
       `scanme.nmap.org`; standard profile stays on the naabu-supplied port list.
 
 ### Step 8 — `katana` (crawl — currently never invoked)
-- [ ] 13.8.1 Implement: `katana -d 5 -jsl -c 3 -p 3 -rl 10 -silent`.
-- [ ] 13.8.2 Add binary + reporting.
+- [x] 13.8.1 Implement: `katana -d 5 -jsl -c 3 -p 3 -rl 10 -silent`.
+- [x] 13.8.2 Add binary + reporting.
 - [ ] 13.8.3 **GATE:** returns real linked paths for a site you own, and those paths seed
       the directory-brute stage instead of it guessing blind.
 
 ### Step 9 — `urlfinder` (passive URLs)
-- [ ] 13.9.1 Implement: `urlfinder -silent`.
-- [ ] 13.9.2 Add binary + reporting.
-- [ ] 13.9.3 **GATE:** returns URLs without sending traffic to the target.
+- [~] 13.9.1 Implement: `urlfinder -silent`.
+- [x] 13.9.2 Add binary + reporting.
+- [!] 13.9.3 urlfinder stalls on keyless external APIs; hard-capped at 30s and made optional. Revisit with keys. returns URLs without sending traffic to the target.
 
 ### Step 10 — `httpx` probe (align + chain)
-- [ ] 13.10.1 Implement `-title -sc -cl -location -fr -silent -delay 1s`, taking the union
+- [x] 13.10.1 Implement `-title -sc -cl -location -fr -silent -delay 1s`, taking the union
       of katana + urlfinder output as input, as `Tools.md` chains them.
-- [ ] 13.10.2 **GATE:** live web services get title/status/content-length/redirect chain;
+- [x] 13.10.2 **GATE PASSED** (example.com: status 200, title, server, Cloudflare tech) — live web services get title/status/content-length/redirect chain;
       dead ones are dropped; the `-delay` is honoured.
 
 ### Step 11 — `httpx` screenshots (+ fix the broken upload)
-- [ ] 13.11.1 Implement `-sc -title -tech-detect -screenshot -timeout 200
+- [x] 13.11.1 Implement `-sc -title -tech-detect -screenshot -timeout 200
       -screenshot-timeout 200`.
-- [ ] 13.11.2 **Fix the existing bug:** the screenshot stage emits an object-storage key but
+- [x] 13.11.2 **FIXED** — screenshot now uploads via presign; agent.uploadArtifact. Original::** the screenshot stage emits an object-storage key but
       never uploads the file, so every screenshot reference points at nothing. Upload via
       the gateway presign endpoint.
 - [ ] 13.11.3 **GATE:** a screenshot is actually retrievable from object storage and renders
       in the service detail view.
 
 ### Step 12 — `nuclei` (wire the unreachable stage)
-- [ ] 13.12.1 Wire `StageVulnCheck` into `scanner.Run()` and into the planner's DAG.
-- [ ] 13.12.2 Implement `nuclei -l urls` (default templates) and `-t <dir>` for a pinned
+- [x] 13.12.1 Wire `StageVulnCheck` into `scanner.Run()` and into the planner's DAG.
+- [x] 13.12.2 Implement `nuclei -l urls` (default templates) and `-t <dir>` for a pinned
       custom set; template updates handled like wordlists.
-- [ ] 13.12.3 Add binary + reporting.
+- [x] 13.12.3 Add binary + reporting.
 - [ ] 13.12.4 **GATE:** findings appear on the Findings page with correct severity; template
       version is recorded; a run with no findings does not fail the task.
 
 ### Step 13 — `gobuster dir` (directory search)
 - [ ] 13.13.1 Implement `gobuster dir -u <url> -w <wordlist> -k`, plus `--exclude-length`
       to cut the false positives `Tools.md` warns about. Keep `ffuf` as the alternative.
-- [ ] 13.13.2 Add binary + reporting.
+- [x] 13.13.2 Add binary + reporting.
 - [ ] 13.13.3 **GATE:** discovers a known path on a site you own; false positives from
       uniform-size 40x/50x responses are filtered out; per-target concurrency is capped —
       this is the loudest stage in the pipeline.
