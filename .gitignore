@@ -3,6 +3,8 @@
 .env.*
 *.env
 !.env.example
+TODO.md
+Tools.md
 
 # build output
 /bin/
