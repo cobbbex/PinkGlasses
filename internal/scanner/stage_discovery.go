@@ -14,9 +14,9 @@ import (
 // survives into the asset graph's `sources` array.
 type candidate struct{ name, source string }
 
-// passiveEnum runs the passive subdomain sources in Tools.md order
-// (assetfinder, subfinder), merges their candidates, then resolves them.
-// Each tool is optional: a missing binary is skipped, never fatal.
+// passiveEnum runs the passive subdomain sources, merges their candidates and
+// then resolves them. Each tool is optional: a missing binary is skipped, never
+// fatal.
 func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanproto.Observation, error) {
 	if len(job.Targets) == 0 || job.Targets[0].Domain == "" {
 		return nil, nil
@@ -36,14 +36,6 @@ func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanpro
 		found[name][source] = true
 	}
 	add(root, "seed")
-
-	// --- assetfinder (Tools.md: `assetfinder example.com`) ---
-	if have("assetfinder") {
-		lines, _ := runLines(ctx, 2*time.Minute, "assetfinder", root)
-		for _, l := range lines {
-			add(l, "assetfinder")
-		}
-	}
 
 	// --- subfinder (Tools.md: `subfinder -d example.com`) ---
 	if have("subfinder") {

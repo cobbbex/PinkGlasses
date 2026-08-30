@@ -146,7 +146,7 @@ What the worker actually invokes today, verified by isolated stage gates
 
 | Stage | Tools wired | Gate |
 |---|---|---|
-| Subdomains | assetfinder, subfinder (keys via provider-config.yaml), shuffledns (deep) | passed on example.com |
+| Subdomains | subfinder (keys via provider-config.yaml), shuffledns (deep) | passed on example.com |
 | Resolution | **dnsx** primary, stdlib fallback | passed (wildcard-filtered) |
 | Ports | naabu (Tools.md rate/ports) | passed on scanme.nmap.org |
 | Service versions | nmap (`-sV`; `-A -p-` deep only) | passed (OpenSSH, Apache versions) |

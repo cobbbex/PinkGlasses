@@ -329,7 +329,7 @@ func DetectCapabilities() map[scanproto.Capability]bool {
 func DetectTools() map[string]string {
 	tools := map[string]string{}
 	for _, t := range []string{
-		"assetfinder", "subfinder", "shuffledns", "dnsx", "gobuster",
+		"subfinder", "shuffledns", "dnsx", "gobuster",
 		"naabu", "nmap", "katana", "urlfinder", "httpx", "nuclei",
 		"ffuf", "feroxbuster", "massdns",
 	} {

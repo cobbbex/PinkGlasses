@@ -25,13 +25,12 @@ RUN git clone --depth 1 https://github.com/blechschmidt/massdns.git /src \
  && cp /src/bin/massdns /massdns
 
 # --- tools without an official image: built from source ---
-# assetfinder (tomnomnom) and urlfinder (ProjectDiscovery) publish no image, and
-# gobuster is not in Alpine, so these three are compiled here.
+# urlfinder (ProjectDiscovery) publishes no image and gobuster is not in Alpine,
+# so these two are compiled here.
 FROM golang:1.25-alpine AS gotools
 ENV GOTOOLCHAIN=auto
 RUN apk add --no-cache git
-RUN GOBIN=/gotools go install github.com/tomnomnom/assetfinder@latest && \
-    GOBIN=/gotools go install github.com/OJ/gobuster/v3@latest && \
+RUN GOBIN=/gotools go install github.com/OJ/gobuster/v3@latest && \
     GOBIN=/gotools go install github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest
 
 # --- our worker binary (stays on Go 1.23; local toolchain so it can't drift) ---
@@ -82,7 +81,7 @@ COPY --from=katana    /usr/local/bin/katana    /usr/local/bin/katana
 COPY --from=nuclei    /usr/local/bin/nuclei    /usr/local/bin/nuclei
 COPY --from=shuffledns /usr/bin/shuffledns       /usr/local/bin/shuffledns
 
-# assetfinder, gobuster, urlfinder (built above)
+# gobuster, urlfinder (built above)
 COPY --from=gotools /gotools/ /usr/local/bin/
 COPY --from=massdns /massdns /usr/local/bin/massdns
 

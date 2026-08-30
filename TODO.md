@@ -113,15 +113,15 @@ Each step is `.1` implement · `.2` image + reporting · `.3` **GATE** (must pas
 - [x] 13.0.5 **GATE:** worker starts with keys set, `provider-config.yaml` is written with
       only the populated sources, and no secret is logged.
 
-### Step 1 — `assetfinder` (passive, no keys, safest first)
-> **Gate found a real bug:** the scope check used a plain suffix match, so
-> `notexample.com` passed as a subdomain of `example.com` (~25k out-of-scope names).
-> Fixed to enforce the label boundary, with a regression test in
+### Step 1 — `assetfinder` — REMOVED
+> **Dropped by decision.** Implemented and gated (it worked), but removed from the
+> worker: in the example.com gate it contributed 2 in-scope names against subfinder's
+> 24,948, so it added a from-source build to the image for almost no coverage.
+> The label-boundary scope fix it exposed is kept, with its regression test in
 > `internal/scanner/stage_discovery_test.go`.
-- [x] 13.1.1 Implement in `passive_enum`: `assetfinder <domain>`, merge into the candidate set.
-- [x] 13.1.2 Add binary to the worker image + tool reporting.
-- [x] 13.1.3 **GATE PASSED** (assetfinder: 2 in-scope names; its out-of-scope output rejected) — returns subdomains for `example.com`; results appear as `subdomain`
-      observations attributed to source `assetfinder`; absent binary degrades cleanly.
+- [x] 13.1.1 ~~Implement in `passive_enum`~~ — removed from the pipeline.
+- [x] 13.1.2 ~~Add binary to the worker image~~ — removed from `Dockerfile.worker`.
+- [x] 13.1.3 ~~GATE~~ — passed before removal; no longer applicable.
 
 ### Step 2 — `subfinder` (already present — align with `Tools.md`)
 - [x] 13.2.1 Align flags, keep `-json` for parsing, confirm it consumes the keys from 13.0.4.
