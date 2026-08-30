@@ -40,7 +40,8 @@ export interface Finding {
   severity: string; title: string; status: string; first_seen: string; last_seen: string;
 }
 export interface SearchResult {
-  service_id: string; ip: string; port: number; product?: string | null;
+  service_id: string; scope_id?: string; company?: string;
+  ip: string; port: number; product?: string | null;
   version?: string | null; title?: string | null; domain?: string | null;
 }
 
@@ -66,6 +67,8 @@ export const api = {
   hosts: (s: string) => req<Host[] | null>(`/scopes/${s}/hosts`).then((x) => x ?? []),
   hostServices: (ip: string) => req<Service[] | null>(`/hosts/${ip}/services`).then((x) => x ?? []),
   search: (s: string, q: string) => req<SearchResult[] | null>(`/scopes/${s}/search?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
+  searchGlobal: (q: string, scope?: string) =>
+    req<SearchResult[] | null>(`/search?q=${encodeURIComponent(q)}${scope ? "&scope=" + scope : ""}`).then((x) => x ?? []),
   findings: (s: string) => req<Finding[] | null>(`/scopes/${s}/findings`).then((x) => x ?? []),
   patchFinding: (id: string, status: string) =>
     req(`/findings/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),

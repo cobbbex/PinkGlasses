@@ -38,6 +38,9 @@ var fields = map[string]field{
 	"cert.expires": {special: "cert_expires", numeric: true},
 	"new":     {special: "new_days", numeric: true},
 	"severity": {special: "severity"},
+	// company/scope filter — only valid in global search, where scope is joined.
+	"company": {col: "sc.name"},
+	"scope":   {col: "sc.name"},
 }
 
 // Compile turns a query string into SQL. An empty query matches everything.

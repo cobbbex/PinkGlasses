@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/benlik386/asm/internal/domain"
+	"github.com/benlik386/asm/internal/scanparams"
 )
 
 func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
@@ -16,10 +17,12 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Profile string   `json:"profile"`
-		Targets []string `json:"targets"` // explicit values; empty + Tag/All below
-		Tag     string   `json:"tag"`
-		All     bool     `json:"all"`
+		Profile   string            `json:"profile"`
+		Targets   []string          `json:"targets"` // explicit values; empty + Tag/All below
+		Tag       string            `json:"tag"`
+		All       bool              `json:"all"`
+		ProfileID string            `json:"profile_id"` // saved preset
+		Params    map[string]string `json:"params"`     // ad-hoc overrides
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
@@ -54,9 +57,35 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve scan parameters: a saved preset (if any) overlaid with ad-hoc
+	// overrides, then whitelisted + validated (Phase 15.7) before use.
+	rawParams := map[string]string{}
+	var profileID *uuid.UUID
+	if in.ProfileID != "" {
+		if id, err := uuid.Parse(in.ProfileID); err == nil {
+			if pp, err := s.st.GetScanProfileParams(r.Context(), id); err == nil {
+				rawParams = pp
+				profileID = &id
+			}
+		}
+	}
+	for k, v := range in.Params {
+		rawParams[k] = v
+	}
+	cleanParams, err := scanparams.Validate(rawParams)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid scan parameter: "+err.Error())
+		return
+	}
+	effective := scanparams.WithDefaults(cleanParams)
+
 	run := domain.ScanRun{ScopeID: scopeID, Profile: profile, Trigger: "manual", MaxConcurrency: 32}
 	run, saved, err := s.st.CreateRun(r.Context(), run, runTargets)
 	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.st.SetRunParams(r.Context(), run.ID, profileID, effective); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

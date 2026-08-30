@@ -234,3 +234,4 @@ h2 { margin: 0 0 16px; } h3 { margin: 0; font-size: 15px; }
 .info-pop dt { font-weight: 600; color: var(--fg); margin-top: 9px; }
 .info-pop dt:first-child { margin-top: 0; }
 .info-pop dd { margin: 2px 0 0; color: var(--muted); }
+.toggle{display:flex;gap:0}.toggle button:first-child{border-radius:7px 0 0 7px}.toggle button:last-child{border-radius:0 7px 7px 0}

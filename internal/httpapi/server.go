@@ -53,6 +53,9 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/scopes/{scopeID}/targets", s.listTargets)
 
 		// runs (multi-target)
+		r.Get("/scan-params", s.listScanParamSpecs)
+		r.Get("/scopes/{scopeID}/scan-profiles", s.listScanProfiles)
+		r.Post("/scopes/{scopeID}/scan-profiles", s.saveScanProfile)
 		r.Post("/scopes/{scopeID}/runs", s.createRun)
 		r.Get("/scopes/{scopeID}/runs", s.listRuns)
 		r.Get("/runs/{runID}", s.getRun)
@@ -67,6 +70,7 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/scopes/{scopeID}/hosts", s.listHosts)
 		r.Get("/hosts/{ipID}/services", s.hostServices)
 		r.Get("/scopes/{scopeID}/search", s.search)
+		r.Get("/search", s.searchGlobal) // cross-company, Shodan-style
 		r.Get("/scopes/{scopeID}/findings", s.listFindings)
 		r.Patch("/findings/{findingID}", s.patchFinding)
 

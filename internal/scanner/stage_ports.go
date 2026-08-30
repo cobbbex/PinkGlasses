@@ -23,16 +23,23 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 	}
 	ip := job.Targets[0].IP
 	deep := job.Profile == "deep"
+	pr := jobParams(job)
 	var open []int
 
 	if have("naabu") {
-		// Tools.md: naabu -c 4 -rate 20 -top-ports 100 -silent
+		// Tools.md defaults, overridable per Phase 15 (already validated).
 		args := []string{"-silent", "-json", "-host", ip,
-			"-c", "4", "-rate", "20"}
-		if deep {
-			args = append(args, "-p", "-") // full range on deep only
-		} else {
+			"-c", pr.intStr("naabu_concurrency", "4"),
+			"-rate", pr.intStr("naabu_rate", "20")}
+		switch ports := pr.str("ports", ""); {
+		case ports == "full" || deep:
+			args = append(args, "-p", "-")
+		case ports == "top-1000":
+			args = append(args, "-top-ports", "1000")
+		case ports == "" || ports == "top-100":
 			args = append(args, "-top-ports", "100")
+		default:
+			args = append(args, "-p", ports) // "80,443" or "1-1024", validated upstream
 		}
 		if !s.Detected[scanproto.CapRawSocket] {
 			args = append(args, "-scan-type", "c") // connect scan without CAP_NET_RAW
@@ -56,7 +63,7 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 	// nmap -sV over naabu's hits only (worker-pipeline.md §2: keep nmap for
 	// non-web service versions, never full-range).
 	if len(open) > 0 && have("nmap") {
-		obs = append(obs, nmapVersions(ctx, ip, open, deep)...)
+		obs = append(obs, nmapVersions(ctx, ip, open, deep, pr.intStr("nmap_min_rate", "10000"))...)
 	}
 	return obs, nil
 }
@@ -81,7 +88,7 @@ func connectScan(ctx context.Context, ip string, ports []int) []int {
 
 // nmapVersions runs the Tools.md nmap profile against a known port list.
 // `-A` (OS + script + traceroute) is deep-only: it is slow and very loud.
-func nmapVersions(ctx context.Context, ip string, ports []int, deep bool) []scanproto.Observation {
+func nmapVersions(ctx context.Context, ip string, ports []int, deep bool, minRate string) []scanproto.Observation {
 	list := ""
 	for i, p := range ports {
 		if i > 0 {
@@ -93,7 +100,7 @@ func nmapVersions(ctx context.Context, ip string, ports []int, deep bool) []scan
 	args := []string{
 		"-Pn", "--open",
 		"--min-hostgroup", "256",
-		"--min-rate", "10000",
+		"--min-rate", minRate,
 		"--max-retries", "3",
 		"--defeat-rst-ratelimit",
 		"-p", list,

@@ -59,8 +59,8 @@ func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanpro
 		}
 	}
 
-	// --- shuffledns bruteforce: deep profile only (Tools.md) ---
-	if job.Profile == "deep" && have("shuffledns") &&
+	// --- shuffledns bruteforce: deep profile or explicit opt-in (Tools.md) ---
+	if (job.Profile == "deep" || jobParams(job).boolVal("dns_bruteforce", false)) && have("shuffledns") &&
 		fileExists(wordlistDNS()) && fileExists(resolversFile()) {
 		lines, _ := runLines(ctx, 10*time.Minute, "shuffledns",
 			"-d", root, "-w", wordlistDNS(), "-r", resolversFile(),

@@ -16,11 +16,13 @@ export default function Search({ scopeID }: { scopeID: string }) {
   const [rows, setRows] = useState<SearchResult[] | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [global, setGlobal] = useState(false);
 
-  async function run(query = q) {
+  async function run(query = q, g = global) {
     setBusy(true); setErr("");
-    try { setRows(await api.search(scopeID, query)); }
-    catch (e) { setErr(String(e)); setRows(null); }
+    try {
+      setRows(g ? await api.searchGlobal(query) : await api.search(scopeID, query));
+    } catch (e) { setErr(String(e)); setRows(null); }
     finally { setBusy(false); }
   }
 
@@ -29,15 +31,21 @@ export default function Search({ scopeID }: { scopeID: string }) {
       <div className="page-head">
         <div>
           <h2>Search</h2>
-          <div className="sub">Query every service in the inventory.</div>
+          <div className="sub">
+            {global ? "Querying every company's inventory, Shodan-style." : "Querying the current company."}
+          </div>
         </div>
       </div>
 
       <div className="row">
-        <input className="grow" style={{ minWidth: 320 }} value={q}
+        <input className="grow" style={{ minWidth: 300 }} value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && run()}
-          placeholder="port:443 product:nginx" />
+          placeholder={global ? "port:443 product:nginx company:acme" : "port:443 product:nginx"} />
+        <div className="toggle">
+          <button className={global ? "ghost sm" : "sm"} onClick={() => { setGlobal(false); run(q, false); }}>This company</button>
+          <button className={global ? "sm" : "ghost sm"} onClick={() => { setGlobal(true); run(q, true); }}>All companies</button>
+        </div>
         <button onClick={() => run()} disabled={busy}>{busy ? <Spinner /> : "Search"}</button>
       </div>
 
@@ -54,10 +62,14 @@ export default function Search({ scopeID }: { scopeID: string }) {
         rows.length === 0 ? <div className="empty">No results.</div> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>IP</th><th>Port</th><th>Product</th><th>Version</th><th>Title</th><th>Domain</th></tr></thead>
+              <thead><tr>
+                {global && <th>Company</th>}
+                <th>IP</th><th>Port</th><th>Product</th><th>Version</th><th>Title</th><th>Domain</th>
+              </tr></thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.service_id}>
+                    {global && <td>{r.company ?? "—"}</td>}
                     <td className="mono">{r.ip}</td>
                     <td className="mono">{r.port}</td>
                     <td>{r.product ?? "—"}</td>

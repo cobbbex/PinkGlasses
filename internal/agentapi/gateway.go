@@ -40,6 +40,9 @@ type Gateway struct {
 
 	mu    sync.Mutex
 	conns map[uuid.UUID]*websocket.Conn // workerID -> control channel
+
+	pmu       sync.Mutex
+	runParams map[string]map[string]string // runID -> effective params (cache)
 }
 
 // New builds a Gateway.
@@ -50,7 +53,8 @@ func New(st *store.Store, cfg config.Gateway) *Gateway {
 		disp:   dispatch.New(st, int(cfg.LeaseTTL.Seconds())),
 		ingest: ingest.New(st),
 		obj:    obj.New(cfg.S3),
-		conns:  map[uuid.UUID]*websocket.Conn{},
+		conns:     map[uuid.UUID]*websocket.Conn{},
+		runParams: map[string]map[string]string{},
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  4096,
 			WriteBufferSize: 4096,
@@ -205,6 +209,7 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 			for i := range jobs {
 				job := &jobs[i]
 				job.Ingest = scanproto.IngestInfo{URL: g.cfg.PublicGatewayURL + "/agent/v1/results"}
+				job.Params.Tool = g.paramsForRun(ctx, job.RunID)
 				env := scanproto.Envelope{Type: "job", Job: job}
 				if err := conn.WriteJSON(env); err != nil {
 					return
@@ -213,6 +218,29 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 			_ = g.st.TouchWorker(ctx, workerID, "")
 		}
 	}
+}
+
+// paramsForRun returns a run's validated scan params, cached to avoid a DB hit
+// per lease. Params were whitelisted server-side before storage.
+func (g *Gateway) paramsForRun(ctx context.Context, runID string) map[string]string {
+	g.pmu.Lock()
+	if p, ok := g.runParams[runID]; ok {
+		g.pmu.Unlock()
+		return p
+	}
+	g.pmu.Unlock()
+	id, err := uuid.Parse(runID)
+	if err != nil {
+		return nil
+	}
+	p, err := g.st.GetRunParams(ctx, id)
+	if err != nil {
+		return nil
+	}
+	g.pmu.Lock()
+	g.runParams[runID] = p
+	g.pmu.Unlock()
+	return p
 }
 
 func (g *Gateway) readLoop(workerID uuid.UUID, conn *websocket.Conn) {

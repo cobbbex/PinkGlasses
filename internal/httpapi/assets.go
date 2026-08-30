@@ -66,6 +66,27 @@ func (s *Server) hostServices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
+// searchGlobal searches across every company (or one, via ?scope=), Shodan-style.
+func (s *Server) searchGlobal(w http.ResponseWriter, r *http.Request) {
+	compiled, err := search.Compile(r.URL.Query().Get("q"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "query error: "+err.Error())
+		return
+	}
+	var scopeID *uuid.UUID
+	if v := r.URL.Query().Get("scope"); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			scopeID = &id
+		}
+	}
+	results, err := s.st.SearchGlobal(r.Context(), scopeID, compiled.Where, compiled.Args, 300)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	scopeID, err := uuid.Parse(chi.URLParam(r, "scopeID"))
 	if err != nil {

@@ -92,7 +92,7 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 		// Tools.md: httpx -title -sc -cl -location -fr -silent -delay 1s
 		rows, _ := runJSONL(ctx, 3*time.Minute, "httpx",
 			"-silent", "-json", "-title", "-sc", "-cl", "-location", "-fr",
-			"-tech-detect", "-delay", "1s", "-u", url)
+			"-tech-detect", "-delay", jobParams(job).intStr("httpx_delay_s", "1")+"s", "-u", url)
 		for _, r := range rows {
 			obs = append(obs, scanproto.Observation{
 				Type: scanproto.ObsHTTP, IP: ip, Port: port,

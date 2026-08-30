@@ -26,9 +26,20 @@ func (s *Scanner) vulnCheck(ctx context.Context, job scanproto.Job) ([]scanproto
 	if dir := envOr("ASM_NUCLEI_TEMPLATES", ""); dir != "" && fileExists(dir) {
 		args = append(args, "-t", dir)
 	}
-	if job.Profile != "deep" {
-		// Keep standard runs proportionate; deep opts into everything.
-		args = append(args, "-severity", "low,medium,high,critical")
+	sev := jobParams(job).str("nuclei_severity", "low")
+	if sev != "all" {
+		order := []string{"info", "low", "medium", "high", "critical"}
+		keep := []string{}
+		start := false
+		for _, s := range order {
+			if s == sev {
+				start = true
+			}
+			if start {
+				keep = append(keep, s)
+			}
+		}
+		args = append(args, "-severity", strings.Join(keep, ","))
 	}
 
 	rows, _ := runJSONL(ctx, 15*time.Minute, "nuclei", args...)

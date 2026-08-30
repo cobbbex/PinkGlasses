@@ -145,6 +145,9 @@ type Params struct {
 	Wordlist    string `json:"wordlist,omitempty"`  // dir_brute / dns brute
 	Concurrency int    `json:"concurrency,omitempty"`
 	Deep        bool   `json:"deep,omitempty"`
+	// Tool carries validated per-tool overrides (Phase 15). Keys and values are
+	// whitelisted server-side in internal/scanparams before ever reaching here.
+	Tool map[string]string `json:"tool,omitempty"`
 }
 
 // Constraints bound what the worker may touch and for how long.

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/benlik386/asm/internal/scanproto"
@@ -28,11 +30,9 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 
 	seen := map[string]int{}
 	add := func(path string, status int) {
+		path = cleanPath(path)
 		if path == "" {
 			return
-		}
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
 		}
 		if _, ok := seen[path]; !ok {
 			seen[path] = status
@@ -44,7 +44,8 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 		// katana emits URLs; -jsonl adds structure but plain -silent lines are
 		// simplest and robust. (-json is not a valid flag and aborts the run.)
 		lines, _ := runLines(ctx, 90*time.Second, "katana",
-			"-d", "3", "-c", "3", "-p", "3", "-rl", "10", "-silent", "-u", base)
+			"-d", jobParams(job).intStr("katana_depth", "3"),
+			"-c", "3", "-p", "3", "-rl", "10", "-silent", "-u", base)
 		for i, u := range lines {
 			if i >= 2000 { // a crawl can return tens of thousands; keep it bounded
 				break
@@ -67,9 +68,14 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	switch {
 	case have("gobuster") && fileExists(wordlistDir()):
 		// Tools.md: gobuster dir -u <url> -w <wordlist> -k [--exclude-length N]
-		args := []string{"dir", "-q", "-u", base, "-w", wordlistDir(), "-k",
-			"--no-color", "-t", "10"}
-		if el := envOr("ASM_GOBUSTER_EXCLUDE_LENGTH", ""); el != "" {
+		pr := jobParams(job)
+		wl := wordlistDir()
+		if pr.str("dir_wordlist", "common") == "dns" {
+			wl = wordlistDNS()
+		}
+		args := []string{"dir", "-q", "-u", base, "-w", wl, "-k",
+			"--no-color", "-t", pr.intStr("dir_concurrency", "10")}
+		if el := pr.intStr("dir_exclude_length", "0"); el != "0" {
 			args = append(args, "--exclude-length", el)
 		}
 		lines, _ := runLines(ctx, 10*time.Minute, "gobuster", args...)
@@ -106,11 +112,90 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 		}
 	}
 
-	var obs []scanproto.Observation
-	for p, st := range seen {
-		obs = append(obs, scanproto.Observation{Type: scanproto.ObsPath, IP: ip, Port: port, Path: p, Status: st})
-	}
+	// Crawled/passive paths arrive with status 0. Probe them (bounded) so every
+	// reported path carries a real HTTP status, and drop the ones that 404.
+	obs := s.probePaths(ctx, base, ip, port, seen)
 	return obs, nil
+}
+
+// cleanPath keeps only plausible URL paths, rejecting the text fragments a
+// crawler extracts from page bodies (quotes, prose, spaces).
+func cleanPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if q := strings.IndexAny(path, "?#"); q >= 0 {
+		path = path[:q]
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if len(path) > 256 {
+		return ""
+	}
+	const badRunes = `"'<>{}|^\` + "`"
+	for _, r := range path {
+		// ASCII path characters only; anything else is almost certainly text
+		// scraped out of the page rather than a real endpoint.
+		if r > 126 || r < 33 || strings.ContainsRune(badRunes, r) {
+			return ""
+		}
+	}
+	return path
+}
+
+// probePaths GETs each candidate path (capped, modest concurrency) and returns
+// observations only for paths that exist. gobuster/ffuf hits already carry a
+// status and are trusted as-is; everything else is verified here.
+func (s *Scanner) probePaths(ctx context.Context, base, ip string, port int, seen map[string]int) []scanproto.Observation {
+	type job struct {
+		path   string
+		status int
+	}
+	var todo []job
+	for p, st := range seen {
+		todo = append(todo, job{p, st})
+	}
+	sort.Slice(todo, func(a, b int) bool { return todo[a].path < todo[b].path })
+	if len(todo) > 1500 {
+		todo = todo[:1500]
+	}
+
+	client := webClient()
+	var (
+		obs []scanproto.Observation
+		mu  sync.Mutex
+		wg  sync.WaitGroup
+	)
+	sem := make(chan struct{}, 10) // this is the loudest stage; keep concurrency modest
+
+	for _, j := range todo {
+		if j.status != 0 { // already verified by gobuster/ffuf
+			obs = append(obs, scanproto.Observation{Type: scanproto.ObsPath, IP: ip, Port: port, Path: j.path, Status: j.status})
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(path string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			req, _ := http.NewRequestWithContext(withTimeout(ctx, 8*time.Second), http.MethodGet, base+path, nil)
+			resp, err := client.Do(req)
+			if err != nil {
+				return
+			}
+			resp.Body.Close()
+			if resp.StatusCode == 404 {
+				return
+			}
+			mu.Lock()
+			obs = append(obs, scanproto.Observation{Type: scanproto.ObsPath, IP: ip, Port: port, Path: path, Status: resp.StatusCode})
+			mu.Unlock()
+		}(j.path)
+	}
+	wg.Wait()
+	return obs
 }
 
 // pathOf extracts the path component from a URL, defaulting to "/".

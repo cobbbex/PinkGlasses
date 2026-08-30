@@ -47,3 +47,26 @@ func TestSplitNmapProduct(t *testing.T) {
 		}
 	}
 }
+
+// cleanPath must reject the text fragments a crawler scrapes from page bodies
+// (the dir_brute gate produced 900+ junk "paths" like /", and Cyrillic prose).
+func TestCleanPath(t *testing.T) {
+	keep := []struct{ in, want string }{
+		{"/admin", "/admin"},
+		{"admin", "/admin"},
+		{"/a/b/c.js", "/a/b/c.js"},
+		{"/search?q=1", "/search"},
+		{"/page#top", "/page"},
+	}
+	for _, c := range keep {
+		if got := cleanPath(c.in); got != c.want {
+			t.Errorf("cleanPath(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	drop := []string{`/"`, `/",`, "/x y", "/упом", `/<script>`, "", "   "}
+	for _, in := range drop {
+		if got := cleanPath(in); got != "" {
+			t.Errorf("cleanPath(%q) = %q, want empty", in, got)
+		}
+	}
+}
