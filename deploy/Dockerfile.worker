@@ -1,0 +1,49 @@
+# Worker image: the scan box carrying the whole toolchain (worker-pipeline.md).
+#
+# The ProjectDiscovery tools are NOT compiled here — that couples us to their
+# ever-rising Go version requirement. Instead we copy the prebuilt binaries from
+# their official images (multi-stage COPY). nmap / ffuf / chromium come from
+# Alpine packages. Result: a fast, reproducible build with no Go-version drift.
+#
+# Pin the tool tags (":latest" -> ":v2.16.0" etc.) for reproducible builds.
+
+# --- prebuilt PD tool binaries (each official image ships the binary at /usr/local/bin/<tool>) ---
+FROM projectdiscovery/subfinder:latest AS subfinder
+FROM projectdiscovery/dnsx:latest      AS dnsx
+FROM projectdiscovery/naabu:latest     AS naabu
+FROM projectdiscovery/httpx:latest     AS httpx
+FROM projectdiscovery/katana:latest    AS katana
+FROM projectdiscovery/nuclei:latest    AS nuclei
+
+# --- our worker binary (stays on Go 1.23; local toolchain so it can't drift) ---
+FROM golang:1.23-alpine AS build
+ENV GOTOOLCHAIN=local
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG VERSION=0.1.0
+RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/worker ./cmd/worker
+
+# --- final runtime ---
+FROM alpine:3.20
+# nmap for service versions (§2), ffuf for directory brute (§5), chromium for
+# screenshots (§4), libpcap as naabu's runtime dependency for SYN scans.
+RUN apk add --no-cache ca-certificates nmap nmap-scripts ffuf chromium libpcap
+
+# prebuilt PD tools
+COPY --from=subfinder /usr/local/bin/subfinder /usr/local/bin/subfinder
+COPY --from=dnsx      /usr/local/bin/dnsx      /usr/local/bin/dnsx
+COPY --from=naabu     /usr/local/bin/naabu     /usr/local/bin/naabu
+COPY --from=httpx     /usr/local/bin/httpx     /usr/local/bin/httpx
+COPY --from=katana    /usr/local/bin/katana    /usr/local/bin/katana
+COPY --from=nuclei    /usr/local/bin/nuclei    /usr/local/bin/nuclei
+
+# our binary
+COPY --from=build /out/worker /usr/local/bin/worker
+
+# Per-container credential (no shared volume, so replicas never clobber
+# each other). Lost on recreate, which is fine: the worker re-enrolls.
+RUN mkdir -p /etc/asm-worker && chmod 700 /etc/asm-worker
+ENV ASM_WORKER_CREDENTIAL_FILE=/etc/asm-worker/credential
+ENTRYPOINT ["/usr/local/bin/worker"]

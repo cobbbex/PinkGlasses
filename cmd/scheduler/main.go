@@ -1,0 +1,112 @@
+// Command scheduler is the leader-elected control loop: it advances running
+// scan runs through the stage machine, reaps expired leases, marks stale
+// workers, runs the differ on completion, and performs periodic sweeps
+// (architecture.md §3.3).
+package main
+
+import (
+	"context"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/benlik386/asm/internal/config"
+	"github.com/benlik386/asm/internal/diff"
+	"github.com/benlik386/asm/internal/domain"
+	"github.com/benlik386/asm/internal/planner"
+	"github.com/benlik386/asm/internal/store"
+)
+
+const schedulerLockKey = 0x4153_4d31 // "ASM1"
+
+func main() {
+	cfg := config.LoadScheduler()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	st, err := store.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("db open", "err", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+
+	// Leader election via advisory lock: only one scheduler drives the loop.
+	locked, err := st.TryAdvisoryLock(ctx, schedulerLockKey)
+	if err != nil || !locked {
+		slog.Info("another scheduler holds the leader lock; standing by")
+	}
+
+	pl := planner.New(st)
+	df := diff.New(st)
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	ticker := time.NewTicker(cfg.Tick)
+	defer ticker.Stop()
+	slog.Info("scheduler started", "tick", cfg.Tick)
+
+	sweepEvery := 5 * time.Minute
+	lastSweep := time.Now().Add(-sweepEvery)
+
+	for {
+		select {
+		case <-stop:
+			slog.Info("scheduler stopping")
+			return
+		case <-ticker.C:
+			tick(ctx, st, pl, df)
+			if time.Since(lastSweep) >= sweepEvery {
+				sweep(ctx, st)
+				lastSweep = time.Now()
+			}
+		}
+	}
+}
+
+func tick(ctx context.Context, st *store.Store, pl *planner.Planner, df *diff.Differ) {
+	// 1. Reap expired leases so dead workers' tasks get reassigned.
+	if n, err := st.ReapExpiredLeases(ctx); err == nil && n > 0 {
+		slog.Info("reaped expired leases", "count", n)
+	}
+	// 2. Advance each running run through its stage machine.
+	runs, err := st.RunningRuns(ctx)
+	if err != nil {
+		slog.Error("running runs", "err", err)
+		return
+	}
+	for _, run := range runs {
+		finished, err := pl.Advance(ctx, run)
+		if err != nil {
+			slog.Error("advance", "run", run.ID, "err", err)
+			continue
+		}
+		if finished {
+			// Re-read to get finished timestamps, then diff against baseline.
+			done, _ := st.GetRun(ctx, run.ID)
+			if done.Status == domain.RunCompleted {
+				if n, err := df.Diff(ctx, done); err == nil {
+					slog.Info("run completed", "run", run.ID, "changes", n)
+				}
+			}
+		}
+	}
+}
+
+func sweep(ctx context.Context, st *store.Store) {
+	// Mark workers stale after 90s without a heartbeat.
+	if n, err := st.MarkStaleWorkers(ctx, 90*time.Second); err == nil && n > 0 {
+		slog.Info("marked stale workers", "count", n)
+	}
+	// Local workers are cattle: `docker compose --scale` recreates containers,
+	// and each recreation self-enrolls fresh. Drop long-dead local rows so the
+	// fleet list reflects what is actually running. Remote workers are kept.
+	if n, err := st.ReapStaleLocalWorkers(ctx, 30*time.Minute); err == nil && n > 0 {
+		slog.Info("reaped stale local workers", "count", n)
+	}
+	// Cert-expiry finding sweep would run here (ExpiringCerts).
+	_, _ = st.ExpiringCerts(ctx, 14*24*time.Hour)
+}

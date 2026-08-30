@@ -1,0 +1,172 @@
+package store
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/benlik386/asm/internal/domain"
+)
+
+// CreateEnrollmentToken stores the hash of an enrollment token. The token's
+// kind ('local' | 'vps') decides what kind of worker it may mint — the worker
+// never gets to claim its own kind.
+func (s *Store) CreateEnrollmentToken(ctx context.Context, hash []byte, poolID *uuid.UUID, createdBy *uuid.UUID, ttl time.Duration, maxUses int, kind string) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := s.Pool.QueryRow(ctx, `
+		INSERT INTO enrollment_token (token_hash, pool_id, created_by, expires_at, max_uses, kind)
+		VALUES ($1,$2,$3, now()+$4::interval, $5, $6) RETURNING id`,
+		hash, poolID, createdBy, ttl.String(), maxUses, kind,
+	).Scan(&id)
+	return id, err
+}
+
+// EnsureBootstrapToken upserts the long-lived, multi-use token that local
+// workers use to self-enroll. It is shared with worker containers over the
+// internal network, so scaling with `docker compose --scale` needs no manual
+// token step. Safe to call on every gateway start.
+func (s *Store) EnsureBootstrapToken(ctx context.Context, hash []byte, poolID *uuid.UUID) error {
+	_, err := s.Pool.Exec(ctx, `
+		INSERT INTO enrollment_token (token_hash, pool_id, expires_at, max_uses, kind)
+		VALUES ($1,$2, now()+interval '10 years', 1000000, 'local')
+		ON CONFLICT (token_hash) DO UPDATE SET
+		  pool_id=EXCLUDED.pool_id, expires_at=EXCLUDED.expires_at,
+		  max_uses=EXCLUDED.max_uses, kind='local', revoked_at=NULL`,
+		hash, poolID)
+	return err
+}
+
+// PoolByName returns a worker pool id by name.
+func (s *Store) PoolByName(ctx context.Context, name string) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := s.Pool.QueryRow(ctx, `SELECT id FROM worker_pool WHERE name=$1`, name).Scan(&id)
+	return id, err
+}
+
+// RedeemEnrollmentToken validates and burns one use of a token, returning the
+// pool and the worker kind it grants. Safe under concurrency (atomic update).
+func (s *Store) RedeemEnrollmentToken(ctx context.Context, hash []byte) (*uuid.UUID, string, bool, error) {
+	var poolID *uuid.UUID
+	var kind string
+	err := s.Pool.QueryRow(ctx, `
+		UPDATE enrollment_token SET uses = uses + 1
+		WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > now() AND uses < max_uses
+		RETURNING pool_id, kind`, hash).Scan(&poolID, &kind)
+	if err != nil {
+		return nil, "", false, nil //nolint:nilerr // invalid/expired token
+	}
+	return poolID, kind, true, nil
+}
+
+// CreateWorker inserts a worker with the given status. Remote workers land in
+// 'pending' and need human approval; local workers enrolled from inside the
+// network are created 'active' (architecture.md §7.2).
+func (s *Store) CreateWorker(ctx context.Context, w domain.Worker, credHash []byte, status domain.WorkerStatus) (uuid.UUID, error) {
+	tools, _ := json.Marshal(w.Tools)
+	var id uuid.UUID
+	err := s.Pool.QueryRow(ctx, `
+		INSERT INTO worker (pool_id, name, kind, status, capabilities, tools, agent_version, egress_ip, country, max_concurrency, cred_hash, enrolled_at, last_seen_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now())
+		RETURNING id`,
+		w.PoolID, w.Name, w.Kind, status, w.Capabilities, tools, w.AgentVersion, w.EgressIP, w.Country, w.MaxConcurrency, credHash,
+	).Scan(&id)
+	return id, err
+}
+
+// ReapStaleLocalWorkers deletes local workers that stopped heartbeating long
+// ago. Scaling with `docker compose --scale` recreates containers, and each
+// recreation self-enrolls fresh, so old rows would otherwise pile up. Remote
+// workers are never auto-deleted — their history is forensic evidence.
+func (s *Store) ReapStaleLocalWorkers(ctx context.Context, cutoff time.Duration) (int64, error) {
+	ct, err := s.Pool.Exec(ctx, `
+		DELETE FROM worker
+		WHERE kind='local' AND status <> 'quarantined'
+		  AND last_seen_at < now() - $1::interval`, cutoff.String())
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}
+
+// AuthenticateWorker looks up an active/pending worker by id and verifies the
+// caller holds the matching credential hash. Returns the worker on success.
+func (s *Store) WorkerForAuth(ctx context.Context, id uuid.UUID) (domain.Worker, []byte, error) {
+	var w domain.Worker
+	var credHash []byte
+	var toolsRaw []byte
+	err := s.Pool.QueryRow(ctx, `
+		SELECT id, pool_id, name, kind, status, capabilities, tools, agent_version, host(egress_ip), country, max_concurrency, running_tasks, cred_hash, last_seen_at, enrolled_at
+		FROM worker WHERE id=$1`, id,
+	).Scan(&w.ID, &w.PoolID, &w.Name, &w.Kind, &w.Status, &w.Capabilities, &toolsRaw,
+		&w.AgentVersion, &w.EgressIP, &w.Country, &w.MaxConcurrency, &w.RunningTasks, &credHash, &w.LastSeenAt, &w.EnrolledAt)
+	if err != nil {
+		return w, nil, err
+	}
+	_ = json.Unmarshal(toolsRaw, &w.Tools)
+	return w, credHash, nil
+}
+
+// SetWorkerStatus updates a worker's status.
+func (s *Store) SetWorkerStatus(ctx context.Context, id uuid.UUID, status domain.WorkerStatus) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE worker SET status=$2 WHERE id=$1`, id, status)
+	return err
+}
+
+// TouchWorker records a heartbeat and observed egress IP.
+func (s *Store) TouchWorker(ctx context.Context, id uuid.UUID, egressIP string) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE worker SET last_seen_at=now(),
+		  egress_ip = CASE WHEN $2<>'' THEN $2::inet ELSE egress_ip END
+		WHERE id=$1`, id, egressIP)
+	return err
+}
+
+// ListWorkers returns all workers for the fleet page.
+func (s *Store) ListWorkers(ctx context.Context) ([]domain.Worker, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id, pool_id, name, kind, status, capabilities, tools, agent_version, host(egress_ip), country, max_concurrency, running_tasks, last_seen_at, enrolled_at
+		FROM worker ORDER BY enrolled_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Worker
+	for rows.Next() {
+		var w domain.Worker
+		var toolsRaw []byte
+		if err := rows.Scan(&w.ID, &w.PoolID, &w.Name, &w.Kind, &w.Status, &w.Capabilities, &toolsRaw,
+			&w.AgentVersion, &w.EgressIP, &w.Country, &w.MaxConcurrency, &w.RunningTasks, &w.LastSeenAt, &w.EnrolledAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(toolsRaw, &w.Tools)
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// StaleWorkers marks workers stale after missing heartbeats for the cutoff.
+func (s *Store) MarkStaleWorkers(ctx context.Context, cutoff time.Duration) (int64, error) {
+	ct, err := s.Pool.Exec(ctx, `
+		UPDATE worker SET status='stale'
+		WHERE status='active' AND last_seen_at < now() - $1::interval`, cutoff.String())
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}
+
+// DefaultPool returns the id of the default worker pool.
+func (s *Store) DefaultPool(ctx context.Context) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := s.Pool.QueryRow(ctx, `SELECT id FROM worker_pool WHERE is_default LIMIT 1`).Scan(&id)
+	return id, err
+}
+
+// DeleteWorker removes a worker record. Its credential dies with it, so the
+// agent's next connect fails and it exits.
+func (s *Store) DeleteWorker(ctx context.Context, id uuid.UUID) error {
+	_, err := s.Pool.Exec(ctx, `DELETE FROM worker WHERE id=$1`, id)
+	return err
+}

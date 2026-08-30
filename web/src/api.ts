@@ -1,0 +1,91 @@
+// Typed client for the ASM REST API. Untrusted, attacker-controlled strings
+// (banners, HTTP titles, TLS subjects) are rendered as text by React by
+// default — never with dangerouslySetInnerHTML (architecture.md §10.2).
+
+export interface Scope { id: string; name: string; created_at: string }
+export interface Summary { domains: number; ips: number; services: number; open_findings: number }
+export interface Target {
+  id: string; scope_id: string; kind: string; value: string; tags: string[];
+  mode: string; authorized_by?: string | null;
+}
+export interface Domain {
+  id: string; name: string; apex: string; is_wildcard: boolean;
+  sources: string[]; first_seen: string; last_seen: string;
+}
+export interface Host {
+  id: string; addr: string; ptr?: string | null; asn?: number | null;
+  as_org?: string | null; country?: string | null; cloud?: string | null;
+  is_shared: boolean; first_seen: string; last_seen: string;
+}
+export interface Service {
+  id: string; ip_id: string; port: number; proto: string; last_state: string;
+  first_seen: string; last_seen: string;
+}
+export interface Run {
+  id: string; scope_id: string; profile: string; status: string;
+  started_at?: string | null; finished_at?: string | null; created_at: string;
+}
+export interface RunTarget {
+  id: string; run_id: string; kind: string; value: string; status: string;
+  skip_reason?: string | null; tasks_total: number; tasks_done: number;
+}
+export interface Worker {
+  id: string; name: string; kind: string; status: string; capabilities: string[];
+  tools: Record<string, string>; agent_version: string; egress_ip?: string | null;
+  country?: string | null; max_concurrency: number; running_tasks: number;
+  last_seen_at?: string | null;
+}
+export interface Finding {
+  id: string; asset_kind: string; asset_id: string; kind: string;
+  severity: string; title: string; status: string; first_seen: string; last_seen: string;
+}
+export interface SearchResult {
+  service_id: string; ip: string; port: number; product?: string | null;
+  version?: string | null; title?: string | null; domain?: string | null;
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch("/api/v1" + path, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+  });
+  if (!res.ok) throw new Error((await res.text()) || res.statusText);
+  const text = await res.text();
+  return text ? (JSON.parse(text) as T) : (undefined as T);
+}
+
+export const api = {
+  scopes: () => req<Scope[] | null>("/scopes").then((x) => x ?? []),
+  createScope: (name: string) => req<Scope>("/scopes", { method: "POST", body: JSON.stringify({ name }) }),
+  summary: (s: string) => req<Summary>(`/scopes/${s}/summary`),
+  targets: (s: string) => req<Target[] | null>(`/scopes/${s}/targets`).then((x) => x ?? []),
+  addTarget: (s: string, body: unknown) =>
+    req<Target[] | null>(`/scopes/${s}/targets`, { method: "POST", body: JSON.stringify(body) }).then((x) => x ?? []),
+  domains: (s: string, q = "") => req<Domain[] | null>(`/scopes/${s}/domains?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
+  graph: (s: string) => req<{ nodes: any[]; edges: any[] }>(`/scopes/${s}/graph`),
+  hosts: (s: string) => req<Host[] | null>(`/scopes/${s}/hosts`).then((x) => x ?? []),
+  hostServices: (ip: string) => req<Service[] | null>(`/hosts/${ip}/services`).then((x) => x ?? []),
+  search: (s: string, q: string) => req<SearchResult[] | null>(`/scopes/${s}/search?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
+  findings: (s: string) => req<Finding[] | null>(`/scopes/${s}/findings`).then((x) => x ?? []),
+  patchFinding: (id: string, status: string) =>
+    req(`/findings/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
+  runs: (s: string) => req<Run[] | null>(`/scopes/${s}/runs`).then((x) => x ?? []),
+  createRun: (s: string, body: unknown) =>
+    req<Run>(`/scopes/${s}/runs`, { method: "POST", body: JSON.stringify(body) }),
+  run: (id: string) => req<{ run: Run; progress: any }>(`/runs/${id}`),
+  runTargets: (id: string) => req<RunTarget[] | null>(`/runs/${id}/targets`).then((x) => x ?? []),
+  cancelRun: (id: string) => req(`/runs/${id}/cancel`, { method: "POST" }),
+  workers: () => req<Worker[] | null>("/workers").then((x) => x ?? []),
+  enrollToken: (body: unknown) =>
+    req<{ kind: string; token?: string; install_command: string; expires_in?: string; note?: string }>(
+      "/workers/enrollment-tokens", { method: "POST", body: JSON.stringify(body) }),
+  workerAction: (id: string, action: string) => req(`/workers/${id}/${action}`, { method: "POST" }),
+  deleteWorker: (id: string) =>
+    req<{ deleted: boolean; warning?: string }>(`/workers/${id}`, { method: "DELETE" }),
+  provisionStatus: () =>
+    req<{ enabled: boolean; count?: number; reason?: string }>("/workers/provision"),
+  scaleLocal: (count: number) =>
+    req<{ target: number; created: number; removed: number }>("/workers/provision", {
+      method: "POST", body: JSON.stringify({ count }),
+    }),
+};

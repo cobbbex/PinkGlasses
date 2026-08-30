@@ -1,0 +1,119 @@
+# Self-hosted control plane + one bundled local worker (architecture.md §12).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: asm
+      POSTGRES_PASSWORD: asm
+      POSTGRES_DB: asm
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U asm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+
+  migrate:
+    build: .
+    entrypoint: ["/usr/local/bin/migrate", "up"]
+    environment:
+      ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api:
+    build: .
+    entrypoint: ["/usr/local/bin/api"]
+    environment:
+      ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
+      ASM_API_ADDR: ":8080"
+      # lets the fleet UI create local workers via the isolated provisioner
+      ASM_PROVISIONER_URL: "http://provisioner:8091"
+      ASM_PROVISIONER_TOKEN: "${ASM_PROVISIONER_TOKEN:-change-me-provisioner}"
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+
+  gateway:
+    build: .
+    entrypoint: ["/usr/local/bin/gateway"]
+    environment:
+      ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
+      ASM_GATEWAY_ADDR: ":8090"
+      ASM_PUBLIC_GATEWAY_URL: "http://gateway:8090"
+      ASM_S3_ENDPOINT: "http://minio:9000"
+      # Shared with local worker containers so they self-enroll with no manual
+      # token step. Only honoured for connections from private addresses.
+      ASM_LOCAL_BOOTSTRAP_TOKEN: "${ASM_LOCAL_BOOTSTRAP_TOKEN:-change-me-local-bootstrap}"
+    ports: ["8090:8090"]  # the only internet-facing service in production
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  scheduler:
+    build: .
+    entrypoint: ["/usr/local/bin/scheduler"]
+    environment:
+      ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  # Provisioner: the ONLY container with the Docker socket. It exists so the
+  # fleet UI can create local workers without the api ever holding a
+  # root-equivalent handle on the host. It speaks a fixed vocabulary (list /
+  # scale labelled worker containers) and nothing else.
+  #
+  # Remove this service if you prefer `docker compose --scale`: the UI falls
+  # back to showing that command when the provisioner is not configured.
+  provisioner:
+    build: .
+    entrypoint: ["/usr/local/bin/provisioner"]
+    environment:
+      ASM_PROVISIONER_ADDR: ":8091"
+      ASM_PROVISIONER_TOKEN: "${ASM_PROVISIONER_TOKEN:-change-me-provisioner}"
+      ASM_PROVISIONER_MAX_WORKERS: "20"
+      ASM_DOCKER_SOCKET: "/var/run/docker.sock"
+      ASM_WORKER_IMAGE: "scan_tool-worker"
+      ASM_WORKER_NETWORK: "scan_tool_default"
+      ASM_GATEWAY_URL: "http://gateway:8090"
+      ASM_LOCAL_BOOTSTRAP_TOKEN: "${ASM_LOCAL_BOOTSTRAP_TOKEN:-change-me-local-bootstrap}"
+    volumes:
+      # read-only is not possible here: creating containers requires writes.
+      # This is the trade-off that justifies isolating this one service.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # The socket is root:docker 0660 and this container runs as a non-root user,
+    # so it needs the socket's group to open it. Find your host's value with:
+    #   stat -c %g /var/run/docker.sock
+    group_add:
+      - "${ASM_DOCKER_GID:-999}"
+    depends_on: [gateway]
+
+  # Local workers. Also scalable directly with:
+  #     docker compose up -d --scale worker=3
+  # Each replica self-enrolls over the internal network using the bootstrap
+  # token, is auto-approved, and is the only kind of worker allowed to scan
+  # internal ranges. Deliberately NO credential volume: replicas must not share
+  # one credential file, and re-enrolling on recreate is cheap.
+  worker:
+    build: {context: ., dockerfile: deploy/Dockerfile.worker}
+    cap_add: ["NET_RAW"]
+    environment:
+      ASM_GATEWAY_URL: "http://gateway:8090"
+      ASM_ENROLL_TOKEN: "${ASM_LOCAL_BOOTSTRAP_TOKEN:-change-me-local-bootstrap}"
+      # name is left unset so each replica registers under its container
+      # hostname and they are distinguishable in the fleet list
+      ASM_WORKER_MAX_CONCURRENCY: "8"
+    depends_on: [gateway]
+
+volumes:
+  pgdata:
+  miniodata:

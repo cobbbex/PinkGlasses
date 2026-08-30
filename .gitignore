@@ -1,0 +1,21 @@
+# secrets — never commit
+.env
+.env.*
+*.env
+!.env.example
+
+# build output
+/bin/
+/web/node_modules/
+/web/dist/
+/web/tsconfig.tsbuildinfo
+
+# runtime
+/tmp/
+/data/
+*.log
+credential
+
+# stray toolchain archives
+*.tar.gz
+*.tar.xz
