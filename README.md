@@ -1,4 +1,4 @@
-# Attack Surface Monitor
+# PinkGlasses
 
 A self-hosted web application that discovers and continuously monitors the external attack
 surface of one organization — domains, DNS, hosts, open ports, services, technologies, TLS
