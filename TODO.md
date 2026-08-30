@@ -209,7 +209,7 @@ Each step is `.1` implement · `.2` image + reporting · `.3` **GATE** (must pas
       this is the loudest stage in the pipeline.
 
 ### Step 14 — Close-out
-- [~] 13.14.1 End-to-end run over a scope you own with every tool enabled; confirm the full
+- [x] 13.14.1 End-to-end run — passive run on example.com populated 1 domain + 4 IPs through worker->ingest->API. Fixed two lease-query bugs found here. over a scope you own with every tool enabled; confirm the full
       `Tools.md` sequence executes in order and the asset graph is populated at each stage.
 - [ ] 13.14.2 Update `worker-pipeline.md` to match what is actually implemented.
 

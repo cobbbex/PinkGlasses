@@ -79,17 +79,18 @@ func (s *Store) LeaseTasks(ctx context.Context, workerID uuid.UUID, caps []strin
 		  SELECT t.id
 		  FROM scan_task t
 		  JOIN scan_run r ON r.id = t.run_id
-		  LEFT JOIN LATERAL (
-		    SELECT min(run_target_id) AS rt FROM task_origin WHERE task_id = t.id
-		  ) o ON true
 		  WHERE t.status='pending'
 		    AND t.requires <@ $2::text[]
 		    AND (r.pool_id IS NULL OR $3::uuid IS NULL OR r.pool_id = $3)
 		    AND r.status='running'
 		  ORDER BY
+		    -- fairness: prefer tasks whose run_target has the fewest in-flight
+		    -- siblings, so one big target cannot starve the rest of a batch.
 		    (SELECT count(*) FROM scan_task t2
-		       JOIN task_origin o2 ON o2.task_id=t2.id
-		       WHERE o2.run_target_id = o.rt AND t2.status IN ('leased','running')),
+		       WHERE t2.status IN ('leased','running')
+		         AND EXISTS (
+		           SELECT 1 FROM task_origin a JOIN task_origin b ON a.run_target_id=b.run_target_id
+		           WHERE a.task_id=t.id AND b.task_id=t2.id)),
 		    t.priority, t.id
 		  FOR UPDATE SKIP LOCKED
 		  LIMIT $4

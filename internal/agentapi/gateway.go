@@ -203,7 +203,11 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			jobs, err := g.disp.Lease(ctx, workerID, cur.Capabilities, cur.PoolID, slots)
-			if err != nil || len(jobs) == 0 {
+			if err != nil {
+				slog.Error("lease failed", "worker", workerID, "err", err)
+				continue
+			}
+			if len(jobs) == 0 {
 				continue
 			}
 			for i := range jobs {
