@@ -101,11 +101,32 @@ func (s *Server) scaleLocalWorkers(w http.ResponseWriter, r *http.Request) {
 			"provisioner not enabled; run: docker compose up -d --scale worker="+itoa(in.Count))
 		return
 	}
-	var out map[string]any
+	var out struct {
+		Target     int      `json:"target"`
+		Created    int      `json:"created"`
+		Removed    int      `json:"removed"`
+		RemovedIDs []string `json:"removed_ids"`
+		Error      string   `json:"error"`
+	}
 	if err := pc.call(http.MethodPost, "/v1/scale", map[string]int{"count": in.Count}, &out); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "worker.scale_local", "", map[string]any{"count": in.Count})
-	writeJSON(w, http.StatusOK, out)
+
+	// Drop the worker rows whose containers just went away. Without this the
+	// fleet list keeps showing workers that no longer exist until the
+	// scheduler's stale sweep eventually reaps them.
+	orphans, err := s.st.DeleteLocalWorkersByContainer(r.Context(), out.RemovedIDs)
+	if err != nil {
+		orphans = 0 // non-fatal: the stale sweep will catch them
+	}
+
+	s.audit.Log(r.Context(), actor(r), "worker.scale_local", "",
+		map[string]any{"count": in.Count, "created": out.Created, "removed": out.Removed})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"target": out.Target, "created": out.Created,
+		"removed": out.Removed, "rows_removed": orphans,
+		"error": out.Error,
+	})
 }

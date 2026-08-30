@@ -55,13 +55,14 @@ func NewAgent(cfg AgentConfig) *Agent {
 	}
 }
 
-// Run enrolls if needed and then maintains the control channel forever.
+// Run enrols if needed and then maintains the control channel forever.
+// Enrolment lives inside the loop so a worker whose server-side record has gone
+// can recover by enrolling again instead of retrying a dead credential forever.
 func (a *Agent) Run(ctx context.Context) error {
-	if err := a.ensureEnrolled(ctx); err != nil {
-		return err
-	}
 	for {
-		if err := a.connect(ctx); err != nil {
+		if err := a.ensureEnrolled(ctx); err != nil {
+			slog.Error("enrolment failed", "err", err)
+		} else if err := a.connect(ctx); err != nil {
 			slog.Warn("control channel dropped; reconnecting", "err", err)
 		}
 		select {
@@ -72,7 +73,19 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
+// forgetCredential discards the stored identity so the next loop re-enrols.
+func (a *Agent) forgetCredential(why string) {
+	slog.Warn("discarding worker credential; will re-enrol", "reason", why, "worker", a.workerID)
+	a.workerID, a.cred = "", ""
+	if err := os.Remove(a.cfg.CredentialFile); err != nil && !os.IsNotExist(err) {
+		slog.Warn("could not delete credential file", "err", err)
+	}
+}
+
 func (a *Agent) ensureEnrolled(ctx context.Context) error {
+	if a.workerID != "" && a.cred != "" {
+		return nil
+	}
 	if b, err := os.ReadFile(a.cfg.CredentialFile); err == nil {
 		var saved struct{ WorkerID, Credential string }
 		if json.Unmarshal(b, &saved) == nil && saved.WorkerID != "" {
@@ -116,8 +129,20 @@ func (a *Agent) ensureEnrolled(ctx context.Context) error {
 
 func (a *Agent) connect(ctx context.Context) error {
 	wsURL := toWS(a.cfg.GatewayURL) + "/agent/v1/connect?worker_id=" + a.workerID + "&credential=" + a.cred
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
+	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
+		if resp != nil {
+			switch resp.StatusCode {
+			case http.StatusUnauthorized:
+				// Our record is gone or the credential was rotated away. Re-enrol.
+				a.forgetCredential("gateway rejected the credential (401)")
+			case http.StatusForbidden:
+				// Quarantined or revoked. Deliberately do NOT re-enrol: that
+				// would let a worker the operator cut off rejoin the fleet.
+				slog.Error("this worker is quarantined or revoked; not re-enrolling",
+					"worker", a.workerID)
+			}
+		}
 		return err
 	}
 	defer conn.Close()

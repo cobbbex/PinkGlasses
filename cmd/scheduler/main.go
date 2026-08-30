@@ -101,10 +101,10 @@ func sweep(ctx context.Context, st *store.Store) {
 	if n, err := st.MarkStaleWorkers(ctx, 90*time.Second); err == nil && n > 0 {
 		slog.Info("marked stale workers", "count", n)
 	}
-	// Local workers are cattle: `docker compose --scale` recreates containers,
-	// and each recreation self-enrolls fresh. Drop long-dead local rows so the
-	// fleet list reflects what is actually running. Remote workers are kept.
-	if n, err := st.ReapStaleLocalWorkers(ctx, 30*time.Minute); err == nil && n > 0 {
+	// Local workers are cattle: scaling recreates containers and each recreation
+	// self-enrolls fresh. Scaling down deletes their rows directly; this is the
+	// backstop for containers that died on their own. Remote workers are kept.
+	if n, err := st.ReapStaleLocalWorkers(ctx, 10*time.Minute); err == nil && n > 0 {
 		slog.Info("reaped stale local workers", "count", n)
 	}
 	// Cert-expiry finding sweep would run here (ExpiringCerts).

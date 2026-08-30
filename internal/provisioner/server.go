@@ -89,9 +89,35 @@ func (s *Server) scale(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Partition by state. Docker's container list includes exited containers,
+	// and counting those as existing workers used to make "give me 2" create
+	// nothing when one had previously crashed. Only live containers count
+	// toward the target; dead ones are garbage and are always cleaned up.
+	var alive, dead []Container
+	for _, c := range current {
+		switch c.State {
+		case "running", "created", "restarting", "paused":
+			alive = append(alive, c)
+		default: // exited, dead
+			dead = append(dead, c)
+		}
+	}
+
 	created, removed := 0, 0
+	removedIDs := []string{}
+
+	for _, c := range dead {
+		if err := s.d.Remove(r.Context(), c.ID); err != nil {
+			slog.Warn("could not remove dead worker container", "id", c.ID, "err", err)
+			continue
+		}
+		slog.Info("cleaned up dead worker container", "id", c.ID)
+		removedIDs = append(removedIDs, c.ID)
+		removed++
+	}
+
 	switch {
-	case len(current) < in.Count:
+	case len(alive) < in.Count:
 		spec := Spec{
 			Image:       s.cfg.Image,
 			GatewayURL:  s.cfg.GatewayURL,
@@ -99,22 +125,27 @@ func (s *Server) scale(w http.ResponseWriter, r *http.Request) {
 			Network:     s.cfg.Network,
 			NamePrefix:  "asm-worker",
 		}
-		for i := len(current); i < in.Count; i++ {
+		for i := len(alive); i < in.Count; i++ {
 			if _, err := s.d.Create(r.Context(), spec, i); err != nil {
 				slog.Error("create worker", "err", err)
-				http.Error(w, err.Error(), http.StatusBadGateway)
+				// Report what did get created rather than failing wholesale.
+				writeJSON(w, http.StatusBadGateway, map[string]any{
+					"target": in.Count, "created": created, "removed": removed,
+					"removed_ids": removedIDs, "error": err.Error(),
+				})
 				return
 			}
 			created++
 		}
-	case len(current) > in.Count:
+	case len(alive) > in.Count:
 		// Remove newest first so long-lived workers keep their in-flight leases.
-		sort.Slice(current, func(a, b int) bool { return current[a].ID > current[b].ID })
-		for i := 0; i < len(current)-in.Count; i++ {
-			if err := s.d.Remove(r.Context(), current[i].ID); err != nil {
+		sort.Slice(alive, func(a, b int) bool { return alive[a].ID > alive[b].ID })
+		for i := 0; i < len(alive)-in.Count; i++ {
+			if err := s.d.Remove(r.Context(), alive[i].ID); err != nil {
 				slog.Error("remove worker", "err", err)
 				continue
 			}
+			removedIDs = append(removedIDs, alive[i].ID)
 			removed++
 		}
 	}
@@ -122,6 +153,7 @@ func (s *Server) scale(w http.ResponseWriter, r *http.Request) {
 	slog.Info("scaled local workers", "target", in.Count, "created", created, "removed", removed)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"target": in.Count, "created": created, "removed": removed,
+		"removed_ids": removedIDs,
 	})
 }
 
