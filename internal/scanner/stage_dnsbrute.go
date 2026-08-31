@@ -50,10 +50,14 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	// No -mode flag: this shuffledns build rejects it and exits with a usage
 	// error, which used to make the whole stage silently return nothing.
 	// Passing -d with -w is what selects brute-force mode.
+	// -strict-wildcard re-checks every hit for wildcard DNS. Without it a
+	// wildcarded domain (or a resolver that hijacks NXDOMAIN) turns the whole
+	// wordlist into "found" subdomains. It costs extra queries per hit, which
+	// is cheap next to inventing thousands of hosts that do not exist.
 	lines, _ := runLines(ctx, 60*time.Minute, "shuffledns",
 		"-d", root, "-w", wordlist, "-r", resolvers,
 		"-t", pr.intStr("shuffledns_threads", "100"),
-		"-silent")
+		"-strict-wildcard", "-silent")
 
 	var obs []scanproto.Observation
 	seen := map[string]bool{}
