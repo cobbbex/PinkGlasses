@@ -116,7 +116,9 @@ func (p *Planner) dnsBruteSpecs(ctx context.Context, run domain.ScanRun, targets
 			return nil
 		}
 	}
-	lists, err := p.st.RunWordlists(ctx, run.ID)
+	// Only subdomain wordlists fan out; resolver lists are an input to every
+	// brute task, not a task of their own.
+	lists, err := p.st.RunWordlistsByKind(ctx, run.ID, "dns")
 	if err != nil || len(lists) == 0 {
 		return nil
 	}

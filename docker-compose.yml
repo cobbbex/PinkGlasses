@@ -36,6 +36,11 @@ services:
     environment:
       ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
       ASM_API_ADDR: ":8080"
+      # wordlist and resolver uploads are streamed into object storage
+      ASM_S3_ENDPOINT: "http://minio:9000"
+      ASM_S3_BUCKET: "${ASM_S3_BUCKET:-asm-artifacts}"
+      ASM_S3_ACCESS_KEY: "${ASM_S3_ACCESS_KEY:-minioadmin}"
+      ASM_S3_SECRET_KEY: "${ASM_S3_SECRET_KEY:-minioadmin}"
       # lets the fleet UI create local workers via the isolated provisioner
       ASM_PROVISIONER_URL: "http://provisioner:8091"
       ASM_PROVISIONER_TOKEN: "${ASM_PROVISIONER_TOKEN:-change-me-provisioner}"

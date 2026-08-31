@@ -25,8 +25,8 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	}
 	root := job.Targets[0].Domain
 
-	if !have("shuffledns") || !fileExists(resolversFile()) {
-		slog.Warn("dns_brute skipped: shuffledns or resolvers missing")
+	if !have("shuffledns") {
+		slog.Warn("dns_brute skipped: shuffledns not installed")
 		return nil, nil
 	}
 
@@ -37,12 +37,23 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	if wordlist == "" {
 		return nil, nil // nothing to brute-force with
 	}
+	resolvers, err := s.resolversPath(ctx, job)
+	if err != nil {
+		return nil, err
+	}
+	if resolvers == "" {
+		slog.Warn("dns_brute skipped: no resolver list available")
+		return nil, nil
+	}
 
 	pr := jobParams(job)
+	// No -mode flag: this shuffledns build rejects it and exits with a usage
+	// error, which used to make the whole stage silently return nothing.
+	// Passing -d with -w is what selects brute-force mode.
 	lines, _ := runLines(ctx, 60*time.Minute, "shuffledns",
-		"-d", root, "-w", wordlist, "-r", resolversFile(),
+		"-d", root, "-w", wordlist, "-r", resolvers,
 		"-t", pr.intStr("shuffledns_threads", "100"),
-		"-mode", "bruteforce", "-silent")
+		"-silent")
 
 	var obs []scanproto.Observation
 	seen := map[string]bool{}
@@ -57,23 +68,34 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 		})
 	}
 	slog.Info("dns_brute finished", "domain", root,
-		"wordlist", job.Params.WordlistName, "found", len(obs))
+		"wordlist", job.Params.WordlistName, "resolvers", job.Params.ResolversName,
+		"found", len(obs))
 
 	// Resolve what we found so the coalesce barrier downstream sees addresses.
 	obs = append(obs, s.resolveNames(ctx, keysOf(seen), pr)...)
 	return obs, nil
 }
 
-// wordlistPath returns a local path to this job's wordlist, downloading it on
-// first use. Files are cached by content hash, so a worker fetches a given list
-// once no matter how many tasks use it.
+// wordlistPath returns a local path to this job's wordlist.
 func (s *Scanner) wordlistPath(ctx context.Context, job scanproto.Job) (string, error) {
-	url := job.Params.WordlistURL
+	return s.cachedList(ctx, job.Params.WordlistURL, job.Params.WordlistSHA,
+		job.Params.WordlistName, wordlistDNS())
+}
+
+// resolversPath returns a local path to this job's resolver list, falling back
+// to the list baked into the image when the run has none attached.
+func (s *Scanner) resolversPath(ctx context.Context, job scanproto.Job) (string, error) {
+	return s.cachedList(ctx, job.Params.ResolversURL, job.Params.ResolversSHA,
+		job.Params.ResolversName, resolversFile())
+}
+
+// cachedList downloads a line-list on first use and caches it by content hash,
+// so a worker fetches a given file once no matter how many tasks need it. A
+// missing URL falls back to the copy shipped in the image rather than failing.
+func (s *Scanner) cachedList(ctx context.Context, url, sha, name, fallback string) (string, error) {
 	if url == "" {
-		// No list was attached (registry entry not ready); fall back to the
-		// small list shipped in the image rather than failing the task.
-		if fileExists(wordlistDNS()) {
-			return wordlistDNS(), nil
+		if fileExists(fallback) {
+			return fallback, nil
 		}
 		return "", nil
 	}
@@ -82,9 +104,9 @@ func (s *Scanner) wordlistPath(ctx context.Context, job scanproto.Job) (string, 
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", err
 	}
-	key := job.Params.WordlistSHA
+	key := sha
 	if key == "" {
-		key = fmt.Sprintf("%x", sha256.Sum256([]byte(job.Params.WordlistName)))
+		key = fmt.Sprintf("%x", sha256.Sum256([]byte(name)))
 	}
 	path := filepath.Join(cacheDir, key+".txt")
 
@@ -92,7 +114,7 @@ func (s *Scanner) wordlistPath(ctx context.Context, job scanproto.Job) (string, 
 		return path, nil // already cached
 	}
 
-	slog.Info("downloading wordlist", "name", job.Params.WordlistName)
+	slog.Info("downloading list", "name", name)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -103,7 +125,7 @@ func (s *Scanner) wordlistPath(ctx context.Context, job scanproto.Job) (string, 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("wordlist download: %s", resp.Status)
+		return "", fmt.Errorf("download %s: %s", name, resp.Status)
 	}
 
 	// Write to a temp file and rename, so a killed download never leaves a
@@ -121,9 +143,9 @@ func (s *Scanner) wordlistPath(ctx context.Context, job scanproto.Job) (string, 
 	}
 	tmp.Close()
 
-	if want := job.Params.WordlistSHA; want != "" {
-		if got := hex.EncodeToString(h.Sum(nil)); got != want {
-			return "", fmt.Errorf("wordlist hash mismatch: got %s want %s", got, want)
+	if sha != "" {
+		if got := hex.EncodeToString(h.Sum(nil)); got != sha {
+			return "", fmt.Errorf("%s hash mismatch: got %s want %s", name, got, sha)
 		}
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {

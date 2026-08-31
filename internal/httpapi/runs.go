@@ -116,10 +116,17 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(wlIDs) == 0 {
-		if defs, err := s.st.DefaultWordlists(r.Context(), "dns"); err == nil {
-			for _, d := range defs {
-				wlIDs = append(wlIDs, d.ID)
+		for _, kind := range []string{"dns", "resolvers"} {
+			if defs, err := s.st.DefaultWordlists(r.Context(), kind); err == nil {
+				for _, d := range defs {
+					wlIDs = append(wlIDs, d.ID)
+				}
 			}
+		}
+	} else if res, err := s.st.DefaultWordlists(r.Context(), "resolvers"); err == nil {
+		// An explicit wordlist choice still needs resolvers to brute-force with.
+		for _, d := range res {
+			wlIDs = append(wlIDs, d.ID)
 		}
 	}
 	if err := s.st.SetRunWordlists(r.Context(), run.ID, wlIDs); err != nil {

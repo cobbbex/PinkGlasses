@@ -49,9 +49,17 @@ func (s *Server) uploadWordlist(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name required")
 		return
 	}
+	// Known kinds only. Coercing an unknown kind silently files the upload
+	// under the wrong one, which is how a resolver list ends up being
+	// brute-forced as a wordlist.
 	kind := r.FormValue("kind")
-	if kind != "dir" {
+	switch kind {
+	case "dns", "dir", "resolvers":
+	case "":
 		kind = "dns"
+	default:
+		writeErr(w, http.StatusBadRequest, "unknown kind "+kind+" (expected dns, dir or resolvers)")
+		return
 	}
 
 	key := "wordlists/user/" + uuid.NewString() + ".txt"

@@ -255,6 +255,28 @@ func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job) {
 	if wl.SHA256 != nil {
 		job.Params.WordlistSHA = *wl.SHA256
 	}
+
+	// Every brute task also needs resolvers. Take the run's selection; the
+	// worker falls back to the list baked into its image if none is attached.
+	runID, err := uuid.Parse(job.RunID)
+	if err != nil {
+		return
+	}
+	res, err := g.st.RunWordlistsByKind(ctx, runID, "resolvers")
+	if err != nil || len(res) == 0 {
+		return
+	}
+	rl := res[0]
+	rurl, err := g.obj.PresignGet(rl.ObjectKey, 2*time.Hour, time.Now())
+	if err != nil {
+		slog.Warn("could not presign resolvers", "list", rl.Name, "err", err)
+		return
+	}
+	job.Params.ResolversURL = rurl
+	job.Params.ResolversName = rl.Name
+	if rl.SHA256 != nil {
+		job.Params.ResolversSHA = *rl.SHA256
+	}
 }
 
 // per lease. Params were whitelisted server-side before storage.

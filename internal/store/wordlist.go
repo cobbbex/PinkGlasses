@@ -156,6 +156,22 @@ func (s *Store) SetRunWordlists(ctx context.Context, runID uuid.UUID, ids []uuid
 	return nil
 }
 
+// RunWordlistsByKind returns the ready lists of one kind a run was configured
+// with — 'dns' for brute-force wordlists, 'resolvers' for resolver lists.
+func (s *Store) RunWordlistsByKind(ctx context.Context, runID uuid.UUID, kind string) ([]Wordlist, error) {
+	all, err := s.RunWordlists(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	out := []Wordlist{}
+	for _, w := range all {
+		if w.Kind == kind {
+			out = append(out, w)
+		}
+	}
+	return out, nil
+}
+
 // RunWordlists returns the ready lists a run was configured with.
 func (s *Store) RunWordlists(ctx context.Context, runID uuid.UUID) ([]Wordlist, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT `+prefixed(wordlistCols, "w.")+`

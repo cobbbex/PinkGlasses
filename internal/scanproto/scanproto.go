@@ -152,6 +152,12 @@ type Params struct {
 	WordlistURL  string `json:"wordlist_url,omitempty"`
 	WordlistSHA  string `json:"wordlist_sha256,omitempty"`
 	WordlistName string `json:"wordlist_name,omitempty"`
+	// Resolvers is the DNS resolver list shuffledns brute-forces through,
+	// delivered the same way as the wordlist: presigned at dispatch, cached on
+	// the worker by content hash.
+	ResolversURL  string `json:"resolvers_url,omitempty"`
+	ResolversSHA  string `json:"resolvers_sha256,omitempty"`
+	ResolversName string `json:"resolvers_name,omitempty"`
 	Concurrency int    `json:"concurrency,omitempty"`
 	Deep        bool   `json:"deep,omitempty"`
 	// Tool carries validated per-tool overrides (Phase 15). Keys and values are

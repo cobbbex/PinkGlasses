@@ -7,6 +7,7 @@ package scanner
 
 import (
 	"bufio"
+	"log/slog"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -31,7 +32,11 @@ func runJSONL(ctx context.Context, timeout time.Duration, name string, args ...s
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
-		// tools may exit non-zero yet still produce useful lines; keep parsing
+		// Tools often exit non-zero yet still produce useful lines, so this is
+		// not fatal — but it must not be silent either: a rejected flag makes a
+		// stage return nothing at all, which is otherwise indistinguishable
+		// from a clean "found nothing".
+		logToolFailure(name, args, err, errb.String())
 	}
 	var rows []map[string]any
 	sc := bufio.NewScanner(&out)
@@ -102,9 +107,12 @@ func runLines(ctx context.Context, timeout time.Duration, name string, args ...s
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, name, args...)
-	var out bytes.Buffer
+	var out, errb bytes.Buffer
 	cmd.Stdout = &out
-	_ = cmd.Run()
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		logToolFailure(name, args, err, errb.String())
+	}
 	var lines []string
 	sc := bufio.NewScanner(&out)
 	sc.Buffer(make([]byte, 1024*1024), 8*1024*1024)
@@ -132,4 +140,19 @@ func num(m map[string]any, key string) int {
 		}
 	}
 	return 0
+}
+
+// logToolFailure reports a scan tool exiting non-zero, with the first line of
+// its stderr. Silent failures here look exactly like empty results, which is
+// how an unsupported flag can quietly disable a whole stage.
+func logToolFailure(name string, args []string, err error, stderr string) {
+	first := strings.TrimSpace(stderr)
+	if i := strings.IndexByte(first, '\n'); i >= 0 {
+		first = first[:i]
+	}
+	if len(first) > 200 {
+		first = first[:200]
+	}
+	slog.Warn("scan tool exited non-zero",
+		"tool", name, "args", strings.Join(args, " "), "err", err, "stderr", first)
 }
