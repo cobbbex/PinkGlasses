@@ -13,17 +13,22 @@ import Graph from "../components/Graph";
 export default function Hosts({ scopeID }: { scopeID: string }) {
   const [q, setQ] = useState("");
   const [view, setView] = useState<"table" | "map">("table");
+  // Passive sources record names that existed once and no longer resolve. They
+  // are kept, but they are not current attack surface, so they are out of the
+  // default view.
+  const [showUnresolved, setShowUnresolved] = useState(false);
   const [sel, setSel] = useState<HostRow | null>(null);
 
-  const { data: rows, isLoading } = useQuery({
-    queryKey: ["hostrows", scopeID, q], queryFn: () => api.hostRows(scopeID, q),
+  const { data, isLoading } = useQuery({
+    queryKey: ["hostrows", scopeID, q, showUnresolved],
+    queryFn: () => api.hostRows(scopeID, q, showUnresolved),
   });
   const { data: graph } = useQuery({
     queryKey: ["graph", scopeID], queryFn: () => api.graph(scopeID), enabled: view === "map",
   });
 
-  const list = rows ?? [];
-  const resolved = list.filter((r) => r.addr).length;
+  const list = data?.rows ?? [];
+  const hidden = data?.unresolvedHidden ?? 0;
   const uniqueIPs = new Set(list.filter((r) => r.addr).map((r) => r.addr)).size;
 
   return (
@@ -38,13 +43,20 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
               </p>
               <p className="muted" style={{ marginBottom: 0 }}>
                 Reverse DNS, AS number, AS name and the announcing prefix come from dnsx
-                during resolution. A name with no address did not resolve — it is kept so
-                nothing discovered disappears from the inventory.
+                during resolution.
+              </p>
+              <p className="muted" style={{ marginBottom: 0 }}>
+                Names that no longer resolve are hidden by default. Passive sources such as
+                certificate transparency surface historical names — often tens of thousands
+                for an old domain — which are evidence of past infrastructure rather than
+                current attack surface. They are still recorded; tick the box to see them.
               </p>
             </InfoDot>
           </h2>
           <div className="sub">
-            {list.length} names · {resolved} resolved · {uniqueIPs} unique addresses
+            {list.length} rows · {uniqueIPs} unique addresses
+            {hidden > 0 && !showUnresolved &&
+              ` · ${hidden.toLocaleString()} non-resolving name${hidden === 1 ? "" : "s"} hidden`}
           </div>
         </div>
         <div className="row" style={{ margin: 0 }}>
@@ -58,12 +70,23 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
         <input className="grow" style={{ maxWidth: 420 }}
           placeholder="Filter by name, address or AS name…"
           value={q} onChange={(e) => setQ(e.target.value)} />
+        {hidden > 0 && (
+          <label className="param-toggle" title="Names seen by passive sources that no longer resolve">
+            <input type="checkbox" checked={showUnresolved}
+              onChange={(e) => setShowUnresolved(e.target.checked)} />
+            <span className="muted">show {hidden.toLocaleString()} non-resolving</span>
+          </label>
+        )}
       </div>
 
       {view === "map" ? (
         <Graph nodes={graph?.nodes ?? []} edges={graph?.edges ?? []} />
       ) : list.length === 0 ? (
-        <div className="empty">Nothing discovered yet — run a scan.</div>
+        <div className="empty">
+          {hidden > 0
+            ? `No names currently resolve. ${hidden.toLocaleString()} historical name${hidden === 1 ? " is" : "s are"} recorded — tick "show non-resolving" to see them.`
+            : "Nothing discovered yet — run a scan."}
+        </div>
       ) : (
         <div className="table-wrap">
           <table>

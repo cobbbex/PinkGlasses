@@ -46,7 +46,8 @@ func (s *Server) listHostRows(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad scope id")
 		return
 	}
-	out, err := s.st.HostRows(r.Context(), scopeID, r.URL.Query().Get("q"), 500)
+	includeUnresolved := r.URL.Query().Get("unresolved") == "true"
+	out, err := s.st.HostRows(r.Context(), scopeID, r.URL.Query().Get("q"), 500, includeUnresolved)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

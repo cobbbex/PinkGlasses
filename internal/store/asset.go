@@ -244,13 +244,34 @@ type HostRow struct {
 	LastSeen  time.Time  `json:"last_seen"`
 }
 
-// HostRows returns every discovered name with its resolved address and ASN
-// details. Names that do not resolve are still listed, with empty address
-// fields, so nothing discovered silently disappears from the inventory.
-func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit int) ([]HostRow, error) {
+// HostRowsResult carries the rows plus how many names were filtered out, so the
+// UI can say what it is hiding rather than silently dropping discoveries.
+type HostRowsResult struct {
+	Rows             []HostRow `json:"rows"`
+	UnresolvedHidden int       `json:"unresolved_hidden"`
+}
+
+// HostRows returns discovered names with their resolved address and ASN details.
+//
+// By default only names that currently resolve are returned. Passive sources
+// (CT logs, passive DNS archives) surface large numbers of names that existed
+// once and no longer resolve — tens of thousands for a long-lived domain — and
+// they swamp the hosts that actually make up the attack surface today. They are
+// still recorded, and includeUnresolved brings them back.
+func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit int, includeUnresolved bool) (HostRowsResult, error) {
+	var res HostRowsResult
 	if limit <= 0 || limit > 1000 {
 		limit = 500
 	}
+
+	// Count what the default view is holding back.
+	if err := s.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM domain d
+		LEFT JOIN domain_ip di ON di.domain_id = d.id
+		WHERE d.scope_id = $1 AND di.domain_id IS NULL`, scopeID).Scan(&res.UnresolvedHidden); err != nil {
+		return res, err
+	}
+
 	rows, err := s.Pool.Query(ctx, `
 		SELECT d.id, d.name, ip.id, host(ip.addr), ip.ptr, ip.asn, ip.as_org,
 		       ip.as_range, ip.country, ip.cloud, COALESCE(ip.is_shared,false),
@@ -260,25 +281,24 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 		LEFT JOIN domain_ip di ON di.domain_id = d.id
 		LEFT JOIN ip_address ip ON ip.id = di.ip_id
 		WHERE d.scope_id = $1
+		  AND ($4 OR ip.id IS NOT NULL)
 		  AND ($2 = '' OR d.name ILIKE '%'||$2||'%' OR host(ip.addr) ILIKE '%'||$2||'%'
 		       OR ip.as_org ILIKE '%'||$2||'%')
-		-- Resolved names first: with a wildcard domain the inventory fills with
-		-- names that resolve to nothing, and alphabetical order would push the
-		-- hosts that actually exist past the row limit.
 		ORDER BY (ip.id IS NULL), d.name, host(ip.addr)
-		LIMIT $3`, scopeID, q, limit)
+		LIMIT $3`, scopeID, q, limit, includeUnresolved)
 	if err != nil {
-		return nil, err
+		return res, err
 	}
 	defer rows.Close()
-	out := []HostRow{}
+	res.Rows = []HostRow{}
 	for rows.Next() {
 		var h HostRow
 		if err := rows.Scan(&h.DomainID, &h.Name, &h.IPID, &h.Addr, &h.PTR, &h.ASN,
 			&h.ASOrg, &h.ASRange, &h.Country, &h.Cloud, &h.IsShared, &h.Services, &h.LastSeen); err != nil {
-			return nil, err
+			return res, err
 		}
-		out = append(out, h)
+		res.Rows = append(res.Rows, h)
 	}
-	return out, rows.Err()
+	return res, rows.Err()
 }
+

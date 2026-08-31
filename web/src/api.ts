@@ -101,8 +101,10 @@ export const api = {
     req<Target[] | null>(`/scopes/${s}/targets`, { method: "POST", body: JSON.stringify(body) }).then((x) => x ?? []),
   domains: (s: string, q = "") => req<Domain[] | null>(`/scopes/${s}/domains?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
   graph: (s: string) => req<{ nodes: any[]; edges: any[] }>(`/scopes/${s}/graph`),
-  hostRows: (s: string, q = "") =>
-    req<HostRow[] | null>(`/scopes/${s}/hostrows?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
+  hostRows: (s: string, q = "", unresolved = false) =>
+    req<{ rows: HostRow[] | null; unresolved_hidden: number }>(
+      `/scopes/${s}/hostrows?q=${encodeURIComponent(q)}&unresolved=${unresolved}`,
+    ).then((r) => ({ rows: r.rows ?? [], unresolvedHidden: r.unresolved_hidden })),
   hosts: (s: string) => req<Host[] | null>(`/scopes/${s}/hosts`).then((x) => x ?? []),
   hostServices: (ip: string) => req<Service[] | null>(`/hosts/${ip}/services`).then((x) => x ?? []),
   search: (s: string, q: string) => req<SearchResult[] | null>(`/scopes/${s}/search?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
