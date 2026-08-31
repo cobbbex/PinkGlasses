@@ -197,13 +197,18 @@ func (s *Store) FailTask(ctx context.Context, taskID, leaseToken uuid.UUID, msg 
 
 // ReapExpiredLeases returns expired-lease tasks to pending (or fails them past
 // max_attempts). Returns the number reaped. Run by the scheduler.
+//
+// Both 'leased' and 'running' are reaped: a heartbeat promotes a task to
+// 'running', so covering only 'leased' strands every task whose worker dies
+// after its first heartbeat — and a stranded task holds the stage barrier, which
+// stalls the whole run rather than just losing one task.
 func (s *Store) ReapExpiredLeases(ctx context.Context) (int64, error) {
 	ct, err := s.Pool.Exec(ctx, `
 		UPDATE scan_task SET
 		  status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
 		  lease_token=NULL, worker_id=NULL, lease_expires_at=NULL,
 		  error = coalesce(error,'') || ' [lease expired]'
-		WHERE status='leased' AND lease_expires_at < now()`)
+		WHERE status IN ('leased','running') AND lease_expires_at < now()`)
 	if err != nil {
 		return 0, err
 	}

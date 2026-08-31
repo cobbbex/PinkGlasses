@@ -63,7 +63,11 @@ func runJSONLStdin(ctx context.Context, timeout time.Duration, stdin string, nam
 	cmd.Stdin = strings.NewReader(stdin)
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	_ = cmd.Run() // tools may exit non-zero yet still emit useful lines
+	var errb bytes.Buffer
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		logToolFailure(name, args, err, errb.String())
+	} // tools may exit non-zero yet still emit useful lines
 
 	var rows []map[string]any
 	sc := bufio.NewScanner(&out)

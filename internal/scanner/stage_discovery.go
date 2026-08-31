@@ -120,7 +120,7 @@ func (s *Scanner) resolveNames(ctx context.Context, names []string, pr params) [
 func (s *Scanner) resolveWithDNSX(ctx context.Context, names []string, pr params) []scanproto.Observation {
 	dnsxArgs := []string{"-silent", "-json", "-a", "-aaaa", "-resp",
 		"-t", pr.intStr("dnsx_threads", "100"),
-		"-retries", pr.intStr("dnsx_retries", "2")}
+		"-retry", pr.intStr("dnsx_retries", "2")} // dnsx spells it -retry, unlike naabu/httpx/nuclei
 	if rl := pr.intStr("dnsx_rate_limit", "0"); rl != "0" {
 		dnsxArgs = append(dnsxArgs, "-rl", rl)
 	}

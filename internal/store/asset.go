@@ -262,7 +262,10 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 		WHERE d.scope_id = $1
 		  AND ($2 = '' OR d.name ILIKE '%'||$2||'%' OR host(ip.addr) ILIKE '%'||$2||'%'
 		       OR ip.as_org ILIKE '%'||$2||'%')
-		ORDER BY d.name, host(ip.addr)
+		-- Resolved names first: with a wildcard domain the inventory fills with
+		-- names that resolve to nothing, and alphabetical order would push the
+		-- hosts that actually exist past the row limit.
+		ORDER BY (ip.id IS NULL), d.name, host(ip.addr)
 		LIMIT $3`, scopeID, q, limit)
 	if err != nil {
 		return nil, err
