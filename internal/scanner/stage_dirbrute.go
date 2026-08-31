@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"strconv"
 	"fmt"
 	"net/http"
 	"sort"
@@ -43,13 +44,24 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	if have("katana") {
 		// katana emits URLs; -jsonl adds structure but plain -silent lines are
 		// simplest and robust. (-json is not a valid flag and aborts the run.)
-		lines, _ := runLines(ctx, 90*time.Second, "katana",
-			"-d", jobParams(job).intStr("katana_depth", "3"),
-			"-c", "3", "-p", "3",
-			"-rl", jobParams(job).intStr("katana_rate_limit", "10"),
-			"-silent", "-u", base)
+		kp := jobParams(job)
+		kArgs := []string{
+			"-d", kp.intStr("katana_depth", "3"),
+			"-c", kp.intStr("katana_concurrency", "3"), "-p", "3",
+			"-rl", kp.intStr("katana_rate_limit", "10"),
+			"-silent",
+		}
+		if kp.boolVal("katana_js_crawl", false) {
+			kArgs = append(kArgs, "-jsl")
+		}
+		kArgs = append(kArgs, "-u", base)
+		lines, _ := runLines(ctx, 90*time.Second, "katana", kArgs...)
+		maxURLs := 2000
+		if n, err := strconv.Atoi(kp.intStr("katana_max_urls", "2000")); err == nil {
+			maxURLs = n
+		}
 		for i, u := range lines {
-			if i >= 2000 { // a crawl can return tens of thousands; keep it bounded
+			if i >= maxURLs { // a crawl can return tens of thousands; keep it bounded
 				break
 			}
 			add(pathOf(u), 0)
@@ -79,6 +91,13 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 			"--no-color", "-t", pr.intStr("dir_concurrency", "10")}
 		if el := pr.intStr("dir_exclude_length", "0"); el != "0" {
 			args = append(args, "--exclude-length", el)
+		}
+		if ext := pr.str("dir_extensions", ""); ext != "" {
+			args = append(args, "-x", ext)
+		}
+		if sc := pr.str("dir_status_codes", ""); sc != "" {
+			// gobuster rejects -s combined with its default blacklist
+			args = append(args, "-s", sc, "-b", "")
 		}
 		lines, _ := runLines(ctx, 10*time.Minute, "gobuster", args...)
 		for _, ln := range lines {

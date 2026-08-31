@@ -179,6 +179,7 @@ type IPAddress struct {
 	PTR       *string   `json:"ptr,omitempty"`
 	ASN       *int      `json:"asn,omitempty"`
 	ASOrg     *string   `json:"as_org,omitempty"`
+	ASRange   *string   `json:"as_range,omitempty"`
 	Country   *string   `json:"country,omitempty"`
 	Cloud     *string   `json:"cloud,omitempty"`
 	IsShared  bool      `json:"is_shared"`

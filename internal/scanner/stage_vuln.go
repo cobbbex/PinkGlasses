@@ -21,12 +21,15 @@ func (s *Scanner) vulnCheck(ctx context.Context, job scanproto.Job) ([]scanproto
 
 	// Tools.md: nuclei -l urls   (default templates)
 	//           nuclei -l urls -t <dir>   (custom template set)
+	pr := jobParams(job)
 	args := []string{"-silent", "-jsonl", "-u", url,
-		"-timeout", "10", "-retries", "1"}
+		"-timeout", pr.intStr("nuclei_timeout_s", "10"), "-retries", "1",
+		"-rl", pr.intStr("nuclei_rate_limit", "150"),
+		"-c", pr.intStr("nuclei_concurrency", "25")}
 	if dir := envOr("ASM_NUCLEI_TEMPLATES", ""); dir != "" && fileExists(dir) {
 		args = append(args, "-t", dir)
 	}
-	sev := jobParams(job).str("nuclei_severity", "low")
+	sev := pr.str("nuclei_severity", "low")
 	if sev != "all" {
 		order := []string{"info", "low", "medium", "high", "critical"}
 		keep := []string{}

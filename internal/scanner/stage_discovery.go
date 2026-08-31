@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,11 +40,22 @@ func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanpro
 
 	// --- subfinder (Tools.md: `subfinder -d example.com`) ---
 	if have("subfinder") {
-		args := []string{"-silent", "-json", "-d", root}
+		pr := jobParams(job)
+		maxTime := pr.intStr("subfinder_max_time", "3")
+		args := []string{"-silent", "-json", "-d", root, "-max-time", maxTime}
+		if pr.boolVal("subfinder_all", false) {
+			args = append(args, "-all")
+		}
 		if s.ProviderConfig != "" {
 			args = append(args, "-provider-config", s.ProviderConfig)
 		}
-		rows, _ := runJSONL(ctx, 3*time.Minute, "subfinder", args...)
+		// Give the process a minute past its own budget so we read the results
+		// it returns rather than killing it as it finishes.
+		budget := 4 * time.Minute
+		if n, err := strconv.Atoi(maxTime); err == nil {
+			budget = time.Duration(n+1) * time.Minute
+		}
+		rows, _ := runJSONL(ctx, budget, "subfinder", args...)
 		for _, r := range rows {
 			if h := str(r, "host"); h != "" {
 				add(h, "subfinder")
@@ -51,16 +63,9 @@ func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanpro
 		}
 	}
 
-	// --- shuffledns bruteforce: deep profile or explicit opt-in (Tools.md) ---
-	if (job.Profile == "deep" || jobParams(job).boolVal("dns_bruteforce", false)) && have("shuffledns") &&
-		fileExists(wordlistDNS()) && fileExists(resolversFile()) {
-		lines, _ := runLines(ctx, 10*time.Minute, "shuffledns",
-			"-d", root, "-w", wordlistDNS(), "-r", resolversFile(),
-			"-mode", "bruteforce", "-silent")
-		for _, l := range lines {
-			add(l, "shuffledns")
-		}
-	}
+	// NOTE: shuffledns brute-forcing is no longer done here. It runs as its own
+	// dns_brute stage, one task per wordlist, so the lists can be spread across
+	// workers instead of serialising inside this task (see stage_dnsbrute.go).
 
 	// --- emit + resolve ---
 	names := make([]string, 0, len(found))
@@ -111,18 +116,30 @@ func (s *Scanner) resolveNames(ctx context.Context, names []string, pr params) [
 // resolveWithDNSX pipes the candidate list through `dnsx -silent -json`, which
 // also filters wildcard responses that would otherwise create phantom hosts.
 func (s *Scanner) resolveWithDNSX(ctx context.Context, names []string, pr params) []scanproto.Observation {
+	dnsxArgs := []string{"-silent", "-json", "-a", "-aaaa", "-resp", "-asn",
+		"-t", pr.intStr("dnsx_threads", "100"),
+		"-retries", pr.intStr("dnsx_retries", "2")}
+	if rl := pr.intStr("dnsx_rate_limit", "0"); rl != "0" {
+		dnsxArgs = append(dnsxArgs, "-rl", rl)
+	}
 	rows, err := runJSONLStdin(ctx, 5*time.Minute, strings.Join(names, "\n"),
-		"dnsx", "-silent", "-json", "-a", "-aaaa", "-resp",
-		"-t", pr.intStr("dnsx_threads", "100"))
+		"dnsx", dnsxArgs...)
 	if err != nil || len(rows) == 0 {
 		return nil
 	}
+
 	var obs []scanproto.Observation
+	// Network provenance per address, deduped: many subdomains usually share
+	// a handful of addresses, and we only need to enrich each address once.
+	enriched := map[string]bool{}
+
 	for _, r := range rows {
 		host := str(r, "host")
 		if host == "" {
 			continue
 		}
+		asn, asName, asRange := parseDNSXASN(r)
+
 		for _, key := range []string{"a", "aaaa"} {
 			vals, _ := r[key].([]any)
 			for _, v := range vals {
@@ -133,11 +150,94 @@ func (s *Scanner) resolveWithDNSX(ctx context.Context, names []string, pr params
 				obs = append(obs, scanproto.Observation{
 					Type: scanproto.ObsDNSRecord, Domain: host, RType: rtypeOf(ip), Value: ip,
 				})
+				if !enriched[ip] && (asn != 0 || asName != "" || asRange != "") {
+					enriched[ip] = true
+					obs = append(obs, scanproto.Observation{
+						Type: scanproto.ObsIP, IP: ip,
+						ASN: asn, ASOrg: asName, ASRange: asRange,
+					})
+				}
 			}
+		}
+	}
+
+	// Second pass: reverse DNS for the addresses we just resolved. PTR is a
+	// property of the address, not the name, so it needs the IPs as input.
+	obs = append(obs, s.reverseDNS(ctx, keysOfBool(enriched, obs), pr)...)
+	return obs
+}
+
+// reverseDNS asks dnsx for the PTR record of each address.
+func (s *Scanner) reverseDNS(ctx context.Context, ips []string, pr params) []scanproto.Observation {
+	if len(ips) == 0 {
+		return nil
+	}
+	rows, err := runJSONLStdin(ctx, 3*time.Minute, strings.Join(ips, "\n"),
+		"dnsx", "-silent", "-json", "-ptr", "-resp",
+		"-t", pr.intStr("dnsx_threads", "100"))
+	if err != nil {
+		return nil
+	}
+	var obs []scanproto.Observation
+	for _, r := range rows {
+		ip := str(r, "host")
+		ptrs, _ := r["ptr"].([]any)
+		if ip == "" || len(ptrs) == 0 {
+			continue
+		}
+		if name, _ := ptrs[0].(string); name != "" {
+			obs = append(obs, scanproto.Observation{
+				Type: scanproto.ObsIP, IP: ip, PTR: normalizeHost(name),
+			})
 		}
 	}
 	return obs
 }
+
+// parseDNSXASN pulls the ASN block out of a dnsx row. dnsx reports the number
+// as "AS15133" and the prefix list under as_range.
+func parseDNSXASN(r map[string]any) (num int, name, prefix string) {
+	a, _ := r["asn"].(map[string]any)
+	if a == nil {
+		return 0, "", ""
+	}
+	if v, _ := a["as_number"].(string); v != "" {
+		if n, err := strconv.Atoi(strings.TrimPrefix(strings.ToUpper(v), "AS")); err == nil {
+			num = n
+		}
+	}
+	name, _ = a["as_name"].(string)
+	switch rng := a["as_range"].(type) {
+	case string:
+		prefix = rng
+	case []any:
+		if len(rng) > 0 {
+			prefix, _ = rng[0].(string)
+		}
+	}
+	return num, name, prefix
+}
+
+// keysOfBool returns every address seen while resolving, whether or not it came
+// with ASN data, so reverse DNS covers them all.
+func keysOfBool(enriched map[string]bool, obs []scanproto.Observation) []string {
+	seen := map[string]bool{}
+	for ip := range enriched {
+		seen[ip] = true
+	}
+	for _, o := range obs {
+		if o.Type == scanproto.ObsDNSRecord && (o.RType == "A" || o.RType == "AAAA") {
+			seen[o.Value] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for ip := range seen {
+		out = append(out, ip)
+	}
+	sort.Strings(out)
+	return out
+}
+
 
 func rtypeOf(ip string) string {
 	if isV6(ip) {

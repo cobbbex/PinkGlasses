@@ -39,9 +39,21 @@ export interface Finding {
   id: string; asset_kind: string; asset_id: string; kind: string;
   severity: string; title: string; status: string; first_seen: string; last_seen: string;
 }
+export interface HostRow {
+  domain_id?: string | null; name: string;
+  ip_id?: string | null; addr?: string | null; ptr?: string | null;
+  asn?: number | null; as_org?: string | null; as_range?: string | null;
+  country?: string | null; cloud?: string | null;
+  is_shared: boolean; services: number; last_seen: string;
+}
+export interface Wordlist {
+  id: string; name: string; kind: string;
+  sha256?: string | null; size_bytes: number; line_count: number;
+  builtin: boolean; is_default: boolean; status: string; error?: string | null;
+}
 export interface ParamSpec {
   key: string; tool: string; label: string;
-  kind: "int" | "enum" | "ports" | "wordlist" | "bool";
+  kind: "int" | "enum" | "ports" | "wordlist" | "bool" | "csv";
   min?: number; max?: number; enum?: string[];
   default: string; help: string;
 }
@@ -75,6 +87,8 @@ export const api = {
     req<Target[] | null>(`/scopes/${s}/targets`, { method: "POST", body: JSON.stringify(body) }).then((x) => x ?? []),
   domains: (s: string, q = "") => req<Domain[] | null>(`/scopes/${s}/domains?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
   graph: (s: string) => req<{ nodes: any[]; edges: any[] }>(`/scopes/${s}/graph`),
+  hostRows: (s: string, q = "") =>
+    req<HostRow[] | null>(`/scopes/${s}/hostrows?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
   hosts: (s: string) => req<Host[] | null>(`/scopes/${s}/hosts`).then((x) => x ?? []),
   hostServices: (ip: string) => req<Service[] | null>(`/hosts/${ip}/services`).then((x) => x ?? []),
   search: (s: string, q: string) => req<SearchResult[] | null>(`/scopes/${s}/search?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
@@ -101,6 +115,20 @@ export const api = {
   workerAction: (id: string, action: string) => req(`/workers/${id}/${action}`, { method: "POST" }),
   deleteWorker: (id: string) =>
     req<{ deleted: boolean; warning?: string }>(`/workers/${id}`, { method: "DELETE" }),
+  wordlists: (kind = "dns") =>
+    req<Wordlist[] | null>(`/wordlists?kind=${kind}`).then((x) => x ?? []),
+  uploadWordlist: async (file: File, name: string, kind = "dns") => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("name", name);
+    fd.append("kind", kind);
+    const res = await fetch("/api/v1/wordlists", { method: "POST", body: fd });
+    if (!res.ok) throw new Error((await res.text()) || res.statusText);
+    return (await res.json()) as Wordlist;
+  },
+  setWordlistDefault: (id: string, isDefault: boolean) =>
+    req(`/wordlists/${id}`, { method: "PATCH", body: JSON.stringify({ is_default: isDefault }) }),
+  deleteWordlist: (id: string) => req(`/wordlists/${id}`, { method: "DELETE" }),
   provisionStatus: () =>
     req<{ enabled: boolean; count?: number; reason?: string }>("/workers/provision"),
   scaleLocal: (count: number) =>

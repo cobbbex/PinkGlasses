@@ -68,7 +68,12 @@ RUN apk add --no-cache ca-certificates nmap nmap-scripts ffuf chromium libpcap
 
 # wordlists + resolvers used by shuffledns, gobuster dns and gobuster dir
 COPY --from=wordlists /wordlists/ /usr/share/asm/wordlists/
-ENV ASM_WORDLIST_DNS=/usr/share/asm/wordlists/dns-subdomains.txt \
+# Large wordlists (the assetnote DNS lists) are not baked in: the control plane
+# stores them in object storage and each worker downloads them once into this
+# cache, keyed by content hash.
+RUN mkdir -p /var/cache/asm/wordlists
+ENV ASM_WORDLIST_CACHE=/var/cache/asm/wordlists \
+    ASM_WORDLIST_DNS=/usr/share/asm/wordlists/dns-subdomains.txt \
     ASM_WORDLIST_DIR=/usr/share/asm/wordlists/dir-common.txt \
     ASM_RESOLVERS=/usr/share/asm/wordlists/resolvers.txt
 

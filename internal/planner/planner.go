@@ -58,7 +58,7 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 		case "domain":
 			specs = append(specs,
 				spec(scanproto.StagePassiveEnum, scanproto.Target{Domain: t.Value}, 10, t.ID),
-				spec(scanproto.StageDNSResolve, scanproto.Target{Domain: t.Value}, 20, t.ID),
+				spec(scanproto.StageDNSResolve, scanproto.Target{Domain: t.Value}, 30, t.ID),
 			)
 			_ = p.st.SetRunTargetStatus(ctx, t.ID, domain.TargetRunning, nil)
 		case "ip", "cidr":
@@ -91,11 +91,47 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 			_ = p.st.SetRunTargetStatus(ctx, t.ID, domain.TargetRunning, nil)
 		}
 	}
+	// One shuffledns task per wordlist, so the lists run as independent tasks
+	// and the dispatcher can spread them across different workers rather than
+	// grinding through millions of names on a single box.
+	specs = append(specs, p.dnsBruteSpecs(ctx, run, targets)...)
+
 	if len(specs) == 0 {
 		return p.st.SetRunStatus(ctx, run.ID, domain.RunCompleted)
 	}
 	_, err := p.st.InsertTasks(ctx, run.ID, specs)
 	return err
+}
+
+// dnsBruteSpecs builds one dns_brute task per (domain target, wordlist) pair.
+// A run with no ready wordlists simply gets no brute-force tasks — the rest of
+// the pipeline is unaffected.
+func (p *Planner) dnsBruteSpecs(ctx context.Context, run domain.ScanRun, targets []domain.RunTarget) []store.TaskSpec {
+	if run.Profile == domain.ProfilePassive {
+		return nil // passive runs send no DNS traffic of their own
+	}
+	// The shuffledns switch in scan settings gates the whole stage.
+	if params, err := p.st.GetRunParams(ctx, run.ID); err == nil {
+		if v, ok := params["dns_bruteforce"]; ok && v == "false" {
+			return nil
+		}
+	}
+	lists, err := p.st.RunWordlists(ctx, run.ID)
+	if err != nil || len(lists) == 0 {
+		return nil
+	}
+	var out []store.TaskSpec
+	for _, t := range targets {
+		if t.Kind != "domain" || t.Status == domain.TargetSkipped {
+			continue
+		}
+		for _, wl := range lists {
+			sp := spec(scanproto.StageDNSBrute, scanproto.Target{Domain: t.Value}, 20, t.ID)
+			sp.Wordlist = wl.ID.String()
+			out = append(out, sp)
+		}
+	}
+	return out
 }
 
 // Advance moves a run through its stage machine. It is idempotent and safe to
@@ -140,14 +176,16 @@ func (p *Planner) maybeCoalescePortScan(ctx context.Context, run domain.ScanRun)
 		return nil
 	}
 	out, err := p.st.StageOutstanding(ctx, run.ID,
-		string(scanproto.StagePassiveEnum), string(scanproto.StageDNSResolve))
+		string(scanproto.StagePassiveEnum), string(scanproto.StageDNSBrute),
+		string(scanproto.StageDNSResolve))
 	if err != nil || out > 0 {
 		return err
 	}
 	// Union all resolved IPs across every discovery task in the run
 	// (passive_enum resolves what it finds; dns_resolve resolves the root).
 	ipSet := map[string][]uuid.UUID{}
-	for _, stage := range []scanproto.Stage{scanproto.StagePassiveEnum, scanproto.StageDNSResolve} {
+	for _, stage := range []scanproto.Stage{
+		scanproto.StagePassiveEnum, scanproto.StageDNSBrute, scanproto.StageDNSResolve} {
 		tasks, err := p.st.TasksByStage(ctx, run.ID, stage)
 		if err != nil {
 			return err

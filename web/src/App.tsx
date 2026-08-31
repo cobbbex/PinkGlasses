@@ -4,21 +4,21 @@ import { api, Scope } from "./api";
 import { Modal, useToast } from "./components/ui";
 import ScopePicker from "./components/ScopePicker";
 import Dashboard from "./pages/Dashboard";
-import Domains from "./pages/Domains";
 import Hosts from "./pages/Hosts";
 import Runs from "./pages/Runs";
 import Fleet from "./pages/Fleet";
+import Wordlists from "./components/Wordlists";
 import Findings from "./pages/Findings";
 import Search from "./pages/Search";
 
 const NAV = [
   { to: "/", label: "Dashboard", ic: "◆" },
-  { to: "/domains", label: "Domains", ic: "⌘" },
   { to: "/hosts", label: "Hosts", ic: "▣" },
   { to: "/search", label: "Search", ic: "⌕" },
   { to: "/findings", label: "Findings", ic: "!" },
   { to: "/runs", label: "Scan runs", ic: "▶" },
   { to: "/workers", label: "Workers", ic: "⬢" },
+  { to: "/wordlists", label: "Wordlists", ic: "≡" },
 ];
 
 const COLLAPSE_KEY = "asm.sidebar.collapsed";
@@ -105,12 +105,14 @@ export default function App() {
         ) : (
           <Routes>
             <Route path="/" element={<Dashboard scopeID={scopeID} />} />
-            <Route path="/domains" element={<Domains scopeID={scopeID} />} />
+            {/* Domains merged into Hosts */}
+            <Route path="/domains" element={<Navigate to="/hosts" replace />} />
             <Route path="/hosts" element={<Hosts scopeID={scopeID} />} />
             <Route path="/search" element={<Search scopeID={scopeID} />} />
             <Route path="/findings" element={<Findings scopeID={scopeID} />} />
             <Route path="/runs" element={<Runs scopeID={scopeID} />} />
             <Route path="/workers" element={<Fleet />} />
+            <Route path="/wordlists" element={<Wordlists />} />
             {/* old link kept working */}
             <Route path="/fleet" element={<Navigate to="/workers" replace />} />
             <Route path="*" element={<Navigate to="/" />} />

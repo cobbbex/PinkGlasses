@@ -15,7 +15,9 @@ import (
 	"github.com/benlik386/asm/internal/config"
 	"github.com/benlik386/asm/internal/diff"
 	"github.com/benlik386/asm/internal/domain"
+	"github.com/benlik386/asm/internal/obj"
 	"github.com/benlik386/asm/internal/planner"
+	"github.com/benlik386/asm/internal/wordlists"
 	"github.com/benlik386/asm/internal/store"
 )
 
@@ -38,6 +40,12 @@ func main() {
 	if err != nil || !locked {
 		slog.Info("another scheduler holds the leader lock; standing by")
 	}
+
+	// Fetch any wordlist still missing its file (the shipped assetnote lists on
+	// first boot, or a retry after a failed download). Runs in the background so
+	// a slow CDN never delays the scheduler loop.
+	seeder := wordlists.NewSeeder(st, obj.New(objConfigFromEnv()))
+	go seeder.Run(ctx)
 
 	pl := planner.New(st)
 	df := diff.New(st)
@@ -109,4 +117,9 @@ func sweep(ctx context.Context, st *store.Store) {
 	}
 	// Cert-expiry finding sweep would run here (ExpiringCerts).
 	_, _ = st.ExpiringCerts(ctx, 14*24*time.Hour)
+}
+
+// objConfigFromEnv builds the object-storage config the seeder uploads through.
+func objConfigFromEnv() config.S3 {
+	return config.LoadAPI().S3
 }

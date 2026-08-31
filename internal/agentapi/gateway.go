@@ -214,6 +214,7 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 				job := &jobs[i]
 				job.Ingest = scanproto.IngestInfo{URL: g.cfg.PublicGatewayURL + "/agent/v1/results"}
 				job.Params.Tool = g.paramsForRun(ctx, job.RunID)
+				g.attachWordlist(ctx, job)
 				env := scanproto.Envelope{Type: "job", Job: job}
 				if err := conn.WriteJSON(env); err != nil {
 					return
@@ -225,6 +226,37 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 }
 
 // paramsForRun returns a run's validated scan params, cached to avoid a DB hit
+// attachWordlist gives a dns_brute job a short-lived download URL for the list
+// it must use. The URL is minted at dispatch rather than at planning time so it
+// is still valid when the task is actually leased, which may be much later.
+func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job) {
+	if job.Stage != scanproto.StageDNSBrute || len(job.Targets) == 0 {
+		return
+	}
+	rawID := job.Targets[0].WordlistID
+	if rawID == "" {
+		return
+	}
+	id, err := uuid.Parse(rawID)
+	if err != nil {
+		return
+	}
+	wl, err := g.st.GetWordlist(ctx, id)
+	if err != nil || wl.Status != "ready" {
+		return
+	}
+	url, err := g.obj.PresignGet(wl.ObjectKey, 2*time.Hour, time.Now())
+	if err != nil {
+		slog.Warn("could not presign wordlist", "wordlist", wl.Name, "err", err)
+		return
+	}
+	job.Params.WordlistURL = url
+	job.Params.WordlistName = wl.Name
+	if wl.SHA256 != nil {
+		job.Params.WordlistSHA = *wl.SHA256
+	}
+}
+
 // per lease. Params were whitelisted server-side before storage.
 func (g *Gateway) paramsForRun(ctx context.Context, runID string) map[string]string {
 	g.pmu.Lock()

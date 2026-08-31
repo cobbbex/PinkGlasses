@@ -134,8 +134,13 @@ services:
       INTELX_API_KEY: "${INTELX_API_KEY:-}"
       CHAOS_API_KEY: "${CHAOS_API_KEY:-}"
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+    volumes:
+      # keeps downloaded wordlists across restarts, so a multi-hundred-megabyte
+      # list is not re-fetched every time the container is recreated
+      - wordlistcache:/var/cache/asm/wordlists
     depends_on: [gateway]
 
 volumes:
+  wordlistcache:
   pgdata:
   miniodata:

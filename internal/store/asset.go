@@ -54,15 +54,23 @@ func (s *Store) UpsertIP(ctx context.Context, scopeID uuid.UUID, addr string, at
 	return id, err
 }
 
-// EnrichIP updates ASN/geo/PTR/cloud/shared fields for an IP.
-func (s *Store) EnrichIP(ctx context.Context, id uuid.UUID, ptr, asOrg, country, cloud string, asn int, shared bool) error {
+// EnrichIP updates ASN/geo/PTR/cloud/range fields for an IP. Every field is
+// applied only when non-empty, so a later partial observation (a reverse-DNS
+// pass carrying only PTR) never erases ASN data recorded earlier.
+func (s *Store) EnrichIP(ctx context.Context, id uuid.UUID, ptr, asOrg, country, cloud, asRange string, asn int, shared bool) error {
 	_, err := s.Pool.Exec(ctx, `
 		UPDATE ip_address SET
-		  ptr = NULLIF($2,''), as_org = NULLIF($3,''), country = NULLIF($4,''),
-		  cloud = NULLIF($5,''), asn = NULLIF($6,0), is_shared = $7
-		WHERE id=$1`, id, ptr, asOrg, country, cloud, asn, shared)
+		  ptr      = COALESCE(NULLIF($2,''), ptr),
+		  as_org   = COALESCE(NULLIF($3,''), as_org),
+		  country  = COALESCE(NULLIF($4,''), country),
+		  cloud    = COALESCE(NULLIF($5,''), cloud),
+		  as_range = COALESCE(NULLIF($6,''), as_range),
+		  asn      = COALESCE(NULLIF($7,0), asn),
+		  is_shared = is_shared OR $8
+		WHERE id=$1`, id, ptr, asOrg, country, cloud, asRange, asn, shared)
 	return err
 }
+
 
 // LinkDomainIP records a temporal domain->ip edge (the DNSDumpster map).
 func (s *Store) LinkDomainIP(ctx context.Context, domainID, ipID uuid.UUID, via string, at time.Time) error {
@@ -148,7 +156,7 @@ func (s *Store) ListHosts(ctx context.Context, scopeID uuid.UUID, limit int) ([]
 		limit = 200
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, scope_id, host(addr), ptr, asn, as_org, country, cloud, is_shared, first_seen, last_seen
+		SELECT id, scope_id, host(addr), ptr, asn, as_org, as_range, country, cloud, is_shared, first_seen, last_seen
 		FROM ip_address WHERE scope_id=$1 ORDER BY last_seen DESC LIMIT $2`, scopeID, limit)
 	if err != nil {
 		return nil, err
@@ -157,7 +165,7 @@ func (s *Store) ListHosts(ctx context.Context, scopeID uuid.UUID, limit int) ([]
 	var out []domain.IPAddress
 	for rows.Next() {
 		var ip domain.IPAddress
-		if err := rows.Scan(&ip.ID, &ip.ScopeID, &ip.Addr, &ip.PTR, &ip.ASN, &ip.ASOrg,
+		if err := rows.Scan(&ip.ID, &ip.ScopeID, &ip.Addr, &ip.PTR, &ip.ASN, &ip.ASOrg, &ip.ASRange,
 			&ip.Country, &ip.Cloud, &ip.IsShared, &ip.FirstSeen, &ip.LastSeen); err != nil {
 			return nil, err
 		}
@@ -214,4 +222,60 @@ type GraphEdge struct {
 	Domain string `json:"domain"`
 	IP     string `json:"ip"`
 	Via    string `json:"via"`
+}
+
+// HostRow is the unified Hosts view: one row per subdomain, carrying the
+// address it resolves to and that address's network provenance. This replaces
+// the split Domains/Hosts pages — a name and where it lives are the same
+// question in practice.
+type HostRow struct {
+	DomainID  *uuid.UUID `json:"domain_id,omitempty"`
+	Name      string     `json:"name"`
+	IPID      *uuid.UUID `json:"ip_id,omitempty"`
+	Addr      *string    `json:"addr,omitempty"`
+	PTR       *string    `json:"ptr,omitempty"`
+	ASN       *int       `json:"asn,omitempty"`
+	ASOrg     *string    `json:"as_org,omitempty"`
+	ASRange   *string    `json:"as_range,omitempty"`
+	Country   *string    `json:"country,omitempty"`
+	Cloud     *string    `json:"cloud,omitempty"`
+	IsShared  bool       `json:"is_shared"`
+	Services  int        `json:"services"`
+	LastSeen  time.Time  `json:"last_seen"`
+}
+
+// HostRows returns every discovered name with its resolved address and ASN
+// details. Names that do not resolve are still listed, with empty address
+// fields, so nothing discovered silently disappears from the inventory.
+func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit int) ([]HostRow, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 500
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT d.id, d.name, ip.id, host(ip.addr), ip.ptr, ip.asn, ip.as_org,
+		       ip.as_range, ip.country, ip.cloud, COALESCE(ip.is_shared,false),
+		       COALESCE((SELECT count(*) FROM service sv WHERE sv.ip_id = ip.id), 0),
+		       d.last_seen
+		FROM domain d
+		LEFT JOIN domain_ip di ON di.domain_id = d.id
+		LEFT JOIN ip_address ip ON ip.id = di.ip_id
+		WHERE d.scope_id = $1
+		  AND ($2 = '' OR d.name ILIKE '%'||$2||'%' OR host(ip.addr) ILIKE '%'||$2||'%'
+		       OR ip.as_org ILIKE '%'||$2||'%')
+		ORDER BY d.name, host(ip.addr)
+		LIMIT $3`, scopeID, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []HostRow{}
+	for rows.Next() {
+		var h HostRow
+		if err := rows.Scan(&h.DomainID, &h.Name, &h.IPID, &h.Addr, &h.PTR, &h.ASN,
+			&h.ASOrg, &h.ASRange, &h.Country, &h.Cloud, &h.IsShared, &h.Services, &h.LastSeen); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
 }

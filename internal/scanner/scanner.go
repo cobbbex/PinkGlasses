@@ -26,6 +26,8 @@ func (s *Scanner) Run(ctx context.Context, job scanproto.Job) ([]scanproto.Obser
 	switch job.Stage {
 	case scanproto.StagePassiveEnum:
 		return s.passiveEnum(ctx, job)
+	case scanproto.StageDNSBrute:
+		return s.dnsBrute(ctx, job)
 	case scanproto.StageDNSResolve:
 		return s.dnsResolve(ctx, job)
 	case scanproto.StageIPEnrich:

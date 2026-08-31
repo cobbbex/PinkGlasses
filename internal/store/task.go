@@ -16,6 +16,10 @@ type TaskSpec struct {
 	Requires []string
 	Priority int
 	Origins  []uuid.UUID // run_target ids this task serves
+	// Wordlist is the wordlist id a dns_brute task must use. It is stored on
+	// the task's target JSON so the gateway can presign the right file when the
+	// task is finally dispatched, which may be long after planning.
+	Wordlist string
 }
 
 // InsertTasks inserts a batch of tasks and their task_origin edges in one
@@ -32,7 +36,11 @@ func (s *Store) InsertTasks(ctx context.Context, runID uuid.UUID, specs []TaskSp
 		if sp.Requires == nil {
 			sp.Requires = []string{} // column is NOT NULL
 		}
-		tgt, _ := json.Marshal(sp.Target)
+		target := sp.Target
+		if sp.Wordlist != "" {
+			target.WordlistID = sp.Wordlist
+		}
+		tgt, _ := json.Marshal(target)
 		var id uuid.UUID
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO scan_task (run_id, stage, target, requires, priority, status)

@@ -21,6 +21,7 @@ type Stage string
 
 const (
 	StagePassiveEnum   Stage = "passive_enum"   // subfinder + alterx
+	StageDNSBrute      Stage = "dns_brute"      // shuffledns, one task per wordlist
 	StageDNSResolve    Stage = "dns_resolve"    // dnsx (+ shuffledns on deep)
 	StageIPEnrich      Stage = "ip_enrich"      // asn/geo/ptr/cloud
 	StagePortScan      Stage = "port_scan"      // naabu
@@ -33,7 +34,7 @@ const (
 
 // AllStages lists the pipeline in canonical order.
 var AllStages = []Stage{
-	StagePassiveEnum, StageDNSResolve, StageIPEnrich, StagePortScan,
+	StagePassiveEnum, StageDNSBrute, StageDNSResolve, StageIPEnrich, StagePortScan,
 	StageServiceProbe, StageTechDetect, StageScreenshot, StageDirBrute, StageVulnCheck,
 }
 
@@ -131,6 +132,8 @@ type Job struct {
 // Target identifies one thing to act on. Fields are populated per stage.
 type Target struct {
 	Domain string `json:"domain,omitempty"`
+	// WordlistID names the registry entry a dns_brute task brute-forces with.
+	WordlistID string `json:"wordlist_id,omitempty"`
 	IP     string `json:"ip,omitempty"`
 	CIDR   string `json:"cidr,omitempty"`
 	Port   int    `json:"port,omitempty"`
@@ -143,6 +146,12 @@ type Params struct {
 	RatePPS     int    `json:"rate_pps,omitempty"`
 	TimeoutMS   int    `json:"timeout_ms,omitempty"`
 	Wordlist    string `json:"wordlist,omitempty"`  // dir_brute / dns brute
+	// WordlistURL is a short-lived presigned download for the list this task
+	// must use, issued by the gateway at dispatch. WordlistSHA doubles as the
+	// worker's on-disk cache key, so a list is downloaded once per box.
+	WordlistURL  string `json:"wordlist_url,omitempty"`
+	WordlistSHA  string `json:"wordlist_sha256,omitempty"`
+	WordlistName string `json:"wordlist_name,omitempty"`
 	Concurrency int    `json:"concurrency,omitempty"`
 	Deep        bool   `json:"deep,omitempty"`
 	// Tool carries validated per-tool overrides (Phase 15). Keys and values are
@@ -233,6 +242,7 @@ type Observation struct {
 	PTR     string `json:"ptr,omitempty"`
 	ASN     int    `json:"asn,omitempty"`
 	ASOrg   string `json:"as_org,omitempty"`
+	ASRange string `json:"as_range,omitempty"` // announcing prefix, e.g. 93.184.216.0/24
 	Country string `json:"country,omitempty"`
 	Cloud   string `json:"cloud,omitempty"`
 	Shared  bool   `json:"shared,omitempty"`

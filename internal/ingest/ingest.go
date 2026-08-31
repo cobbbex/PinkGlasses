@@ -94,8 +94,9 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 			if err != nil {
 				return sum, err
 			}
-			if o.PTR != "" || o.ASN != 0 || o.Country != "" || o.Cloud != "" || o.Shared {
-				_ = in.st.EnrichIP(ctx, ipID, o.PTR, o.ASOrg, o.Country, o.Cloud, o.ASN, o.Shared)
+			if o.PTR != "" || o.ASN != 0 || o.ASOrg != "" || o.ASRange != "" ||
+				o.Country != "" || o.Cloud != "" || o.Shared {
+				_ = in.st.EnrichIP(ctx, ipID, o.PTR, o.ASOrg, o.Country, o.Cloud, o.ASRange, o.ASN, o.Shared)
 			}
 			if !ipSeen[o.IP] {
 				sum.IPs = append(sum.IPs, o.IP)

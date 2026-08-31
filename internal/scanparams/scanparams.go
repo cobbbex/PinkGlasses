@@ -21,7 +21,16 @@ const (
 	KindPorts    Kind = "ports"    // "top-100" | "top-1000" | "full" | "1-1024" | "80,443"
 	KindWordlist Kind = "wordlist" // a named wordlist key, resolved to a server path
 	KindBool     Kind = "bool"
+	// KindCSV is a short comma-separated token list (e.g. "php,html" or
+	// "200,301"). Deliberately narrow: letters, digits, dot, dash, underscore
+	// and commas only, and it may never begin with '-' — otherwise a value
+	// could smuggle in an extra flag when it lands in the argv of a scan tool.
+	KindCSV Kind = "csv"
 )
+
+// csvRe bounds KindCSV values. No spaces, no shell metacharacters, no path
+// separators: this string becomes a process argument on a scan box.
+var csvRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9,._-]{0,119}$`)
 
 // Spec describes one settable parameter. Tool groups parameters in the UI so a
 // user sees settings organised per tool rather than as a flat list.
@@ -45,10 +54,25 @@ type Spec struct {
 // worker ignores would be a lie in the UI.
 var Specs = []Spec{
 	// --- subdomain discovery ---
+	{Key: "subfinder_max_time", Tool: "subfinder", Label: "Max enumeration time (min)", Kind: KindInt,
+		Min: 1, Max: 30, Default: "3",
+		Help: "How long subfinder may keep querying its passive sources before returning what it has."},
+	{Key: "subfinder_all", Tool: "subfinder", Label: "Query all sources", Kind: KindBool,
+		Default: "false",
+		Help: "Include the slow sources too. Finds more subdomains and takes noticeably longer. Still passive — no packets reach the target."},
+
 	{Key: "dns_bruteforce", Tool: "shuffledns", Label: "DNS bruteforce", Kind: KindBool,
-		Default: "false", Help: "Brute-force subdomains with a wordlist. High volume; on by default for deep scans."},
+		Default: "true",
+		Help: "Brute-force subdomains with the selected wordlists, as a separate task per list. Very high DNS volume — turn it off for a quick, quiet scan."},
+	{Key: "shuffledns_threads", Tool: "shuffledns", Label: "Bruteforce threads", Kind: KindInt,
+		Min: 1, Max: 1000, Default: "100", Help: "Concurrent resolutions while brute-forcing."},
+
 	{Key: "dnsx_threads", Tool: "dnsx", Label: "Resolver threads", Kind: KindInt,
 		Min: 1, Max: 500, Default: "100", Help: "Concurrent DNS resolutions."},
+	{Key: "dnsx_rate_limit", Tool: "dnsx", Label: "Rate limit (per second)", Kind: KindInt,
+		Min: 0, Max: 10000, Default: "0", Help: "Queries per second. 0 leaves it unlimited."},
+	{Key: "dnsx_retries", Tool: "dnsx", Label: "Retries", Kind: KindInt,
+		Min: 1, Max: 5, Default: "2", Help: "Retries per name before giving up. Raise it on lossy links."},
 
 	// --- port scanning ---
 	{Key: "ports", Tool: "naabu", Label: "Port set", Kind: KindPorts,
@@ -57,20 +81,43 @@ var Specs = []Spec{
 		Min: 1, Max: 1000, Default: "20", Help: "Higher is faster but far more likely to be rate-limited or blocked."},
 	{Key: "naabu_concurrency", Tool: "naabu", Label: "Concurrency", Kind: KindInt,
 		Min: 1, Max: 64, Default: "4", Help: "Parallel hosts scanned at once."},
+	{Key: "naabu_timeout_ms", Tool: "naabu", Label: "Port timeout (ms)", Kind: KindInt,
+		Min: 100, Max: 10000, Default: "1000", Help: "How long to wait for a port to answer. Raise it for distant or slow hosts."},
+	{Key: "naabu_retries", Tool: "naabu", Label: "Retries", Kind: KindInt,
+		Min: 1, Max: 5, Default: "1", Help: "Retries per port. Higher finds more on lossy links, and takes longer."},
 
 	// --- service versions ---
 	{Key: "nmap_min_rate", Tool: "nmap", Label: "Minimum rate", Kind: KindInt,
 		Min: 100, Max: 50000, Default: "10000", Help: "nmap --min-rate. Applies only to ports naabu already found open."},
+	{Key: "nmap_timing", Tool: "nmap", Label: "Timing template", Kind: KindEnum,
+		Enum: []string{"T0", "T1", "T2", "T3", "T4", "T5"}, Default: "T4",
+		Help: "T0 is paranoid and very slow, T5 is fastest and most likely to be dropped or noticed. T4 is the usual choice."},
+	{Key: "nmap_version_intensity", Tool: "nmap", Label: "Version intensity", Kind: KindInt,
+		Min: 0, Max: 9, Default: "7", Help: "How hard nmap works to identify a service. 9 tries every probe; 0 only the likeliest."},
+	{Key: "nmap_max_retries", Tool: "nmap", Label: "Max retries", Kind: KindInt,
+		Min: 0, Max: 10, Default: "3", Help: "Probe retransmissions per port."},
 
 	// --- web discovery ---
 	{Key: "katana_depth", Tool: "katana", Label: "Crawl depth", Kind: KindInt,
 		Min: 1, Max: 10, Default: "3", Help: "How many links deep to crawl."},
 	{Key: "katana_rate_limit", Tool: "katana", Label: "Requests per second", Kind: KindInt,
 		Min: 1, Max: 200, Default: "10", Help: "Crawl rate limit."},
+	{Key: "katana_concurrency", Tool: "katana", Label: "Concurrency", Kind: KindInt,
+		Min: 1, Max: 50, Default: "3", Help: "Parallel fetches while crawling."},
+	{Key: "katana_js_crawl", Tool: "katana", Label: "Parse JavaScript", Kind: KindBool,
+		Default: "false", Help: "Pull endpoints out of JavaScript files. Finds more on single-page apps; slower."},
+	{Key: "katana_max_urls", Tool: "katana", Label: "Max URLs kept", Kind: KindInt,
+		Min: 100, Max: 20000, Default: "2000", Help: "Upper bound on crawled URLs carried into directory search."},
 	{Key: "httpx_delay_s", Tool: "httpx", Label: "Delay between requests (s)", Kind: KindInt,
 		Min: 0, Max: 10, Default: "1", Help: "Politeness delay when probing web services."},
 	{Key: "httpx_timeout_s", Tool: "httpx", Label: "Request timeout (s)", Kind: KindInt,
 		Min: 1, Max: 120, Default: "10", Help: "Per-request timeout."},
+	{Key: "httpx_threads", Tool: "httpx", Label: "Threads", Kind: KindInt,
+		Min: 1, Max: 200, Default: "50", Help: "Concurrent probes."},
+	{Key: "httpx_retries", Tool: "httpx", Label: "Retries", Kind: KindInt,
+		Min: 0, Max: 5, Default: "1", Help: "Retries per endpoint."},
+	{Key: "httpx_follow_redirects", Tool: "httpx", Label: "Follow redirects", Kind: KindBool,
+		Default: "true", Help: "Follow 3xx responses to the final destination. Turn off to record the redirect itself."},
 
 	// --- directory search ---
 	{Key: "dir_wordlist", Tool: "gobuster", Label: "Wordlist", Kind: KindWordlist,
@@ -79,15 +126,25 @@ var Specs = []Spec{
 		Min: 1, Max: 30, Default: "10", Help: "This is the loudest stage; keep it modest against production hosts."},
 	{Key: "dir_exclude_length", Tool: "gobuster", Label: "Exclude response length", Kind: KindInt,
 		Min: 0, Max: 1000000, Default: "0", Help: "Filter out uniform-size false positives. 0 disables it."},
+	{Key: "dir_extensions", Tool: "gobuster", Label: "Extensions", Kind: KindCSV,
+		Default: "", Help: "Try these file extensions on every word, e.g. php,html,bak. Empty means directories only."},
+	{Key: "dir_status_codes", Tool: "gobuster", Label: "Status codes", Kind: KindCSV,
+		Default: "", Help: "Treat only these responses as hits, e.g. 200,204,301,401. Empty uses gobuster's own defaults."},
 
 	// --- vulnerabilities ---
 	{Key: "nuclei_severity", Tool: "nuclei", Label: "Minimum severity", Kind: KindEnum,
 		Enum: []string{"all", "info", "low", "medium", "high", "critical"}, Default: "low",
 		Help: "Only run templates at or above this severity."},
+	{Key: "nuclei_rate_limit", Tool: "nuclei", Label: "Requests per second", Kind: KindInt,
+		Min: 1, Max: 500, Default: "150", Help: "Global request rate. Lower it against fragile targets."},
+	{Key: "nuclei_concurrency", Tool: "nuclei", Label: "Concurrency", Kind: KindInt,
+		Min: 1, Max: 100, Default: "25", Help: "Templates executed in parallel."},
+	{Key: "nuclei_timeout_s", Tool: "nuclei", Label: "Request timeout (s)", Kind: KindInt,
+		Min: 1, Max: 60, Default: "10", Help: "Per-request timeout."},
 }
 
 // ToolOrder is the pipeline order used to group the settings UI.
-var ToolOrder = []string{"shuffledns", "dnsx", "naabu", "nmap", "katana", "httpx", "gobuster", "nuclei"}
+var ToolOrder = []string{"subfinder", "shuffledns", "dnsx", "naabu", "nmap", "katana", "httpx", "gobuster", "nuclei"}
 
 var specByKey = func() map[string]Spec {
 	m := map[string]Spec{}
@@ -139,6 +196,13 @@ func validateOne(spec Spec, v string) error {
 			}
 		}
 		return fmt.Errorf("must be one of %v", spec.Enum)
+	case KindCSV:
+		if v == "" {
+			return nil // empty means "leave the tool's own default alone"
+		}
+		if !csvRe.MatchString(v) {
+			return fmt.Errorf("only letters, digits, dot, dash, underscore and commas; cannot start with '-'")
+		}
 	case KindPorts:
 		switch {
 		case v == "top-100" || v == "top-1000" || v == "full":

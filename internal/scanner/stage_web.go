@@ -90,12 +90,20 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 
 	if have("httpx") {
 		// Tools.md: httpx -title -sc -cl -location -fr -silent -delay 1s
-		rows, _ := runJSONL(ctx, 3*time.Minute, "httpx",
-			"-silent", "-json", "-title", "-sc", "-cl", "-location", "-fr",
+		pr := jobParams(job)
+		hxArgs := []string{
+			"-silent", "-json", "-title", "-sc", "-cl", "-location",
 			"-tech-detect",
-			"-delay", jobParams(job).intStr("httpx_delay_s", "1")+"s",
-			"-timeout", jobParams(job).intStr("httpx_timeout_s", "10"),
-			"-u", url)
+			"-delay", pr.intStr("httpx_delay_s", "1") + "s",
+			"-timeout", pr.intStr("httpx_timeout_s", "10"),
+			"-threads", pr.intStr("httpx_threads", "50"),
+			"-retries", pr.intStr("httpx_retries", "1"),
+		}
+		if pr.boolVal("httpx_follow_redirects", true) {
+			hxArgs = append(hxArgs, "-fr")
+		}
+		hxArgs = append(hxArgs, "-u", url)
+		rows, _ := runJSONL(ctx, 3*time.Minute, "httpx", hxArgs...)
 		for _, r := range rows {
 			obs = append(obs, scanproto.Observation{
 				Type: scanproto.ObsHTTP, IP: ip, Port: port,

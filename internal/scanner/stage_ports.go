@@ -30,7 +30,9 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 		// Tools.md defaults, overridable per Phase 15 (already validated).
 		args := []string{"-silent", "-json", "-host", ip,
 			"-c", pr.intStr("naabu_concurrency", "4"),
-			"-rate", pr.intStr("naabu_rate", "20")}
+			"-rate", pr.intStr("naabu_rate", "20"),
+			"-timeout", pr.intStr("naabu_timeout_ms", "1000"),
+			"-retries", pr.intStr("naabu_retries", "1")}
 		switch ports := pr.str("ports", ""); {
 		case ports == "full" || deep:
 			args = append(args, "-p", "-")
@@ -63,7 +65,7 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 	// nmap -sV over naabu's hits only (worker-pipeline.md §2: keep nmap for
 	// non-web service versions, never full-range).
 	if len(open) > 0 && have("nmap") {
-		obs = append(obs, nmapVersions(ctx, ip, open, deep, pr.intStr("nmap_min_rate", "10000"))...)
+		obs = append(obs, nmapVersions(ctx, ip, open, deep, pr)...)
 	}
 	return obs, nil
 }
@@ -88,7 +90,7 @@ func connectScan(ctx context.Context, ip string, ports []int) []int {
 
 // nmapVersions runs the Tools.md nmap profile against a known port list.
 // `-A` (OS + script + traceroute) is deep-only: it is slow and very loud.
-func nmapVersions(ctx context.Context, ip string, ports []int, deep bool, minRate string) []scanproto.Observation {
+func nmapVersions(ctx context.Context, ip string, ports []int, deep bool, pr params) []scanproto.Observation {
 	list := ""
 	for i, p := range ports {
 		if i > 0 {
@@ -100,9 +102,10 @@ func nmapVersions(ctx context.Context, ip string, ports []int, deep bool, minRat
 	args := []string{
 		"-Pn", "--open",
 		"--min-hostgroup", "256",
-		"--min-rate", minRate,
-		"--max-retries", "3",
+		"--min-rate", pr.intStr("nmap_min_rate", "10000"),
+		"--max-retries", pr.intStr("nmap_max_retries", "3"),
 		"--defeat-rst-ratelimit",
+		"-" + pr.str("nmap_timing", "T4"),
 		"-p", list,
 	}
 	if deep {
@@ -110,6 +113,7 @@ func nmapVersions(ctx context.Context, ip string, ports []int, deep bool, minRat
 	} else {
 		args = append(args, "-sV")
 	}
+	args = append(args, "--version-intensity", pr.intStr("nmap_version_intensity", "7"))
 	args = append(args, "-oG", "-", ip)
 
 	timeout := 10 * time.Minute

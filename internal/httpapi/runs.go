@@ -23,6 +23,7 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		All       bool              `json:"all"`
 		ProfileID string            `json:"profile_id"` // saved preset
 		Params    map[string]string `json:"params"`     // ad-hoc overrides
+		WordlistIDs []string        `json:"wordlist_ids"` // DNS bruteforce lists; empty = the defaults
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
@@ -53,7 +54,27 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(runTargets) == 0 {
-		writeErr(w, http.StatusBadRequest, "no matching targets (use all=true, a tag, or explicit targets)")
+		// Distinguish "this scope is empty" from "your filter matched nothing".
+		// The first is by far the common case and the fix is completely
+		// different, so saying which one it is matters.
+		all, _ := s.st.ListTargets(r.Context(), scopeID, "")
+		usable := 0
+		for _, t := range all {
+			if t.Mode != domain.ModeExclude {
+				usable++
+			}
+		}
+		switch {
+		case usable == 0:
+			writeErr(w, http.StatusBadRequest,
+				"this scope has no targets yet — add a domain or CIDR on the Dashboard before scanning")
+		case in.Tag != "":
+			writeErr(w, http.StatusBadRequest,
+				"no targets carry the tag \""+in.Tag+"\"")
+		default:
+			writeErr(w, http.StatusBadRequest,
+				"none of the selected targets are in this scope")
+		}
 		return
 	}
 
@@ -85,6 +106,27 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Which wordlists this run brute-forces with. An empty selection means the
+	// registry defaults, so a standard scan picks up the shipped assetnote
+	// lists without the caller having to name them.
+	var wlIDs []uuid.UUID
+	for _, raw := range in.WordlistIDs {
+		if id, err := uuid.Parse(raw); err == nil {
+			wlIDs = append(wlIDs, id)
+		}
+	}
+	if len(wlIDs) == 0 {
+		if defs, err := s.st.DefaultWordlists(r.Context(), "dns"); err == nil {
+			for _, d := range defs {
+				wlIDs = append(wlIDs, d.ID)
+			}
+		}
+	}
+	if err := s.st.SetRunWordlists(r.Context(), run.ID, wlIDs); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	if err := s.st.SetRunParams(r.Context(), run.ID, profileID, effective); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

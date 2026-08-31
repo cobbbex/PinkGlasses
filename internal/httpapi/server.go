@@ -11,6 +11,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/benlik386/asm/internal/audit"
+	"github.com/benlik386/asm/internal/config"
+	"github.com/benlik386/asm/internal/obj"
 	"github.com/benlik386/asm/internal/domain"
 	"github.com/benlik386/asm/internal/planner"
 	"github.com/benlik386/asm/internal/store"
@@ -22,6 +24,7 @@ type Server struct {
 	planner *planner.Planner
 	audit   *audit.Logger
 	hub     *SSEHub
+	obj     *obj.Store // wordlist uploads land here, not in the database
 }
 
 // New builds the API server.
@@ -31,6 +34,7 @@ func New(st *store.Store) *Server {
 		planner: planner.New(st),
 		audit:   audit.New(st),
 		hub:     NewSSEHub(),
+		obj:     obj.New(config.LoadAPI().S3),
 	}
 }
 
@@ -68,6 +72,7 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/scopes/{scopeID}/domains", s.listDomains)
 		r.Get("/scopes/{scopeID}/graph", s.domainGraph)
 		r.Get("/scopes/{scopeID}/hosts", s.listHosts)
+		r.Get("/scopes/{scopeID}/hostrows", s.listHostRows)
 		r.Get("/hosts/{ipID}/services", s.hostServices)
 		r.Get("/scopes/{scopeID}/search", s.search)
 		r.Get("/search", s.searchGlobal) // cross-company, Shodan-style
@@ -75,6 +80,12 @@ func (s *Server) Routes() http.Handler {
 		r.Patch("/findings/{findingID}", s.patchFinding)
 
 		// fleet
+		// wordlists
+		r.Get("/wordlists", s.listWordlists)
+		r.Post("/wordlists", s.uploadWordlist)
+		r.Patch("/wordlists/{wordlistID}", s.patchWordlist)
+		r.Delete("/wordlists/{wordlistID}", s.deleteWordlist)
+
 		r.Get("/workers", s.listWorkers)
 		r.Post("/workers/enrollment-tokens", s.createEnrollmentToken)
 		r.Get("/workers/provision", s.getProvisionStatus)

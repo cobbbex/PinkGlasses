@@ -78,6 +78,13 @@ function LaunchModal({
 
   // Manual setup: per-tool parameter overrides, off by default so the common
   // case stays a two-click scan.
+  // A scan over a scope with no targets can only fail, so the modal checks
+  // first and offers the fix rather than letting the request 400.
+  const { data: targets } = useQuery({
+    queryKey: ["targets", scopeID], queryFn: () => api.targets(scopeID),
+  });
+  const usable = (targets ?? []).filter((t) => t.mode !== "exclude");
+
   const [manual, setManual] = useState(false);
   const [params, setParams] = useState<Record<string, string>>({});
   const [presetID, setPresetID] = useState("");
@@ -113,9 +120,22 @@ function LaunchModal({
       title="Start a scan" open={open} onClose={close} wide={manual}
       footer={<>
         <button className="ghost" onClick={close}>Cancel</button>
-        <button onClick={start} disabled={busy}>{busy ? "Starting…" : "Start scan"}</button>
+        <button onClick={start} disabled={busy || usable.length === 0}>
+          {busy ? "Starting…" : `Start scan${usable.length ? ` (${usable.length} target${usable.length === 1 ? "" : "s"})` : ""}`}
+        </button>
       </>}
     >
+      {usable.length === 0 && (
+        <div className="empty" style={{ marginBottom: 14, borderColor: "var(--warn)" }}>
+          <p style={{ marginTop: 0 }}>
+            This scope has no targets yet, so there is nothing to scan.
+          </p>
+          <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
+            A scope is a container — naming it after a domain does not add that domain.
+            Add a domain or CIDR on the <strong>Dashboard</strong> first.
+          </p>
+        </div>
+      )}
       <p className="muted" style={{ marginTop: 0 }}>
         The run covers every non-excluded target in this company. Targets without an
         active-scanning authorization are skipped automatically.

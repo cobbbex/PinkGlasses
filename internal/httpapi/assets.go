@@ -38,6 +38,22 @@ func (s *Server) domainGraph(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, buildGraph(edges))
 }
 
+// listHostRows serves the unified Hosts view: every subdomain with the address
+// it resolves to and that address's ASN provenance.
+func (s *Server) listHostRows(w http.ResponseWriter, r *http.Request) {
+	scopeID, err := uuid.Parse(chi.URLParam(r, "scopeID"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad scope id")
+		return
+	}
+	out, err := s.st.HostRows(r.Context(), scopeID, r.URL.Query().Get("q"), 500)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 func (s *Server) listHosts(w http.ResponseWriter, r *http.Request) {
 	scopeID, err := uuid.Parse(chi.URLParam(r, "scopeID"))
 	if err != nil {
