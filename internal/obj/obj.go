@@ -47,7 +47,12 @@ func (s *Store) presign(method, key string, expiry time.Duration, now time.Time)
 		region = "us-east-1"
 	}
 	key = strings.TrimPrefix(key, "/")
-	canonicalURI := "/" + s.cfg.Bucket + "/" + uriEncodePath(key)
+	// An empty key addresses the bucket itself, which is how the bucket is
+	// created (PUT /{bucket}).
+	canonicalURI := "/" + s.cfg.Bucket
+	if key != "" {
+		canonicalURI += "/" + uriEncodePath(key)
+	}
 
 	amzDate := now.UTC().Format("20060102T150405Z")
 	dateStamp := now.UTC().Format("20060102")

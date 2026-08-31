@@ -185,6 +185,68 @@ func (s *Server) runTargets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
+// runActivity answers "which workers are on this scan, and what are they doing".
+func (s *Server) runActivity(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "runID"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad run id")
+		return
+	}
+	acts, err := s.st.RunActivity(r.Context(), id, 200)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	stages, err := s.st.RunStages(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Roll the tasks up per worker so the caller does not have to.
+	type workerBusy struct {
+		Name    string   `json:"name"`
+		Kind    string   `json:"kind"`
+		Running int      `json:"running"`
+		Done    int      `json:"done"`
+		Stages  []string `json:"stages"`
+	}
+	byWorker := map[string]*workerBusy{}
+	seenStage := map[string]bool{}
+	for _, a := range acts {
+		if a.WorkerName == nil {
+			continue
+		}
+		wb := byWorker[*a.WorkerName]
+		if wb == nil {
+			kind := ""
+			if a.WorkerKind != nil {
+				kind = *a.WorkerKind
+			}
+			wb = &workerBusy{Name: *a.WorkerName, Kind: kind}
+			byWorker[*a.WorkerName] = wb
+		}
+		switch a.Status {
+		case "running", "leased":
+			wb.Running++
+			if k := *a.WorkerName + "|" + a.Stage; !seenStage[k] {
+				seenStage[k] = true
+				wb.Stages = append(wb.Stages, a.Stage)
+			}
+		case "done":
+			wb.Done++
+		}
+	}
+	workers := []workerBusy{}
+	for _, wb := range byWorker {
+		workers = append(workers, *wb)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tasks": acts, "stages": stages, "workers": workers,
+	})
+}
+
 func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "runID")
 	s.hub.stream(w, r, id)

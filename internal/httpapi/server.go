@@ -65,6 +65,7 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/runs/{runID}", s.getRun)
 		r.Get("/runs/{runID}/targets", s.runTargets)
 		r.Get("/runs/{runID}/events", s.runEvents)
+		r.Get("/runs/{runID}/activity", s.runActivity)
 		r.Get("/runs/{runID}/diff", s.runDiff)
 		r.Post("/runs/{runID}/cancel", s.cancelRun)
 

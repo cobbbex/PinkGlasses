@@ -55,3 +55,31 @@ func (s *Store) Exists(ctx context.Context, key string) bool {
 	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
+
+// EnsureBucket creates the configured bucket if it does not exist. Nothing else
+// in the stack creates it, and a fresh MinIO volume starts empty, so every
+// upload path calls this first. Creating an existing bucket is a no-op.
+func (s *Store) EnsureBucket(ctx context.Context) error {
+	url, err := s.PresignPut("", 10*time.Minute, time.Now())
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return fmt.Errorf("create bucket: %w", err)
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode < 300:
+		return nil
+	case resp.StatusCode == http.StatusConflict: // already owned by us
+		return nil
+	default:
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("create bucket: %s: %s", resp.Status, string(body))
+	}
+}

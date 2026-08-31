@@ -68,7 +68,7 @@ func main() {
 		case <-ticker.C:
 			tick(ctx, st, pl, df)
 			if time.Since(lastSweep) >= sweepEvery {
-				sweep(ctx, st)
+				sweep(ctx, st, seeder)
 				lastSweep = time.Now()
 			}
 		}
@@ -104,7 +104,12 @@ func tick(ctx context.Context, st *store.Store, pl *planner.Planner, df *diff.Di
 	}
 }
 
-func sweep(ctx context.Context, st *store.Store) {
+func sweep(ctx context.Context, st *store.Store, seeder *wordlists.Seeder) {
+	// Retry any wordlist still missing its file. Downloads fail for transient
+	// reasons (object storage not up yet, a slow CDN); without this a failure
+	// at boot would need a restart to clear.
+	go seeder.Run(ctx)
+
 	// Mark workers stale after 90s without a heartbeat.
 	if n, err := st.MarkStaleWorkers(ctx, 90*time.Second); err == nil && n > 0 {
 		slog.Info("marked stale workers", "count", n)

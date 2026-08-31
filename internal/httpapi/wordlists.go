@@ -97,6 +97,7 @@ func (s *Server) uploadWordlist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_ = s.obj.EnsureBucket(r.Context())
 	if err := s.obj.Put(r.Context(), key, tmp, size, "text/plain"); err != nil {
 		_ = s.st.MarkWordlistFailed(r.Context(), id, err.Error())
 		writeErr(w, http.StatusBadGateway, "object storage: "+err.Error())

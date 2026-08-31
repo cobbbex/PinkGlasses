@@ -31,6 +31,11 @@ func NewSeeder(st *store.Store, o *obj.Store) *Seeder { return &Seeder{st: st, o
 // Run fetches every wordlist still waiting for its file. Safe to call
 // repeatedly: entries already marked ready are skipped.
 func (s *Seeder) Run(ctx context.Context) {
+	// The bucket may not exist yet on a fresh volume; creating it is a no-op
+	// when it already does.
+	if err := s.obj.EnsureBucket(ctx); err != nil {
+		slog.Warn("wordlists: could not ensure bucket", "err", err)
+	}
 	pending, err := s.st.PendingWordlists(ctx)
 	if err != nil {
 		slog.Error("wordlists: list pending", "err", err)

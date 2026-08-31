@@ -1,6 +1,7 @@
 package store
 
 import (
+	"time"
 	"context"
 	"encoding/json"
 
@@ -133,6 +134,19 @@ func (s *Store) LeaseTasks(ctx context.Context, workerID uuid.UUID, caps []strin
 		})
 	}
 	return jobs, rows.Err()
+}
+
+// ExtendLeaseForWorker pushes a task's lease expiry forward on the authority of
+// the worker holding it. Heartbeats arrive over the worker's authenticated
+// control channel and do not carry the lease token, so the worker id is what
+// proves ownership here. Without this a task that outlives the lease TTL —
+// subfinder alone can — is reaped and retried forever.
+func (s *Store) ExtendLeaseForWorker(ctx context.Context, taskID, workerID uuid.UUID, secs int) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE scan_task SET lease_expires_at = now() + make_interval(secs => $3), status='running'
+		WHERE id=$1 AND worker_id=$2 AND status IN ('leased','running')`,
+		taskID, workerID, secs)
+	return err
 }
 
 // ExtendLease pushes a task's lease expiry forward (heartbeat).
@@ -289,6 +303,95 @@ func (s *Store) OriginsForTask(ctx context.Context, taskID uuid.UUID) ([]uuid.UU
 			return nil, err
 		}
 		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// Activity is one task's live state, joined to the worker executing it. This is
+// what answers "which workers are on this scan and what are they doing".
+type Activity struct {
+	TaskID     uuid.UUID  `json:"task_id"`
+	Stage      string     `json:"stage"`
+	Target     string     `json:"target"`
+	Status     string     `json:"status"`
+	Attempts   int        `json:"attempts"`
+	WorkerID   *uuid.UUID `json:"worker_id,omitempty"`
+	WorkerName *string    `json:"worker_name,omitempty"`
+	WorkerKind *string    `json:"worker_kind,omitempty"`
+	StartedAt  *time.Time `json:"started_at,omitempty"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	Error      *string    `json:"error,omitempty"`
+}
+
+// RunActivity returns in-flight tasks first, then the most recently finished,
+// so the view leads with what is happening right now.
+func (s *Store) RunActivity(ctx context.Context, runID uuid.UUID, limit int) ([]Activity, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT t.id, t.stage,
+		       COALESCE(t.target->>'domain', t.target->>'ip', t.target->>'url',
+		                t.target->>'cidr', ''),
+		       t.status, t.attempts,
+		       t.worker_id, w.name, w.kind,
+		       t.started_at, t.finished_at, t.error
+		FROM scan_task t
+		LEFT JOIN worker w ON w.id = t.worker_id
+		WHERE t.run_id = $1
+		ORDER BY
+		  CASE t.status WHEN 'running' THEN 0 WHEN 'leased' THEN 1
+		                WHEN 'pending' THEN 2 ELSE 3 END,
+		  t.finished_at DESC NULLS LAST, t.started_at DESC NULLS LAST
+		LIMIT $2`, runID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Activity{}
+	for rows.Next() {
+		var a Activity
+		if err := rows.Scan(&a.TaskID, &a.Stage, &a.Target, &a.Status, &a.Attempts,
+			&a.WorkerID, &a.WorkerName, &a.WorkerKind,
+			&a.StartedAt, &a.FinishedAt, &a.Error); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// StageCount summarises progress for one pipeline stage of a run.
+type StageCount struct {
+	Stage   string `json:"stage"`
+	Pending int    `json:"pending"`
+	Active  int    `json:"active"`
+	Done    int    `json:"done"`
+	Failed  int    `json:"failed"`
+}
+
+// RunStages returns per-stage counts so the UI can show where a run actually is
+// rather than a single undifferentiated progress bar.
+func (s *Store) RunStages(ctx context.Context, runID uuid.UUID) ([]StageCount, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT stage,
+		       count(*) FILTER (WHERE status='pending'),
+		       count(*) FILTER (WHERE status IN ('leased','running')),
+		       count(*) FILTER (WHERE status='done'),
+		       count(*) FILTER (WHERE status='failed')
+		FROM scan_task WHERE run_id=$1
+		GROUP BY stage ORDER BY min(priority), stage`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []StageCount{}
+	for rows.Next() {
+		var c StageCount
+		if err := rows.Scan(&c.Stage, &c.Pending, &c.Active, &c.Done, &c.Failed); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
 	}
 	return out, rows.Err()
 }

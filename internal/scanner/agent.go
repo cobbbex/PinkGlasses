@@ -242,7 +242,13 @@ func (a *Agent) heartbeat(ctx context.Context, conn *websocket.Conn) {
 func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
 	a.mark(job.TaskID, true)
 	defer a.mark(job.TaskID, false)
-	slog.Info("running job", "stage", job.Stage, "task", job.TaskID)
+
+	// One line in, one line out per task, both carrying the target — enough to
+	// follow a scan in `docker compose logs worker` without turning on debug.
+	target := describeTarget(job)
+	started := time.Now()
+	slog.Info("task started",
+		"stage", job.Stage, "target", target, "task", job.TaskID, "run", job.RunID)
 
 	obs, err := a.scanner.Run(ctx, job)
 	status := "ok"
@@ -250,6 +256,16 @@ func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
 	if err != nil {
 		status = "error"
 		errs = append(errs, err.Error())
+	}
+	logArgs := []any{
+		"stage", job.Stage, "target", target, "task", job.TaskID,
+		"status", status, "observations", len(obs),
+		"took", time.Since(started).Round(time.Millisecond).String(),
+	}
+	if err != nil {
+		slog.Error("task failed", append(logArgs, "err", err)...)
+	} else {
+		slog.Info("task finished", logArgs...)
 	}
 	// Chunk large result sets; send a final closing batch.
 	const batch = 500
@@ -301,6 +317,32 @@ func (a *Agent) mark(taskID string, running bool) {
 		delete(a.running, taskID)
 	}
 	a.mu.Unlock()
+}
+
+// describeTarget renders a job's target for logs: whichever of domain, ip, url
+// or cidr the stage actually works on.
+func describeTarget(job scanproto.Job) string {
+	if len(job.Targets) == 0 {
+		return ""
+	}
+	t := job.Targets[0]
+	switch {
+	case t.Domain != "":
+		if job.Params.WordlistName != "" {
+			return t.Domain + " [" + job.Params.WordlistName + "]"
+		}
+		return t.Domain
+	case t.URL != "":
+		return t.URL
+	case t.IP != "":
+		if t.Port != 0 {
+			return fmt.Sprintf("%s:%d", t.IP, t.Port)
+		}
+		return t.IP
+	case t.CIDR != "":
+		return t.CIDR
+	}
+	return ""
 }
 
 // --- capability & tool detection (worker-pipeline.md, architecture.md §6.2) ---

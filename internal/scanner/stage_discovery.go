@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"sync"
 	"net"
 	"sort"
 	"strconv"
@@ -116,7 +117,7 @@ func (s *Scanner) resolveNames(ctx context.Context, names []string, pr params) [
 // resolveWithDNSX pipes the candidate list through `dnsx -silent -json`, which
 // also filters wildcard responses that would otherwise create phantom hosts.
 func (s *Scanner) resolveWithDNSX(ctx context.Context, names []string, pr params) []scanproto.Observation {
-	dnsxArgs := []string{"-silent", "-json", "-a", "-aaaa", "-resp", "-asn",
+	dnsxArgs := []string{"-silent", "-json", "-a", "-aaaa", "-resp",
 		"-t", pr.intStr("dnsx_threads", "100"),
 		"-retries", pr.intStr("dnsx_retries", "2")}
 	if rl := pr.intStr("dnsx_rate_limit", "0"); rl != "0" {
@@ -138,8 +139,6 @@ func (s *Scanner) resolveWithDNSX(ctx context.Context, names []string, pr params
 		if host == "" {
 			continue
 		}
-		asn, asName, asRange := parseDNSXASN(r)
-
 		for _, key := range []string{"a", "aaaa"} {
 			vals, _ := r[key].([]any)
 			for _, v := range vals {
@@ -150,72 +149,102 @@ func (s *Scanner) resolveWithDNSX(ctx context.Context, names []string, pr params
 				obs = append(obs, scanproto.Observation{
 					Type: scanproto.ObsDNSRecord, Domain: host, RType: rtypeOf(ip), Value: ip,
 				})
-				if !enriched[ip] && (asn != 0 || asName != "" || asRange != "") {
-					enriched[ip] = true
-					obs = append(obs, scanproto.Observation{
-						Type: scanproto.ObsIP, IP: ip,
-						ASN: asn, ASOrg: asName, ASRange: asRange,
-					})
-				}
+				enriched[ip] = true
 			}
 		}
 	}
 
 	// Second pass: reverse DNS for the addresses we just resolved. PTR is a
 	// property of the address, not the name, so it needs the IPs as input.
-	obs = append(obs, s.reverseDNS(ctx, keysOfBool(enriched, obs), pr)...)
+	obs = append(obs, s.enrichAddresses(ctx, keysOfBool(enriched, obs), pr)...)
 	return obs
 }
 
-// reverseDNS asks dnsx for the PTR record of each address.
-func (s *Scanner) reverseDNS(ctx context.Context, ips []string, pr params) []scanproto.Observation {
+// enrichAddresses fills in the per-address facts: reverse DNS via dnsx, and AS
+// number, name and announcing prefix via Team Cymru. Both are properties of the
+// address rather than the name, so they run once per unique address no matter
+// how many subdomains point at it.
+func (s *Scanner) enrichAddresses(ctx context.Context, ips []string, pr params) []scanproto.Observation {
 	if len(ips) == 0 {
 		return nil
 	}
-	rows, err := runJSONLStdin(ctx, 3*time.Minute, strings.Join(ips, "\n"),
-		"dnsx", "-silent", "-json", "-ptr", "-resp",
-		"-t", pr.intStr("dnsx_threads", "100"))
-	if err != nil {
-		return nil
+	ptr := map[string]string{}
+	if have("dnsx") {
+		rows, err := runJSONLStdin(ctx, 3*time.Minute, strings.Join(ips, "\n"),
+			"dnsx", "-silent", "-json", "-ptr", "-resp",
+			"-t", pr.intStr("dnsx_threads", "100"))
+		if err == nil {
+			for _, r := range rows {
+				ip := str(r, "host")
+				ptrs, _ := r["ptr"].([]any)
+				if ip == "" || len(ptrs) == 0 {
+					continue
+				}
+				if name, _ := ptrs[0].(string); name != "" {
+					ptr[ip] = normalizeHost(name)
+				}
+			}
+		}
 	}
+
+	// Cymru lookups are independent per address; a small worker pool keeps a
+	// large address set from taking minutes serially.
+	type result struct {
+		ip   string
+		info ASNInfo
+		ok   bool
+	}
+	asn := newASNResolver()
+	jobs := make(chan string)
+	out := make(chan result)
+	workers := 16
+	if len(ips) < workers {
+		workers = len(ips)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ip := range jobs {
+				info, ok := asn.Lookup(ctx, ip)
+				out <- result{ip, info, ok}
+			}
+		}()
+	}
+	go func() {
+		for _, ip := range ips {
+			jobs <- ip
+		}
+		close(jobs)
+		wg.Wait()
+		close(out)
+	}()
+
+	infos := map[string]ASNInfo{}
+	for r := range out {
+		if r.ok {
+			infos[r.ip] = r.info
+		}
+	}
+
 	var obs []scanproto.Observation
-	for _, r := range rows {
-		ip := str(r, "host")
-		ptrs, _ := r["ptr"].([]any)
-		if ip == "" || len(ptrs) == 0 {
+	for _, ip := range ips {
+		info, hasASN := infos[ip]
+		name, hasPTR := ptr[ip]
+		if !hasASN && !hasPTR {
 			continue
 		}
-		if name, _ := ptrs[0].(string); name != "" {
-			obs = append(obs, scanproto.Observation{
-				Type: scanproto.ObsIP, IP: ip, PTR: normalizeHost(name),
-			})
-		}
+		obs = append(obs, scanproto.Observation{
+			Type: scanproto.ObsIP, IP: ip,
+			PTR:     name,
+			ASN:     info.Number,
+			ASOrg:   info.Name,
+			ASRange: info.Prefix,
+			Country: info.Country,
+		})
 	}
 	return obs
-}
-
-// parseDNSXASN pulls the ASN block out of a dnsx row. dnsx reports the number
-// as "AS15133" and the prefix list under as_range.
-func parseDNSXASN(r map[string]any) (num int, name, prefix string) {
-	a, _ := r["asn"].(map[string]any)
-	if a == nil {
-		return 0, "", ""
-	}
-	if v, _ := a["as_number"].(string); v != "" {
-		if n, err := strconv.Atoi(strings.TrimPrefix(strings.ToUpper(v), "AS")); err == nil {
-			num = n
-		}
-	}
-	name, _ = a["as_name"].(string)
-	switch rng := a["as_range"].(type) {
-	case string:
-		prefix = rng
-	case []any:
-		if len(rng) > 0 {
-			prefix, _ = rng[0].(string)
-		}
-	}
-	return num, name, prefix
 }
 
 // keysOfBool returns every address seen while resolving, whether or not it came

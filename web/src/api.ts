@@ -39,6 +39,20 @@ export interface Finding {
   id: string; asset_kind: string; asset_id: string; kind: string;
   severity: string; title: string; status: string; first_seen: string; last_seen: string;
 }
+export interface TaskActivity {
+  task_id: string; stage: string; target: string; status: string; attempts: number;
+  worker_name?: string | null; worker_kind?: string | null;
+  started_at?: string | null; finished_at?: string | null; error?: string | null;
+}
+export interface StageCount {
+  stage: string; pending: number; active: number; done: number; failed: number;
+}
+export interface WorkerBusy {
+  name: string; kind: string; running: number; done: number; stages: string[];
+}
+export interface RunActivity {
+  tasks: TaskActivity[]; stages: StageCount[]; workers: WorkerBusy[];
+}
 export interface HostRow {
   domain_id?: string | null; name: string;
   ip_id?: string | null; addr?: string | null; ptr?: string | null;
@@ -106,6 +120,7 @@ export const api = {
   createRun: (s: string, body: unknown) =>
     req<Run>(`/scopes/${s}/runs`, { method: "POST", body: JSON.stringify(body) }),
   run: (id: string) => req<{ run: Run; progress: any }>(`/runs/${id}`),
+  runActivity: (id: string) => req<RunActivity>(`/runs/${id}/activity`),
   runTargets: (id: string) => req<RunTarget[] | null>(`/runs/${id}/targets`).then((x) => x ?? []),
   cancelRun: (id: string) => req(`/runs/${id}/cancel`, { method: "POST" }),
   workers: () => req<Worker[] | null>("/workers").then((x) => x ?? []),

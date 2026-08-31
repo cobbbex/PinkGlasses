@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, RunTarget } from "../api";
+import { api, RunTarget, RunActivity } from "../api";
 import { Badge, useToast, Modal } from "../components/ui";
 import ScanSettings from "../components/ScanSettings";
 
@@ -193,6 +193,7 @@ function RunDetail({ runID }: { runID: string }) {
   if (!targets.length) return <div className="muted" style={{ padding: 12 }}>Planning…</div>;
 
   return (
+    <>
     <table style={{ margin: "6px 0" }}>
       <thead><tr><th>Target</th><th>Status</th><th>Progress</th></tr></thead>
       <tbody>
@@ -216,5 +217,99 @@ function RunDetail({ runID }: { runID: string }) {
         })}
       </tbody>
     </table>
+    <RunWorkers runID={runID} />
+    </>
   );
+}
+
+/**
+ * Live view of which workers are on this scan and what each is doing. Answers
+ * the question a progress bar cannot: is anything actually running, and where?
+ */
+function RunWorkers({ runID }: { runID: string }) {
+  const [act, setAct] = useState<RunActivity | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    const poll = () => api.runActivity(runID).then((a) => live && setAct(a)).catch(() => {});
+    poll();
+    const iv = setInterval(poll, 3000);
+    return () => { live = false; clearInterval(iv); };
+  }, [runID]);
+
+  if (!act) return null;
+  const active = act.tasks.filter((t) => t.status === "running" || t.status === "leased");
+  const recent = act.tasks.filter((t) => t.status === "done" || t.status === "failed").slice(0, 8);
+
+  return (
+    <div style={{ margin: "14px 0 6px" }}>
+      <div className="section-title" style={{ marginTop: 0 }}>Pipeline</div>
+      <div className="row" style={{ gap: 8 }}>
+        {act.stages.length === 0 && <span className="muted">No tasks planned yet.</span>}
+        {act.stages.map((st) => (
+          <span key={st.stage} className="pill" title={
+            `${st.done} done · ${st.active} running · ${st.pending} queued · ${st.failed} failed`}>
+            {st.stage}
+            <span className="muted"> {st.done}/{st.done + st.active + st.pending + st.failed}</span>
+            {st.active > 0 && <span style={{ color: "var(--accent)" }}> ●</span>}
+            {st.failed > 0 && <span className="sev-high"> ✕{st.failed}</span>}
+          </span>
+        ))}
+      </div>
+
+      <div className="section-title">Workers on this scan</div>
+      {act.workers.length === 0 ? (
+        <div className="muted" style={{ fontSize: 13 }}>
+          No worker has picked up a task yet.
+        </div>
+      ) : (
+        <div className="row" style={{ gap: 8 }}>
+          {act.workers.map((w) => (
+            <span key={w.name} className="pill">
+              <strong>{w.name}</strong>
+              <span className="muted"> {w.kind} · {w.running} running · {w.done} done</span>
+              {w.stages.length > 0 && <span style={{ color: "var(--accent)" }}> — {w.stages.join(", ")}</span>}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="section-title">Activity</div>
+      {active.length === 0 && recent.length === 0 ? (
+        <div className="muted" style={{ fontSize: 13 }}>Nothing running.</div>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Stage</th><th>Target</th><th>Worker</th><th>Status</th><th>Took</th></tr></thead>
+            <tbody>
+              {[...active, ...recent].map((t) => (
+                <tr key={t.task_id}>
+                  <td>{t.stage}</td>
+                  <td className="mono">{t.target || "—"}</td>
+                  <td className="mono">{t.worker_name ?? <span className="muted">unassigned</span>}</td>
+                  <td>
+                    <Badge status={t.status} />
+                    {t.attempts > 1 && <span className="muted"> retry {t.attempts}</span>}
+                    {t.error && <div className="sev-high" style={{ fontSize: 11.5 }}>{t.error}</div>}
+                  </td>
+                  <td className="muted">{took(t.started_at, t.finished_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// took renders how long a task has been running, or how long it took.
+function took(start?: string | null, end?: string | null) {
+  if (!start) return "—";
+  const a = new Date(start).getTime();
+  const b = end ? new Date(end).getTime() : Date.now();
+  const s = Math.max(0, Math.round((b - a) / 1000));
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
 }

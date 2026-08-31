@@ -289,8 +289,9 @@ func (g *Gateway) readLoop(workerID uuid.UUID, conn *websocket.Conn) {
 		_ = g.st.TouchWorker(ctx, workerID, "")
 		for _, tid := range hb.RunningTasks {
 			if id, err := uuid.Parse(tid); err == nil {
-				// heartbeat extends lease; lease token verified on result submit
-				_ = g.st.ExtendLease(ctx, id, uuid.Nil, int(g.cfg.LeaseTTL.Seconds()))
+				// The heartbeat proves ownership by worker identity, not by lease
+				// token (the agent does not echo it back), so extend on that.
+				_ = g.st.ExtendLeaseForWorker(ctx, id, workerID, int(g.cfg.LeaseTTL.Seconds()))
 			}
 		}
 	}
