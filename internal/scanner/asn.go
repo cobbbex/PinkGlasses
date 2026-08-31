@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,8 +31,34 @@ type asnResolver struct {
 	names map[int]string // AS number -> name, cached per process
 }
 
+// cymruResolvers are queried directly instead of whatever /etc/resolv.conf
+// points at. In a container that is Docker's embedded resolver (127.0.0.11),
+// which does not reliably answer TXT queries — the lookups silently return
+// nothing and every address ends up with no ASN.
+var cymruResolvers = []string{"1.1.1.1:53", "8.8.8.8:53", "9.9.9.9:53"}
+
 func newASNResolver() *asnResolver {
-	return &asnResolver{names: map[int]string{}}
+	var idx uint32
+	return &asnResolver{
+		names: map[int]string{},
+		res: net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				// Round-robin so one unreachable resolver cannot stall lookups.
+				var lastErr error
+				n := atomic.AddUint32(&idx, 1)
+				for i := range cymruResolvers {
+					addr := cymruResolvers[(int(n)+i)%len(cymruResolvers)]
+					c, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, network, addr)
+					if err == nil {
+						return c, nil
+					}
+					lastErr = err
+				}
+				return nil, lastErr
+			},
+		},
+	}
 }
 
 // Lookup returns the ASN, announcing prefix, country and AS name for an address.

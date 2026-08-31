@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"net"
 	"sort"
@@ -208,6 +209,9 @@ func (s *Scanner) enrichAddresses(ctx context.Context, ips []string, pr params) 
 			defer wg.Done()
 			for ip := range jobs {
 				info, ok := asn.Lookup(ctx, ip)
+				if !ok {
+					slog.Debug("no ASN for address", "ip", ip)
+				}
 				out <- result{ip, info, ok}
 			}
 		}()
@@ -227,6 +231,9 @@ func (s *Scanner) enrichAddresses(ctx context.Context, ips []string, pr params) 
 			infos[r.ip] = r.info
 		}
 	}
+
+	slog.Info("address enrichment",
+		"addresses", len(ips), "with_asn", len(infos), "with_ptr", len(ptr))
 
 	var obs []scanproto.Observation
 	for _, ip := range ips {
