@@ -71,7 +71,13 @@ func (s *Server) putWordlistContent(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Content string `json:"content"`
 	}
-	if err := readJSON(r, &in); err != nil {
+	// Allow a little headroom over the content ceiling for JSON escaping, so an
+	// oversized list is reported as too large rather than as a decode failure.
+	if err := readJSONLimit(r, &in, maxEditableBytes+(1<<20)); err != nil {
+		if strings.Contains(err.Error(), "too large") {
+			writeErr(w, http.StatusRequestEntityTooLarge, "content exceeds the 4 MB edit limit")
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "content required")
 		return
 	}

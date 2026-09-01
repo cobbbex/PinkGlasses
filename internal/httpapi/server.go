@@ -124,8 +124,17 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 func readJSON(r *http.Request, v any) error {
+	return readJSONLimit(r, v, 1<<20)
+}
+
+// readJSONLimit decodes a JSON body with an explicit size ceiling. Most
+// endpoints take small documents and use readJSON's 1 MB default; the wordlist
+// editor posts whole files and needs a larger one, and without this a list
+// between 1 MB and the editor's own limit fails to decode and is reported as a
+// missing field rather than an oversized one.
+func readJSONLimit(r *http.Request, v any, max int64) error {
 	defer r.Body.Close()
-	return json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20)).Decode(v)
+	return json.NewDecoder(http.MaxBytesReader(nil, r.Body, max)).Decode(v)
 }
 
 var _ = slog.Default
