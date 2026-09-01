@@ -38,6 +38,39 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader, size int64, co
 	return nil
 }
 
+// Get downloads an object, refusing anything larger than max. Used to load a
+// wordlist into the editor: a 140MB brute-force list has no business being
+// pulled into a browser textarea, so the caller sets a sane ceiling.
+func (s *Store) Get(ctx context.Context, key string, max int64) ([]byte, error) {
+	url, err := s.PresignGet(key, 15*time.Minute, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("get %s: %w", key, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("get %s: %s: %s", key, resp.Status, string(body))
+	}
+	// Read one byte past the ceiling so an oversized object is detected rather
+	// than silently truncated into the editor and saved back short.
+	data, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("object is larger than %d bytes", max)
+	}
+	return data, nil
+}
+
 // Exists reports whether an object is present.
 func (s *Store) Exists(ctx context.Context, key string) bool {
 	url, err := s.PresignGet(key, 5*time.Minute, time.Now())

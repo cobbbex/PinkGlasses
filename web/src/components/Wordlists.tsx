@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, Wordlist } from "../api";
-import { useToast, InfoDot, Spinner } from "./ui";
+import { useToast, InfoDot, Spinner, Modal } from "./ui";
 
 function human(n: number) {
   if (n > 1e9) return (n / 1e9).toFixed(1) + " GB";
@@ -33,6 +33,7 @@ export default function Wordlists() {
   });
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<Wordlist | null>(null);
 
   async function upload(f: File) {
     setBusy(true);
@@ -134,7 +135,15 @@ export default function Wordlists() {
                   </label>
                 </td>
                 <td style={{ textAlign: "right" }}>
-                  {!w.builtin && <button className="danger sm" onClick={() => remove(w)}>delete</button>}
+                  <button className="ghost sm" disabled={w.status !== "ready"}
+                    title={w.size_bytes > 4 << 20
+                      ? "Too large to edit here — replace it by uploading a file"
+                      : "Edit the entries"}
+                    onClick={() => setEditing(w)}>edit</button>
+                  {!w.builtin && (
+                    <button className="danger sm" style={{ marginLeft: 6 }}
+                      onClick={() => remove(w)}>delete</button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -150,6 +159,115 @@ export default function Wordlists() {
         that finishes they show as <span className="mono">pending</span> and are skipped by
         scans. Uploads are plain text, one entry per line.
       </p>
+
+      <EditModal list={editing} onClose={() => setEditing(null)} onSaved={refetch} />
     </div>
+  );
+}
+
+/**
+ * Edits a list's entries in place. Saving rewrites the object and its content
+ * hash, so workers re-download rather than serving the previous version from
+ * their content-addressed cache.
+ */
+function EditModal({
+  list, onClose, onSaved,
+}: { list: Wordlist | null; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loadErr, setLoadErr] = useState("");
+  const [problems, setProblems] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!list) return;
+    setText(""); setLoadErr(""); setProblems([]); setLoading(true);
+    api.wordlistContent(list.id)
+      .then((r) => setText(r.content))
+      .catch((e) => setLoadErr(String(e)))
+      .finally(() => setLoading(false));
+  }, [list?.id]);
+
+  if (!list) return null;
+
+  // Mirrors the server's normalisation so the count shown matches what is saved.
+  const entries = text.split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "" && !l.startsWith("#"));
+  const unique = new Set(entries).size;
+
+  async function save() {
+    setSaving(true); setProblems([]);
+    try {
+      const saved = await api.saveWordlistContent(list!.id, text);
+      toast("ok", `Saved ${saved.name} — ${saved.line_count.toLocaleString()} entries`);
+      onSaved();
+      onClose();
+    } catch (e) {
+      // The server returns the offending lines; show them rather than a blob.
+      const msg = String(e);
+      try {
+        const parsed = JSON.parse(msg.replace(/^Error:\s*/, ""));
+        if (parsed.problems) { setProblems(parsed.problems); setSaving(false); return; }
+      } catch { /* not structured; fall through */ }
+      toast("err", msg);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Edit ${list.name}`} open={!!list} onClose={onClose}
+      footer={<>
+        <button className="ghost" onClick={onClose}>Cancel</button>
+        <button onClick={save} disabled={saving || loading || !!loadErr || unique === 0}>
+          {saving ? "Saving…" : `Save ${unique.toLocaleString()} entries`}
+        </button>
+      </>}
+    >
+      {loading ? (
+        <div className="row"><Spinner /> <span className="muted">Loading…</span></div>
+      ) : loadErr ? (
+        <div className="empty" style={{ borderColor: "var(--crit)", color: "var(--high)" }}>
+          {loadErr}
+        </div>
+      ) : (
+        <>
+          <div className="field">
+            <label>
+              {list.kind === "resolvers" ? "One resolver per line" : "One entry per line"}
+            </label>
+            <textarea
+              rows={16} spellCheck={false}
+              style={{ width: "100%", fontFamily: "ui-monospace, monospace", fontSize: 12.5 }}
+              value={text} onChange={(e) => setText(e.target.value)}
+            />
+            <div className="hint">
+              {entries.length.toLocaleString()} lines
+              {unique !== entries.length && ` · ${(entries.length - unique).toLocaleString()} duplicate(s) will be dropped`}
+              {list.kind === "resolvers"
+                ? " · IP addresses, optionally with :port. Blank lines and # comments are ignored."
+                : " · blank lines and # comments are ignored."}
+            </div>
+          </div>
+
+          {problems.length > 0 && (
+            <div className="empty" style={{ borderColor: "var(--crit)", textAlign: "left" }}>
+              <strong className="sev-high">Not saved — fix these lines:</strong>
+              <div className="pre" style={{ marginTop: 8 }}>{problems.join("\n")}</div>
+            </div>
+          )}
+
+          {list.builtin && (
+            <p className="muted" style={{ fontSize: 12.5 }}>
+              This is a built-in list. Your edits persist and will not be overwritten, but it
+              will no longer match the upstream source it was fetched from.
+            </p>
+          )}
+        </>
+      )}
+    </Modal>
   );
 }

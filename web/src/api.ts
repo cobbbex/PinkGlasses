@@ -143,6 +143,13 @@ export const api = {
     if (!res.ok) throw new Error((await res.text()) || res.statusText);
     return (await res.json()) as Wordlist;
   },
+  wordlistContent: (id: string) =>
+    req<{ id: string; name: string; kind: string; builtin: boolean; content: string }>(
+      `/wordlists/${id}/content`),
+  saveWordlistContent: (id: string, content: string) =>
+    req<Wordlist>(`/wordlists/${id}/content`, {
+      method: "PUT", body: JSON.stringify({ content }),
+    }),
   setWordlistDefault: (id: string, isDefault: boolean) =>
     req(`/wordlists/${id}`, { method: "PATCH", body: JSON.stringify({ is_default: isDefault }) }),
   deleteWordlist: (id: string) => req(`/wordlists/${id}`, { method: "DELETE" }),

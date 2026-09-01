@@ -85,6 +85,8 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/wordlists", s.listWordlists)
 		r.Post("/wordlists", s.uploadWordlist)
 		r.Patch("/wordlists/{wordlistID}", s.patchWordlist)
+		r.Get("/wordlists/{wordlistID}/content", s.getWordlistContent)
+		r.Put("/wordlists/{wordlistID}/content", s.putWordlistContent)
 		r.Delete("/wordlists/{wordlistID}", s.deleteWordlist)
 
 		r.Get("/workers", s.listWorkers)
