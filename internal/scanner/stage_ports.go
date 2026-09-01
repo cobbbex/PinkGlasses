@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -56,6 +57,9 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 		open = connectScan(ctx, ip, topPorts)
 	}
 
+	slog.Info("port scan", "ip", ip, "open", len(open), "ports", portList(open),
+		"scanner", map[bool]string{true: "naabu", false: "connect-scan"}[have("naabu")])
+
 	var obs []scanproto.Observation
 	for _, p := range open {
 		obs = append(obs, scanproto.Observation{
@@ -65,9 +69,37 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 	// nmap -sV over naabu's hits only (worker-pipeline.md §2: keep nmap for
 	// non-web service versions, never full-range).
 	if len(open) > 0 && have("nmap") {
-		obs = append(obs, nmapVersions(ctx, ip, open, deep, pr)...)
+		versions := nmapVersions(ctx, ip, open, deep, pr)
+		named := 0
+		for _, o := range versions {
+			if o.Product != "" {
+				named++
+				slog.Debug("service version", "ip", ip, "port", o.Port,
+					"product", o.Product, "version", o.Version)
+			}
+		}
+		slog.Info("service versions", "ip", ip, "ports", len(open), "identified", named)
+		obs = append(obs, versions...)
 	}
 	return obs, nil
+}
+
+// portList renders open ports for a log line, bounded so a full-range scan does
+// not emit thousands of numbers.
+func portList(ports []int) string {
+	if len(ports) == 0 {
+		return "none"
+	}
+	show := ports
+	suffix := ""
+	if len(show) > 20 {
+		show, suffix = show[:20], "…"
+	}
+	parts := make([]string, len(show))
+	for i, p := range show {
+		parts[i] = strconv.Itoa(p)
+	}
+	return strings.Join(parts, ",") + suffix
 }
 
 func connectScan(ctx context.Context, ip string, ports []int) []int {
@@ -136,7 +168,7 @@ func nmapVersions(ctx context.Context, ip string, ports []int, deep bool, pr par
 }
 
 type nmapPort struct {
-	port             int
+	port                     int
 	product, version, banner string
 }
 

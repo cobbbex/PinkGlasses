@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -74,6 +75,20 @@ func (s *Scanner) serviceProbe(ctx context.Context, job scanproto.Job) ([]scanpr
 			})
 		}
 		break // first responsive scheme wins
+	}
+	for _, o := range obs {
+		switch o.Type {
+		case scanproto.ObsHTTP:
+			slog.Info("web service", "ip", ip, "port", port,
+				"status", o.Status, "title", o.Title, "server", o.Product)
+		case scanproto.ObsTLS:
+			slog.Info("tls certificate", "ip", ip, "port", port,
+				"subject", o.SubjectCN, "issuer", o.Issuer,
+				"sans", len(o.SANs), "not_after", o.NotAfter)
+		}
+	}
+	if len(obs) == 0 {
+		slog.Info("service probe", "ip", ip, "port", port, "result", "no HTTP response")
 	}
 	return obs, nil
 }

@@ -2,12 +2,13 @@ package scanner
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
-	"sync"
 	"net"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/benlik386/asm/internal/scanproto"
@@ -77,18 +78,28 @@ func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanpro
 	sort.Strings(names)
 
 	var obs []scanproto.Observation
+	perSource := map[string]int{}
 	for _, n := range names {
 		srcs := make([]string, 0, len(found[n]))
 		for sc := range found[n] {
 			srcs = append(srcs, sc)
+			perSource[sc]++
 		}
 		sort.Strings(srcs)
 		obs = append(obs, scanproto.Observation{
 			Type: scanproto.ObsSubdomain, Domain: n, Source: strings.Join(srcs, ","),
 		})
+		slog.Debug("candidate", "name", n, "sources", strings.Join(srcs, ","))
 	}
-	obs = append(obs, s.resolveNames(ctx, names, jobParams(job))...)
-	return obs, nil
+	// Which source actually contributed matters: it is how you tell a dead API
+	// key or a rate-limited provider from a domain that simply has few names.
+	slog.Info("passive enumeration",
+		"domain", root, "candidates", len(names), "by_source", fmt.Sprint(perSource))
+
+	resolved := s.resolveNames(ctx, names, jobParams(job))
+	slog.Info("resolution", "domain", root,
+		"candidates", len(names), "observations", len(resolved))
+	return append(obs, resolved...), nil
 }
 
 // resolveNames turns candidate names into A/AAAA observations. dnsx is the
@@ -282,7 +293,6 @@ func keysOfBool(enriched map[string]bool, obs []scanproto.Observation) []string 
 	sort.Strings(out)
 	return out
 }
-
 
 func rtypeOf(ip string) string {
 	if isV6(ip) {

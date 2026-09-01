@@ -122,6 +122,9 @@ services:
       # name is left unset so each replica registers under its container
       # hostname and they are distinguishable in the fleet list
       ASM_WORKER_MAX_CONCURRENCY: "8"
+      # info logs every tool invocation and stage summary; debug adds the
+      # individual findings behind them (each candidate, port, path).
+      ASM_LOG_LEVEL: "${ASM_LOG_LEVEL:-info}"
       # Passive discovery API keys — all optional, blanks are skipped.
       # The worker renders these into subfinder's provider-config.yaml.
       DNSDUMPSTER_API_KEY: "${DNSDUMPSTER_API_KEY:-}"

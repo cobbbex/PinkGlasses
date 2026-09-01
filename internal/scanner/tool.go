@@ -7,10 +7,11 @@ package scanner
 
 import (
 	"bufio"
-	"log/slog"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
@@ -22,55 +23,93 @@ func have(name string) bool {
 	return err == nil
 }
 
-// runJSONL executes a command and returns each stdout line parsed as JSON into
-// a map. Most ProjectDiscovery tools emit newline-delimited JSON with -json.
-func runJSONL(ctx context.Context, timeout time.Duration, name string, args ...string) ([]map[string]any, error) {
+// execution is the outcome of running one scan tool.
+type execution struct {
+	name   string
+	args   []string
+	stdout bytes.Buffer
+	stderr string
+	took   time.Duration
+	err    error
+}
+
+// runTool executes a scan tool, capturing output and timing. Every invocation
+// is logged: which tool, against what, how long it took and how much it
+// produced. Without that a stage that quietly does nothing is invisible, which
+// this pipeline has already been bitten by more than once.
+func runTool(ctx context.Context, timeout time.Duration, stdin string, name string, args ...string) *execution {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	e := &execution{name: name, args: args}
 	cmd := exec.CommandContext(cctx, name, args...)
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	var errb bytes.Buffer
+	cmd.Stdout = &e.stdout
 	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
+
+	slog.Debug("tool starting", "tool", name, "args", argSummary(args))
+	start := time.Now()
+	e.err = cmd.Run()
+	e.took = time.Since(start)
+	e.stderr = errb.String()
+
+	if e.err != nil {
 		// Tools often exit non-zero yet still produce useful lines, so this is
 		// not fatal — but it must not be silent either: a rejected flag makes a
 		// stage return nothing at all, which is otherwise indistinguishable
 		// from a clean "found nothing".
-		logToolFailure(name, args, err, errb.String())
+		logToolFailure(name, args, e.err, e.stderr)
 	}
-	var rows []map[string]any
-	sc := bufio.NewScanner(&out)
-	sc.Buffer(make([]byte, 1024*1024), 8*1024*1024)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || line[0] != '{' {
-			continue
-		}
-		var m map[string]any
-		if err := json.Unmarshal([]byte(line), &m); err == nil {
-			rows = append(rows, m)
-		}
+	if errors.Is(cctx.Err(), context.DeadlineExceeded) {
+		slog.Warn("tool timed out — results are partial",
+			"tool", name, "timeout", timeout, "args", argSummary(args))
 	}
-	return rows, nil
+	return e
+}
+
+// logResult records what an invocation produced, so a run can be followed
+// tool by tool rather than only stage by stage.
+func (e *execution) logResult(results int) {
+	slog.Info("tool finished",
+		"tool", e.name,
+		"args", argSummary(e.args),
+		"results", results,
+		"took", e.took.Round(time.Millisecond).String(),
+		"ok", e.err == nil,
+	)
+}
+
+// argSummary renders a command line for logs, bounded so a port list or a
+// thousand-name stdin batch cannot flood the output.
+func argSummary(args []string) string {
+	s := strings.Join(args, " ")
+	if len(s) > 160 {
+		return s[:160] + "…"
+	}
+	return s
+}
+
+// runJSONL executes a command and returns each stdout line parsed as JSON into
+// a map. Most ProjectDiscovery tools emit newline-delimited JSON with -json.
+func runJSONL(ctx context.Context, timeout time.Duration, name string, args ...string) ([]map[string]any, error) {
+	return parseJSONL(runTool(ctx, timeout, "", name, args...))
 }
 
 // runJSONLStdin pipes stdin into a command and parses newline-delimited JSON
 // from its stdout. Several Tools.md pipelines are `cat <list> | tool ...`.
 func runJSONLStdin(ctx context.Context, timeout time.Duration, stdin string, name string, args ...string) ([]map[string]any, error) {
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, name, args...)
-	cmd.Stdin = strings.NewReader(stdin)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	var errb bytes.Buffer
-	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
-		logToolFailure(name, args, err, errb.String())
-	} // tools may exit non-zero yet still emit useful lines
+	e := runTool(ctx, timeout, stdin, name, args...)
+	slog.Debug("tool stdin", "tool", name, "lines", strings.Count(stdin, "\n"))
+	return parseJSONL(e)
+}
 
+// parseJSONL turns an invocation's stdout into rows of newline-delimited JSON.
+func parseJSONL(e *execution) ([]map[string]any, error) {
 	var rows []map[string]any
-	sc := bufio.NewScanner(&out)
+	sc := bufio.NewScanner(&e.stdout)
 	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -82,50 +121,34 @@ func runJSONLStdin(ctx context.Context, timeout time.Duration, stdin string, nam
 			rows = append(rows, m)
 		}
 	}
+	e.logResult(len(rows))
 	return rows, nil
 }
 
-// runLinesStdin pipes stdin into a command and returns its stdout lines.
-func runLinesStdin(ctx context.Context, timeout time.Duration, stdin string, name string, args ...string) ([]string, error) {
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, name, args...)
-	cmd.Stdin = strings.NewReader(stdin)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	_ = cmd.Run()
-
+// parseLines turns an invocation's stdout into trimmed non-empty lines.
+func parseLines(e *execution) ([]string, error) {
 	var lines []string
-	sc := bufio.NewScanner(&out)
+	sc := bufio.NewScanner(&e.stdout)
 	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
 	for sc.Scan() {
 		if l := strings.TrimSpace(sc.Text()); l != "" {
 			lines = append(lines, l)
 		}
 	}
+	e.logResult(len(lines))
 	return lines, nil
+}
+
+// runLinesStdin pipes stdin into a command and returns its stdout lines.
+func runLinesStdin(ctx context.Context, timeout time.Duration, stdin string, name string, args ...string) ([]string, error) {
+	e := runTool(ctx, timeout, stdin, name, args...)
+	slog.Debug("tool stdin", "tool", name, "lines", strings.Count(stdin, "\n"))
+	return parseLines(e)
 }
 
 // runLines executes a command and returns trimmed non-empty stdout lines.
 func runLines(ctx context.Context, timeout time.Duration, name string, args ...string) ([]string, error) {
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, name, args...)
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
-		logToolFailure(name, args, err, errb.String())
-	}
-	var lines []string
-	sc := bufio.NewScanner(&out)
-	sc.Buffer(make([]byte, 1024*1024), 8*1024*1024)
-	for sc.Scan() {
-		if l := strings.TrimSpace(sc.Text()); l != "" {
-			lines = append(lines, l)
-		}
-	}
-	return lines, nil
+	return parseLines(runTool(ctx, timeout, "", name, args...))
 }
 
 func str(m map[string]any, key string) string {

@@ -4,8 +4,12 @@ import "os"
 
 // Wordlist paths, overridable per worker. Defaults match the paths baked into
 // the worker image (see deploy/Dockerfile.worker).
-func wordlistDNS() string  { return envOr("ASM_WORDLIST_DNS", "/usr/share/asm/wordlists/dns-subdomains.txt") }
-func wordlistDir() string  { return envOr("ASM_WORDLIST_DIR", "/usr/share/asm/wordlists/dir-common.txt") }
+func wordlistDNS() string {
+	return envOr("ASM_WORDLIST_DNS", "/usr/share/asm/wordlists/dns-subdomains.txt")
+}
+func wordlistDir() string {
+	return envOr("ASM_WORDLIST_DIR", "/usr/share/asm/wordlists/dir-common.txt")
+}
 func resolversFile() string { return envOr("ASM_RESOLVERS", "/usr/share/asm/wordlists/resolvers.txt") }
 
 // fileExists reports whether a path is present and non-empty, so a stage can

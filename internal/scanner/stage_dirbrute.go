@@ -2,10 +2,11 @@ package scanner
 
 import (
 	"context"
-	"strconv"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -136,6 +137,14 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	// Crawled/passive paths arrive with status 0. Probe them (bounded) so every
 	// reported path carries a real HTTP status, and drop the ones that 404.
 	obs := s.probePaths(ctx, base, ip, port, seen)
+
+	byStatus := map[int]int{}
+	for _, o := range obs {
+		byStatus[o.Status]++
+		slog.Debug("path", "url", base, "path", o.Path, "status", o.Status)
+	}
+	slog.Info("content discovery", "url", base,
+		"candidates", len(seen), "confirmed", len(obs), "by_status", fmt.Sprint(byStatus))
 	return obs, nil
 }
 

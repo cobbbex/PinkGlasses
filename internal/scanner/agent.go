@@ -66,9 +66,9 @@ func NewAgent(cfg AgentConfig) *Agent {
 
 	a := &Agent{
 		providerConfig: pcPath,
-		cfg:     cfg,
-		caps:    caps,
-		scanner: &Scanner{Detected: caps, ProviderConfig: pcPath},
+		cfg:            cfg,
+		caps:           caps,
+		scanner:        &Scanner{Detected: caps, ProviderConfig: pcPath},
 		// Upload set below once the Agent exists (needs a.cfg/a.cred).
 		client:  &http.Client{Timeout: 30 * time.Second},
 		running: map[string]bool{},

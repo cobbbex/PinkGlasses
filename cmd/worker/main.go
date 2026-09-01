@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,7 +20,25 @@ import (
 // version is stamped at build time (-ldflags "-X main.version=...").
 var version = "0.1.0-dev"
 
+// setupLogging honours ASM_LOG_LEVEL (debug|info|warn|error). Scan runs are
+// long and mostly opaque, so the default is info — every tool invocation and
+// stage summary — and debug adds the individual findings behind them.
+func setupLogging() {
+	level := slog.LevelInfo
+	switch strings.ToLower(os.Getenv("ASM_LOG_LEVEL")) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+}
+
 func main() {
+	setupLogging()
+
 	// Single-stage test mode: run one tool locally and print its observations.
 	// Backs `make tool-test` and the Phase 13 gates.
 	stage := flag.String("stage", "", "run one pipeline stage locally and exit")
