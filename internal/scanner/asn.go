@@ -26,9 +26,10 @@ type ASNInfo struct {
 // carry and silently returns nothing. Cymru needs no extra binary, no API key
 // and no database file — just TXT queries — so it works on any worker.
 type asnResolver struct {
-	res   net.Resolver
-	mu    sync.Mutex
-	names map[int]string // AS number -> name, cached per process
+	res     net.Resolver
+	mu      sync.Mutex
+	names   map[int]string        // AS number -> name, cached per process
+	pending map[int]chan struct{} // AS numbers currently being looked up
 }
 
 // cymruResolvers are queried directly instead of whatever /etc/resolv.conf
@@ -40,7 +41,8 @@ var cymruResolvers = []string{"1.1.1.1:53", "8.8.8.8:53", "9.9.9.9:53"}
 func newASNResolver() *asnResolver {
 	var idx uint32
 	return &asnResolver{
-		names: map[int]string{},
+		names:   map[int]string{},
+		pending: map[int]chan struct{}{},
 		res: net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
@@ -61,45 +63,96 @@ func newASNResolver() *asnResolver {
 	}
 }
 
+// cymruAttempts is how many times an origin lookup is retried before giving up.
+// Cymru rate-limits and answers over UDP, so a single dropped reply is normal
+// under load; without a retry that silently costs an address its whole ASN.
+const cymruAttempts = 3
+
 // Lookup returns the ASN, announcing prefix, country and AS name for an address.
-func (a *asnResolver) Lookup(ctx context.Context, ip string) (ASNInfo, bool) {
+// The error is returned rather than a bare false so a systematic failure (no
+// egress, rate limiting) is distinguishable from an address genuinely having no
+// route, which is the difference between a bug and a fact.
+func (a *asnResolver) Lookup(ctx context.Context, ip string) (ASNInfo, error) {
 	q, ok := cymruOriginQuery(ip)
 	if !ok {
-		return ASNInfo{}, false
+		return ASNInfo{}, fmt.Errorf("not an IP address")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
 
-	txts, err := a.res.LookupTXT(ctx, q)
-	if err != nil || len(txts) == 0 {
-		return ASNInfo{}, false
+	var lastErr error
+	for attempt := 0; attempt < cymruAttempts; attempt++ {
+		if attempt > 0 {
+			// Brief, growing pause: retrying instantly into a rate limiter just
+			// earns another refusal.
+			select {
+			case <-ctx.Done():
+				return ASNInfo{}, ctx.Err()
+			case <-time.After(time.Duration(attempt) * 250 * time.Millisecond):
+			}
+		}
+		qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		txts, err := a.res.LookupTXT(qctx, q)
+		cancel()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if len(txts) == 0 {
+			// An empty answer is authoritative: the address has no origin record.
+			return ASNInfo{}, fmt.Errorf("no origin record")
+		}
+		// "13335 | 1.1.1.0/24 | AU | apnic | 2011-08-11"
+		parts := splitCymru(txts[0])
+		if len(parts) < 3 {
+			return ASNInfo{}, fmt.Errorf("unexpected origin record %q", txts[0])
+		}
+		// The first field can list several ASNs for multi-homed prefixes; take
+		// the first, which is the one actually announcing.
+		num, err := strconv.Atoi(strings.Fields(parts[0])[0])
+		if err != nil {
+			return ASNInfo{}, fmt.Errorf("unparsable AS number in %q", txts[0])
+		}
+		info := ASNInfo{Number: num, Prefix: parts[1], Country: parts[2]}
+		info.Name = a.name(ctx, num)
+		return info, nil
 	}
-	// "13335 | 1.1.1.0/24 | AU | apnic | 2011-08-11"
-	parts := splitCymru(txts[0])
-	if len(parts) < 3 {
-		return ASNInfo{}, false
-	}
-	// The first field can list several ASNs for multi-homed prefixes; take the
-	// first, which is the one actually announcing.
-	num, err := strconv.Atoi(strings.Fields(parts[0])[0])
-	if err != nil {
-		return ASNInfo{}, false
-	}
-	info := ASNInfo{Number: num, Prefix: parts[1], Country: parts[2]}
-	info.Name = a.name(ctx, num)
-	return info, true
+	return ASNInfo{}, lastErr
 }
 
 // name resolves an AS number to its organisation name, cached for the process.
+//
+// The lookup is single-flighted. Addresses in a scan overwhelmingly share a
+// handful of ASNs, so without this every concurrent lookup misses the cache at
+// the same moment and queries for the same AS — doubling the load on a service
+// that rate-limits, which is what loses the origin answers we actually need.
 func (a *asnResolver) name(ctx context.Context, num int) string {
 	a.mu.Lock()
 	if n, ok := a.names[num]; ok {
 		a.mu.Unlock()
 		return n
 	}
+	wait, inFlight := a.pending[num]
+	if !inFlight {
+		wait = make(chan struct{})
+		a.pending[num] = wait
+	}
 	a.mu.Unlock()
 
-	txts, err := a.res.LookupTXT(ctx, fmt.Sprintf("AS%d.asn.cymru.com", num))
+	if inFlight {
+		// Someone else is already asking; wait for their answer.
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return ""
+		}
+		a.mu.Lock()
+		n := a.names[num]
+		a.mu.Unlock()
+		return n
+	}
+
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	txts, err := a.res.LookupTXT(qctx, fmt.Sprintf("AS%d.asn.cymru.com", num))
+	cancel()
 	name := ""
 	if err == nil && len(txts) > 0 {
 		// "13335 | AU | apnic | 2011-08-11 | CLOUDFLARENET, US"
@@ -108,8 +161,14 @@ func (a *asnResolver) name(ctx context.Context, num int) string {
 		}
 	}
 	a.mu.Lock()
-	a.names[num] = name
+	// Only cache a real answer, so a rate-limited miss does not pin an empty
+	// name for the rest of the process.
+	if name != "" {
+		a.names[num] = name
+	}
+	delete(a.pending, num)
 	a.mu.Unlock()
+	close(wait)
 	return name
 }
 

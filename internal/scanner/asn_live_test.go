@@ -9,9 +9,9 @@ import (
 // Skipped automatically when there is no DNS egress.
 func TestASNLookupLive(t *testing.T) {
 	a := newASNResolver()
-	info, ok := a.Lookup(context.Background(), "1.1.1.1")
-	if !ok {
-		t.Skip("no DNS egress for Cymru lookups")
+	info, err := a.Lookup(context.Background(), "1.1.1.1")
+	if err != nil {
+		t.Skipf("no DNS egress for Cymru lookups: %v", err)
 	}
 	if info.Number != 13335 {
 		t.Errorf("AS number = %d, want 13335", info.Number)

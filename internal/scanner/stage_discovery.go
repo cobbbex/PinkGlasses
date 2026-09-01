@@ -198,21 +198,30 @@ func (s *Scanner) enrichAddresses(ctx context.Context, ips []string, pr params) 
 	asn := newASNResolver()
 	jobs := make(chan string)
 	out := make(chan result)
-	workers := 16
+	// Cymru rate-limits, so this stays modest on purpose: pushing more queries
+	// at it loses answers rather than gaining speed.
+	workers := 8
 	if len(ips) < workers {
 		workers = len(ips)
 	}
 	var wg sync.WaitGroup
+	var failOnce sync.Once
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for ip := range jobs {
-				info, ok := asn.Lookup(ctx, ip)
-				if !ok {
-					slog.Debug("no ASN for address", "ip", ip)
+				info, err := asn.Lookup(ctx, ip)
+				if err != nil {
+					// Report the first failure at Warn with its cause: a
+					// systematic problem (no egress, rate limiting) reads very
+					// differently from one address having no route, and the
+					// counts alone cannot tell them apart.
+					failOnce.Do(func() {
+						slog.Warn("ASN lookup failed", "ip", ip, "err", err)
+					})
 				}
-				out <- result{ip, info, ok}
+				out <- result{ip, info, err == nil}
 			}
 		}()
 	}
