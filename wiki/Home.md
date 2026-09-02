@@ -14,6 +14,8 @@ rationale, `architecture.md` in the repository.
 - **[Port scanning](Port-Scanning)** — which scanner runs when, the exact nmap
   and naabu command lines, every setting you can change, and what the defaults
   cost you in noise and accuracy.
+- **[Wordlists](Wordlists)** — the three kinds of list, how a run picks them,
+  how they reach a worker, and which one decides how loud a scan is.
 
 ## The pipeline in one picture
 
@@ -32,15 +34,17 @@ subdomains ─┬─────────────────┐
 | Subdomains | subfinder | stdlib resolver |
 | DNS bruteforce | shuffledns + massdns | skipped |
 | Resolution & enrichment | dnsx, Team Cymru | stdlib resolver |
-| Ports & services | naabu → **nmap -sV** | Go connect scan |
+| Ports & services | **nmap -sV** alone at top-100; naabu → nmap when wider | Go connect scan |
 | Tech & versions | httpx `-tech-detect`, nuclei | header/body fingerprint |
 | Screenshots | httpx `-screenshot` | needs the `browser` capability |
 | Directory brute | katana, urlfinder → gobuster/ffuf | built-in common-path probe |
 
-Every tool invocation is logged with its result count and duration, and a tool
-that exits cleanly while producing nothing and complaining on stderr is
-reported as a failure — that class of silent breakage has cost real debugging
-time here.
+Every tool invocation is logged with its result count and duration; a tool that
+exits cleanly while producing nothing and complaining on stderr is reported as
+a failure; and a batch of results the gateway refuses is logged by both ends
+with the reason. That class of silent breakage — the stage runs, the results
+evaporate — has cost real debugging time here, and each of those three checks
+was added after it had already happened.
 
 ## Authorization
 

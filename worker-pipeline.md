@@ -9,7 +9,8 @@
 
 ```mermaid
 flowchart TB
-    A["1 · Subdomain finding"] --> B["2 · Open ports + services"]
+    A["1 · Subdomain finding"] --> N["new addresses<br/>deduped · batched 64 per task<br/>authorized targets only"]
+    N --> B["2 · Open ports + services"]
     B --> C["3 · Technologies + versions"]
     C --> D["4 · Screenshots"]
     C --> E["5 · Directory / content brute"]
@@ -38,6 +39,12 @@ flowchart TB
 Stages 4 and 5 both consume stage 3's live-HTTP host list and run **in parallel** — a
 screenshot and a directory brute don't depend on each other.
 
+**Resolution feeds stage 2 incrementally, not through a barrier.** Addresses are handed
+forward as they appear, deduplicated so a shared address behind twenty names is scanned
+once, and grouped 64 to a task so the scanners see a real host pool. A slow wordlist no
+longer holds back scanning of the hosts already found. Addresses belonging to a
+passive-only target are dropped here: they are enumerated and resolved, never probed.
+
 ---
 
 ## Stage-by-stage
@@ -52,8 +59,8 @@ screenshot and a directory brute don't depend on each other.
 | **Team Cymru** | AS number, AS name and announcing prefix for each resolved address, over plain DNS TXT. No binary, no API key, no database file. | — |
 
 **Order:** subfinder and shuffledns run in parallel, then dnsx resolves the union. dnsx is
-the gate: only names that actually resolve move downstream, and its resolved IP set feeds
-the coalesce barrier in `architecture.md` §4.
+the gate: only names that actually resolve move downstream, and its resolved addresses are
+coalesced into port-scan batches as they arrive (`architecture.md` §4.1).
 
 **shuffledns runs as its own `dns_brute` stage, one task per wordlist.** The planner fans
 out a task per (domain × wordlist), so several lists spread across workers rather than
@@ -81,9 +88,20 @@ otherwise costs an address its whole ASN.
 | **naabu** | Fast SYN/CONNECT port discovery. Finds *which ports are open* across the deduped IP set. Needs `CAP_NET_RAW` for SYN; falls back to connect-scan without it (§6.2). | PD |
 | **nmap `-sV`** | Runs **only against the open ports naabu already found**, to get true service identity and version banners for **non-web** services (SSH, SMTP, RDP, databases, etc.). This is the piece PD does not provide — naabu tells you a port is open, not what `OpenSSH 8.9p1` is behind it. | non-PD (shelled out) |
 
-**Order:** naabu (wide, fast) → nmap `-sV` (narrow, targeted). Never run nmap across full
-port ranges — feed it naabu's hit list. This two-step is the standard fast-discovery /
-accurate-fingerprint split and keeps scan traffic proportionate.
+**Order depends on how wide the scan is**, because the two-step only pays for itself over a
+large range:
+
+| Port selection | What runs |
+|---|---|
+| `top-100` (the default) | **nmap alone.** At this width it is fast enough and returns versions in the same pass, so a separate discovery sweep adds nothing. |
+| `top-1000`, `full`, an explicit range or list, or the `deep` profile | **naabu, then nmap** against only the ports naabu reported open. |
+
+Never run nmap across a full port range — feed it naabu's hit list. Both scanners take the
+task's whole address pool at once (`-iL -`), which is what makes `--min-hostgroup` and the
+rate limits mean anything; given one address at a time they are decorative.
+
+The exact flags, every tunable and what the defaults cost in noise are in the
+[Port scanning](wiki/Port-Scanning.md) wiki page.
 
 > **Decision: nmap is kept.** It is the source of truth for non-web service versions
 > (SSH, SMTP, RDP, databases, etc.) — httpx covers web-service versions in stage 3, so
@@ -109,7 +127,13 @@ nuclei tech templates against only those. nuclei's broader vuln templates belong
 
 **Order:** consumes stage 3's live-HTTP list. Runs on `browser`-capable workers only;
 boxes without Chromium skip it (`architecture.md` §6.2). Screenshots go straight to object
-storage via presigned URL — they never transit the gateway.
+storage via presigned URL — they never transit the gateway on the way in.
+
+They do on the way out: the UI reads one through `GET /api/v1/services/{id}/screenshot`,
+which streams it from storage. A presigned URL in the page would be blocked by the app's
+`img-src 'self'` policy, and would hand a bearer token for that object to anything able to
+read the page. Screenshots are addressed by service, so the object key never leaves the
+server. A service with one offers a button on the host page and in the Hosts list.
 
 > Alternative if you want screenshots decoupled from httpx: **gowitness** (Go, standalone).
 > httpx `-screenshot` is the tighter integration and the default recommendation.
@@ -123,6 +147,12 @@ Two tools, used together:
 |---|---|---|
 | **katana** | Crawls each live site first to discover *real* linked paths, JS endpoints, and forms. Seeds the brute force with ground truth so you're not blindly guessing paths that crawling would have handed you. | PD |
 | **gobuster** *(default)* or **ffuf** | The actual content brute force against a wordlist. gobuster is what the worker reaches for first; ffuf is the fallback when gobuster is absent, and a small built-in common-path probe runs when neither is. Hits are re-probed so every reported path carries a real HTTP status. | non-PD |
+
+**The wordlist comes from the registry**, like the subdomain and resolver lists: whichever
+`dir` list is marked default is delivered to the job as a presigned URL and cached on the
+worker by content hash. A run without one falls back to the list baked into the worker
+image. Because directory search uses a single list rather than fanning out one task per
+list, marking several default picks the first by name — dispatch logs which one it used.
 
 **Order:** katana and urlfinder (crawl and passive URLs, cheap, seed real paths) → gobuster/ffuf (brute, expensive).
 Directory brute is the loudest, most rate-limit-sensitive stage — it fires many requests at
@@ -158,25 +188,33 @@ CIDR/ASN scope targets before scanning).
 
 ---
 
-## Implementation status (Phase 13)
+## Implementation status
 
-What the worker actually invokes today, verified by isolated stage gates
-(`make tool-test`). Every tool has a pure-Go fallback so a bare worker still runs.
+What the worker invokes today, and what each stage has been observed to record. A tool
+running is not the same as its results being stored, and this pipeline has lost a stage's
+entire output to that gap more than once — so the column that matters is the last one.
 
-| Stage | Tools wired | Gate |
+| Stage | Tools wired | Verified end to end |
 |---|---|---|
-| Subdomains | subfinder (keys via provider-config.yaml), shuffledns (deep) | passed on example.com |
-| Resolution | **dnsx** primary, stdlib fallback | passed (wildcard-filtered) |
-| Ports | naabu (Tools.md rate/ports) | passed on scanme.nmap.org |
-| Service versions | nmap (`-sV`; `-A -p-` deep only) | passed (OpenSSH, Apache versions) |
-| Web probe / tech | httpx (`-title -sc -cl -location -fr -tech-detect`) | passed on example.com |
-| Screenshots | httpx `-screenshot`, uploaded to object storage | capture verified |
-| Crawl | katana | passed (11,983 URLs) |
-| Dir brute | gobuster (Tools.md) / ffuf, seeded by katana + urlfinder | passed (cleaned + probed) |
-| Vulnerabilities | nuclei (stage was previously unreachable — now wired) | stage reachable |
+| Subdomains | subfinder (keys via provider-config.yaml), shuffledns | names recorded, per-wordlist tasks |
+| Resolution | **dnsx** primary, stdlib fallback | addresses + PTR, wildcard-filtered |
+| Enrichment | Team Cymru DNS TXT | ASN, AS name, announcing prefix |
+| Ports | nmap alone at `top-100`; naabu → nmap when wider | 22/tcp and 80/tcp on scanme.nmap.org |
+| Service versions | nmap `-sV` (`-A -vvv` on deep) | `OpenSSH 6.6.1p1`, `Apache 2.4.7` |
+| Web probe / tech | httpx (`-title -sc -cl -location -fr -tech-detect`) | `Apache HTTP Server 2.4.7`, `Ubuntu` |
+| Screenshots | httpx `-screenshot` → object storage | PNG stored and viewable in the UI |
+| Crawl | katana, urlfinder | seeds real paths before the brute |
+| Dir brute | gobuster (registry wordlist) / ffuf | gobuster hits recorded as findings |
+| Vulnerabilities | nuclei | stage reachable |
 
 All tool flags are overridable per run through validated scan parameters
 (`internal/scanparams`), never passed to `exec` as raw user input.
+
+Every invocation is logged with its result count and duration, a tool that exits cleanly
+while producing nothing and writing to stderr is reported as a failure, and a batch of
+results the gateway refuses is reported by both ends rather than silently dropped. Those
+three checks are what make "the stage ran" and "the stage recorded something"
+distinguishable.
 
 Not yet implemented: `gobuster dns` wildcard/vhost bruteforce (13.5); `urlfinder`
 stalls without API keys and is hard-capped/optional (13.9).

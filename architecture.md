@@ -172,6 +172,16 @@ See §6. Same repo, same module, separate binary and image.
   SSE reconnects for free and survives proxies without upgrade negotiation.
 - **Workers page:** worker list with status, egress IP, geo, version, current load, last
   heartbeat; "Add worker" wizard; approve/quarantine/drain/remove actions.
+- **Host page:** each address has its own route (`/host/<id>`) rather than a dialog, so it
+  can be opened in a tab, bookmarked and shared. It takes no scope: an address identifies
+  its own scope, which is what lets a link work from a cold start. It carries the
+  enrichment, the names resolving there, every open port with its latest observation and
+  fingerprinted technologies, its screenshot, and the findings against the host or its
+  services.
+- **Screenshots are relayed by the API**, never linked from object storage. The app's CSP
+  allows images from `self` only, so a presigned URL would be blocked with no visible
+  error, and it would embed a bearer token for that object in the page. They are addressed
+  by service id, so the object key never leaves the server.
 
 ### 3.7 Package layout
 
@@ -223,7 +233,7 @@ flowchart TB
     P1 --> D1[dns_resolve fan-out]
     P2 --> D2[dns_resolve fan-out]
 
-    D1 --> C{{"coalesce barrier<br/>dedupe IP set across ALL targets"}}
+    D1 --> C{{"coalesce<br/>dedupe IP set across ALL targets<br/>incremental · 64 per task"}}
     D2 --> C
     B1 --> C
     B2 --> C
@@ -246,10 +256,11 @@ Two domains in the same batch usually share infrastructure. Naively fanning out 
 would port-scan the same IP two, five, twenty times — wasted traffic, and enough repeated
 SYN floods from one source to get your VPS null-routed.
 
-So the planner inserts one **coalesce barrier** after DNS resolution: the union of all
-resolved IPs across all targets in the run is deduped, filtered through the scope guard,
-grouped into scan-friendly blocks, and only then fanned out. Each resulting task records
-which targets it originated from:
+So the planner **coalesces** after DNS resolution: resolved addresses from every target in
+the run are deduped against what the run has already queued, filtered through the scope
+guard, grouped into scan-friendly blocks of 64, and only then fanned out. This happens
+continuously as addresses arrive rather than once behind a barrier (§4.3). Each resulting
+task records which targets it originated from:
 
 ```sql
 CREATE TABLE task_origin (
@@ -274,16 +285,28 @@ pointed at it, so per-domain reporting stays correct after deduplication.
 - **Partial failure is normal and expected.** A run completes with per-target statuses; the
   differ processes the targets that succeeded and flags the rest as `incomplete`.
 
-### 4.3 Stage barriers
+### 4.3 Stage barriers — and why there are none left
 
-The barrier waits for `dns_brute` as well as `passive_enum` and `dns_resolve`, and takes
-the union of what all three discovered. Brute-force tasks fan out per (domain × wordlist),
-so several wordlists run as independent tasks that the dispatcher can spread across workers
-rather than serialising millions of names on one box.
+Discovery fans out per (domain × wordlist), so several wordlists run as independent tasks
+the dispatcher spreads across workers rather than serialising millions of names on one box.
 
-Only `dns_resolve → coalesce → port_scan` is a hard barrier. Everything after it pipelines:
-a host that finished port scanning goes straight to probing while other hosts are still
-being scanned. Barriers are latency; use exactly one and only where correctness demands it.
+`dns_resolve → coalesce → port_scan` used to be a hard barrier: nothing was scanned until
+every name in the run had resolved. That is the wrong trade. The barrier existed to
+deduplicate addresses — twenty names behind one address must be scanned once — but
+deduplication does not need a barrier, only memory of what has already been queued.
+
+Resolution now feeds port scanning **incrementally**. New addresses are queued as they
+appear, skipping any already scanned in this run, and grouped into batches of 64 so the
+scanners still see a real host pool. A run's task total therefore climbs while it is
+running, which the UI shows rather than hides. One slow wordlist no longer holds back
+scanning of the hosts already found, and the deduplication the barrier was there for is
+unchanged.
+
+Two constraints ride along with that queueing step, both cheap to enforce where addresses
+are already being filtered: an address belonging to a passive-only target is dropped
+rather than scanned, and CDN or shared-hosting addresses are excluded by default.
+
+Barriers are latency. There are now none in the pipeline.
 
 ---
 
@@ -557,9 +580,17 @@ losing the asset inventory.
 
 ### 5.6 Wordlists and resolvers
 
-Subdomain wordlists and DNS resolver lists are the same kind of object — a
-line-oriented file that workers need a copy of — so they share one registry table
-keyed by `kind` rather than getting parallel machinery.
+Subdomain wordlists, DNS resolver lists and directory wordlists are the same kind of
+object — a line-oriented file that workers need a copy of — so they share one registry
+table keyed by `kind` rather than getting parallel machinery.
+
+The kinds differ only in how a run consumes them. Every default `dns` list becomes its own
+`dns_brute` task, so lists brute-force in parallel across workers. A run takes one
+`resolvers` list and one `dir` list, because resolution and directory search each use a
+single file; when several are marked default the first by name wins and dispatch logs the
+choice. In all three cases the list reaches the worker as a presigned URL minted at
+dispatch — not at planning time, so it is still valid when the task is finally leased —
+and is cached on the worker by content hash.
 
 ```sql
 CREATE TABLE wordlist (
@@ -909,6 +940,13 @@ even if it has been fed a bad target (§10.3).
   task and releases the lease.
 - **Lease-token-authenticated.** A result for a task this worker does not currently hold is
   rejected, which stops a stale worker from writing over a reassigned task's results.
+- **A refused batch is reported by both ends.** The worker checks the response status and
+  logs what it discarded; the gateway logs why it refused. Ignoring the status here once
+  cost three stages their entire output: the observations were made, the task finished
+  "ok", and nothing was ever stored.
+- **An observation that cannot be stored is skipped, not fatal.** Anything recorded against
+  a service needs an address; one observation without one is dropped with a warning rather
+  than failing the batch and taking every good observation beside it.
 
 ---
 
@@ -1086,7 +1124,7 @@ painful. Domain page with the DNS record table and subdomain list. Entirely pass
 run on day one.
 
 **M2 — the Shodan half**
-`port_scan` + `service_probe` stages, the coalesce barrier and `task_origin`, scope guard
+`port_scan` + `service_probe` stages, incremental coalescing and `task_origin`, scope guard
 with authorization records, host page, service page, TLS/cert parsing.
 
 **M3 — the fleet**

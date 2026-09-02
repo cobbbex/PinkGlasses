@@ -49,7 +49,7 @@ implementations when a binary is absent, so it works before you install anything
 | Subdomains | subfinder | stdlib resolver |
 | DNS bruteforce | shuffledns + massdns | skipped |
 | Resolution & enrichment | dnsx, Team Cymru | stdlib resolver |
-| Ports & services | naabu → **nmap -sV** | Go connect-scan (+ nmap when present) |
+| Ports & services | **nmap -sV** alone at top-100; naabu → nmap when wider | Go connect-scan |
 | Tech & versions | httpx `-tech-detect`, nuclei | header/body fingerprint |
 | Screenshots | httpx `-screenshot` | (needs `browser` capability) |
 | Directory brute | katana, urlfinder → gobuster/ffuf | built-in common-path probe |
@@ -231,21 +231,36 @@ infrastructure, not present attack surface.
 
 A Map toggle renders the same data as a force-directed asset graph.
 
+**Clicking a row opens that address's own page** at `/host/<id>`, in a new tab — the
+Shodan host page for your own inventory. It carries the enrichment, every name that
+resolves there, each open port with what answered on it (banner, product and version,
+HTTP title and status, response headers, fingerprinted technologies) and the findings
+raised against the host or its services. It is a real URL, so it can be bookmarked and
+shared, and it needs no company selected to open.
+
+Services with a screenshot offer a **Screenshot** button — on the host page per service,
+and in the Hosts list per row — which opens the captured page image.
+
 ## Wordlists and resolvers
 
-**Wordlists** in the UI manages both the subdomain wordlists shuffledns brute-forces
-and the resolver lists it queries through. Both are the same kind of object — a
-line-oriented file — so they share one registry.
+**Wordlists** in the UI manages every list a scan needs: the subdomain wordlists
+shuffledns brute-forces, the resolver lists it queries through, and the directory
+wordlists gobuster brute-forces web services with. All three are the same kind of
+object — a line-oriented file — so they share one registry, under three tabs.
 
-Three lists ship as built-ins and download themselves on first boot:
+Five lists ship as built-ins and download themselves on first boot:
 
 | List | Kind | Size |
 |---|---|---|
 | assetnote `best-dns-wordlist` | subdomain | ~9.5M entries |
 | assetnote `httparchive_subdomains` | subdomain | ~3.2M entries |
+| SecLists `common.txt` | directory | ~4.7k entries |
+| SecLists `raft-medium-directories` | directory | ~30k entries |
 | trickest public resolvers | resolvers | ~12.7k entries |
 
-Until a download finishes the entry shows as `pending` and scans skip it.
+Until a download finishes the entry shows as `pending` and scans skip it; a download that
+fails shows the reason and is retried on every sweep, so a network blip heals itself
+rather than disabling the list permanently.
 
 **Files live in object storage, not in the worker image.** A worker downloads each
 list once and caches it on disk by content hash, so the same list is never fetched
@@ -264,9 +279,22 @@ otherwise degrades every brute force that uses the list with no visible error.
 Every list marked default for the subdomain kind becomes **its own dns_brute task**,
 so lists run in parallel across workers.
 
+Directory search works the other way round: it uses **one** list per run, so marking
+several `dir` lists default picks the first by name and the dispatch log says which. The
+size of that list is the main thing deciding how loud a scan is — it is the only stage
+that fires thousands of requests at a single host. A run with no `dir` list falls back to
+the small list baked into the worker image.
+
 ## Watching a scan
 
-Expanding a run in **Runs** shows, refreshed every few seconds:
+The **Runs** table gives each run a line: when it started, what it is scanning, how far
+along it is, and its status. The target cell names the first few targets and counts the
+rest; the progress bar counts failed tasks as finished — the run has dealt with them —
+but marks them separately, because a full bar should not hide whether everything worked.
+A run's task total climbs while it is running: the planner adds stages as it discovers
+work, so 5/9 can become 5/12 without anything being wrong.
+
+Expanding a run shows, refreshed every few seconds:
 
 - **Pipeline** — a chip per stage with done/total, a dot while work is in flight,
   and a count of failures
@@ -382,18 +410,29 @@ deploy/      worker Dockerfile
 
 ## Status
 
-Working end to end: discovery, DNS brute-forcing, batched port and service scanning, ASN
-and reverse-DNS enrichment, per-worker scan visibility, and a wordlist/resolver registry
-that workers fetch and cache. The Go control plane and worker build and vet clean, the
-test suite passes, and the SPA type-checks and builds. The pipeline is verified against
-`scanme.nmap.org`: passive enumeration → bruteforce → resolution → nmap over the address
-pool → service probe, finding its two open ports.
+Working end to end, verified against `scanme.nmap.org`: passive enumeration and DNS
+brute-forcing, resolution with ASN and reverse-DNS enrichment, batched port and service
+scanning, technology detection, screenshots, and directory brute-forcing — every stage
+confirmed by what it stored, not just by the tool running. A scan of that host records
+`OpenSSH 6.6.1p1` on 22, `Apache 2.4.7` with `Apache HTTP Server 2.4.7` and `Ubuntu` on
+80, a page screenshot, and the paths its crawl and brute force found.
+
+Supporting that: a wordlist registry for all three list kinds that workers fetch and
+cache, per-worker scan visibility that survives a worker being replaced, and a per-address
+page for drilling into any of it. The Go control plane and worker build and vet clean, the
+test suite passes, and the SPA type-checks and builds.
 
 The worker prefers real tools when installed and falls back to Go implementations
 otherwise, so a tool can be swapped or removed behind the `scanner` package without
-touching the rest of the system. Every tool invocation is logged with its result count and
-duration — an unsupported flag silently disabling a stage has cost real debugging time
-here, and that class of failure is now visible.
+touching the rest of the system.
+
+**The recurring failure mode in this project is a stage doing its work and the results
+evaporating downstream**, which looks exactly like a clean "found nothing". Three checks
+exist to make that visible, and each was added after it had already happened: every tool
+invocation is logged with its result count and duration; a tool that exits 0 while
+producing nothing and writing to stderr is reported as a failure; and a batch of results
+the gateway refuses is logged by both the worker that sent it and the gateway that
+rejected it, with the reason.
 
 Deliberately deferred (see `architecture.md` §14): multi-tenancy, ClickHouse analytics,
 SSH-push provisioning, worker auto-update, cloud-inventory connectors.
@@ -404,6 +443,12 @@ Known rough edges:
   "spooling would retry", but no spool exists yet.
 - Provisioner-created workers are not rebuilt by `docker compose up --build`, so they keep
   running an older image until removed and recreated.
+- A rebuilt worker registers under a new container hostname, so the fleet list accumulates
+  a `stale` row per rebuild. Harmless, but it needs a sweep by age to stay tidy.
+- Wordlist downloads use the resolver a container was started with. If that resolver
+  disappears — a VPN dropping is the usual cause — fetches fail until the service is
+  recreated (`docker compose up -d --force-recreate scheduler`), at which point they
+  retry themselves.
 - Configuration keeps the `ASM_` environment-variable prefix and the `asm` database role
   from before the project was renamed, so existing `.env` files and volumes keep working.
   The compose volumes are pinned to their original `scan_tool_*` names for the same
