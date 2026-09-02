@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -333,6 +335,13 @@ func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
 	})
 }
 
+// postResult ships one batch of observations to the gateway.
+//
+// The response status is checked and reported. It was previously ignored, so a
+// batch the gateway refused — a stale lease, an ingest failure, a confinement
+// violation — was dropped without a trace: the stage logged the observations it
+// had made, the task still finished "ok", and nothing ever reached the
+// database. A whole stage's output can go missing that way.
 func (a *Agent) postResult(ctx context.Context, job scanproto.Job, res scanproto.Result) {
 	url := job.Ingest.URL
 	if url == "" {
@@ -345,10 +354,21 @@ func (a *Agent) postResult(ctx context.Context, job scanproto.Job, res scanproto
 	req.Header.Set("X-Worker-Credential", a.cred)
 	resp, err := a.client.Do(req)
 	if err != nil {
-		slog.Warn("post result failed (spooling would retry)", "err", err)
+		slog.Warn("post result failed (spooling would retry)",
+			"stage", job.Stage, "task", job.TaskID,
+			"observations", len(res.Observations), "err", err)
 		return
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		slog.Error("gateway refused results — observations discarded",
+			"stage", job.Stage, "task", job.TaskID, "status", resp.StatusCode,
+			"observations", len(res.Observations),
+			"reason", strings.TrimSpace(string(reason)))
+		return
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
 }
 
 func (a *Agent) mark(taskID string, running bool) {

@@ -379,11 +379,13 @@ func (g *Gateway) results(w http.ResponseWriter, r *http.Request) {
 	}
 	taskID, err := uuid.Parse(res.TaskID)
 	if err != nil {
+		slog.Warn("results refused: bad task id", "worker", workerID, "task", res.TaskID)
 		http.Error(w, "bad task id", http.StatusBadRequest)
 		return
 	}
 	leaseTok, err := uuid.Parse(res.LeaseToken)
 	if err != nil {
+		slog.Warn("results refused: bad lease token", "worker", workerID, "task", taskID)
 		http.Error(w, "bad lease token", http.StatusBadRequest)
 		return
 	}
@@ -391,6 +393,10 @@ func (g *Gateway) results(w http.ResponseWriter, r *http.Request) {
 	// Verify the worker actually holds this task's lease.
 	task, err := g.loadTask(r.Context(), taskID, workerID, leaseTok)
 	if err != nil {
+		// The observations in this batch are gone: the worker no longer holds
+		// the task, so nothing may be written under it.
+		slog.Warn("results refused: stale or invalid lease",
+			"worker", workerID, "task", taskID, "observations", len(res.Observations), "err", err)
 		http.Error(w, "stale or invalid lease", http.StatusConflict)
 		return
 	}
@@ -405,6 +411,8 @@ func (g *Gateway) results(w http.ResponseWriter, r *http.Request) {
 
 	summary, err := g.ingest.Process(r.Context(), task.runID, &workerID, scanproto.Stage(task.stage), res.Observations)
 	if err != nil {
+		slog.Error("ingest failed; observations dropped", "worker", workerID,
+			"task", taskID, "stage", task.stage, "observations", len(res.Observations), "err", err)
 		http.Error(w, "ingest error", http.StatusInternalServerError)
 		return
 	}

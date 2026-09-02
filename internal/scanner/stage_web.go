@@ -8,9 +8,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -304,8 +306,37 @@ func targetIPPort(job scanproto.Job) (string, int) {
 	if t.IP != "" {
 		return t.IP, t.Port
 	}
-	// derive from URL host if needed
-	return "", t.Port
+	// Web stages are addressed by URL. Deriving the address from it keeps every
+	// observation attributable to a service: an observation with no IP cannot be
+	// stored against one, and ingest rejects the batch it arrives in.
+	return ipPortFromURL(t.URL, t.Port)
+}
+
+// ipPortFromURL pulls the host and port out of a service URL, falling back to
+// the scheme's default port.
+func ipPortFromURL(raw string, fallbackPort int) (string, int) {
+	if raw == "" {
+		return "", fallbackPort
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fallbackPort
+	}
+	host := u.Hostname() // strips the brackets around an IPv6 literal
+	port := fallbackPort
+	if p := u.Port(); p != "" {
+		if n, err := strconv.Atoi(p); err == nil {
+			port = n
+		}
+	} else if port == 0 {
+		switch u.Scheme {
+		case "https":
+			port = 443
+		case "http":
+			port = 80
+		}
+	}
+	return host, port
 }
 
 func itoaSafe(n int) string {

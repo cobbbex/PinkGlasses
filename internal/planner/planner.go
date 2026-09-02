@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -350,10 +352,17 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 		sum := decode(t.Result)
 		origins, _ := p.st.OriginsForTask(ctx, t.ID)
 		for _, u := range sum.WebURLs {
+			// The address travels with the URL. Everything these stages observe
+			// is recorded against a service, which is keyed by address and port,
+			// so a URL-only target leaves the worker reconstructing what the
+			// planner already knew — and anything it gets wrong is a whole
+			// stage's results rejected at ingest.
+			ip, port := ipPortFromURL(u)
+			tgt := scanproto.Target{URL: u, IP: ip, Port: port}
 			specs = append(specs,
-				spec(scanproto.StageTechDetect, scanproto.Target{URL: u}, 300, origin0(origins)),
-				spec(scanproto.StageScreenshot, scanproto.Target{URL: u}, 310, origin0(origins), string(scanproto.CapBrowser)),
-				spec(scanproto.StageDirBrute, scanproto.Target{URL: u}, 320, origin0(origins)),
+				spec(scanproto.StageTechDetect, tgt, 300, origin0(origins)),
+				spec(scanproto.StageScreenshot, tgt, 310, origin0(origins), string(scanproto.CapBrowser)),
+				spec(scanproto.StageDirBrute, tgt, 320, origin0(origins)),
 			)
 		}
 	}
@@ -362,6 +371,24 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 	}
 	_, err = p.st.InsertTasks(ctx, run.ID, specs)
 	return err
+}
+
+// ipPortFromURL splits a service URL into its address and port, defaulting to
+// the port implied by the scheme.
+func ipPortFromURL(raw string) (string, int) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", 0
+	}
+	port := 0
+	if p := u.Port(); p != "" {
+		port, _ = strconv.Atoi(p)
+	} else if u.Scheme == "https" {
+		port = 443
+	} else if u.Scheme == "http" {
+		port = 80
+	}
+	return u.Hostname(), port
 }
 
 // finish marks the run complete and resolves per-target statuses.

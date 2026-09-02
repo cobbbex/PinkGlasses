@@ -105,10 +105,20 @@ func (s *Store) UpsertServiceObservation(ctx context.Context, serviceID, runID u
 		INSERT INTO service_observation (service_id, run_id, worker_id, observed_at, banner, product, version, http, tls, screenshot_key, raw_key)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		ON CONFLICT (service_id, run_id) DO UPDATE SET
-		  banner=EXCLUDED.banner, product=EXCLUDED.product, version=EXCLUDED.version,
-		  http=EXCLUDED.http, tls=EXCLUDED.tls,
-		  screenshot_key=COALESCE(EXCLUDED.screenshot_key, service_observation.screenshot_key),
-		  raw_key=COALESCE(EXCLUDED.raw_key, service_observation.raw_key)`,
+		  -- Several stages write this one row: the port scan brings the banner
+		  -- and version, tech detection the HTTP detail, the screenshot stage
+		  -- its key. Each sends empty values for the fields it knows nothing
+		  -- about, so an unguarded assignment lets whichever stage finishes last
+		  -- erase what the others found — COALESCE alone did not help, because
+		  -- an absent string arrives as '' rather than NULL, and an absent
+		  -- document as jsonb 'null'. Only a non-empty value may overwrite.
+		  banner=COALESCE(NULLIF(EXCLUDED.banner,''), service_observation.banner),
+		  product=COALESCE(NULLIF(EXCLUDED.product,''), service_observation.product),
+		  version=COALESCE(NULLIF(EXCLUDED.version,''), service_observation.version),
+		  http=COALESCE(NULLIF(EXCLUDED.http,'null'::jsonb), service_observation.http),
+		  tls=COALESCE(NULLIF(EXCLUDED.tls,'null'::jsonb), service_observation.tls),
+		  screenshot_key=COALESCE(NULLIF(EXCLUDED.screenshot_key,''), service_observation.screenshot_key),
+		  raw_key=COALESCE(NULLIF(EXCLUDED.raw_key,''), service_observation.raw_key)`,
 		serviceID, runID, workerID, o.At, o.Banner, o.Product, o.Version, httpJSON, tlsJSON, o.ScreenshotKey, o.RawKey)
 	return err
 }

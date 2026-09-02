@@ -13,17 +13,20 @@ import (
 // UpsertFinding inserts or refreshes a finding keyed by (scope, asset, kind).
 func (s *Store) UpsertFinding(ctx context.Context, scopeID, assetID uuid.UUID, assetKind, kind, severity, title string, evidence map[string]any, at time.Time) error {
 	ev, _ := json.Marshal(evidence)
+	// A finding is identified by its asset, kind and title (00013). Matching on
+	// the asset and kind alone made every finding of a stage that raises one per
+	// item — a path per content-discovery hit — collapse onto the last one seen.
+	// A resolved finding keeps its timestamps: re-observing it must not quietly
+	// reopen something a human has closed.
 	_, err := s.Pool.Exec(ctx, `
 		INSERT INTO finding (scope_id, asset_kind, asset_id, kind, severity, title, evidence, first_seen, last_seen)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
-		ON CONFLICT DO NOTHING`,
+		ON CONFLICT (scope_id, asset_kind, asset_id, kind, title) DO UPDATE SET
+		  last_seen = GREATEST(finding.last_seen, EXCLUDED.last_seen),
+		  severity = EXCLUDED.severity,
+		  evidence = EXCLUDED.evidence
+		WHERE finding.status <> 'resolved'`,
 		scopeID, assetKind, assetID, kind, severity, title, ev, at)
-	if err == nil {
-		_, err = s.Pool.Exec(ctx, `
-			UPDATE finding SET last_seen=$1, severity=$2, title=$3
-			WHERE scope_id=$4 AND asset_kind=$5 AND asset_id=$6 AND kind=$7 AND status<>'resolved'`,
-			at, severity, title, scopeID, assetKind, assetID, kind)
-	}
 	return err
 }
 

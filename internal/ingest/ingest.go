@@ -6,6 +6,7 @@ package ingest
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -53,7 +54,21 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 	svcSeen := map[string]bool{}
 	urlSeen := map[string]bool{}
 
+	skipped := 0
 	for _, o := range obs {
+		// Everything below that is recorded against a service is keyed by
+		// address and port. An observation without an address cannot be stored,
+		// and letting it reach the insert fails the whole batch — so one
+		// unusable observation would discard every good one beside it, which is
+		// how a stage's entire output once went missing without a trace.
+		switch o.Type {
+		case scanproto.ObsService, scanproto.ObsHTTP, scanproto.ObsTLS,
+			scanproto.ObsTech, scanproto.ObsScreenshot, scanproto.ObsPath:
+			if o.IP == "" {
+				skipped++
+				continue
+			}
+		}
 		switch o.Type {
 		case scanproto.ObsSubdomain:
 			if o.Domain == "" {
@@ -184,6 +199,10 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 			_ = in.st.UpsertFinding(ctx, scopeID, assetID, "service", o.FindingKind, sev(o.FindingSeverity),
 				o.FindingTitle, map[string]any{"banner": o.Banner}, now)
 		}
+	}
+	if skipped > 0 {
+		slog.Warn("observations without an address were skipped",
+			"stage", stage, "run", runID, "skipped", skipped, "of", len(obs))
 	}
 	return sum, nil
 }
