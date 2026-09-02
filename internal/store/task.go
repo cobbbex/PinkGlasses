@@ -80,6 +80,11 @@ func (s *Store) LeaseTasks(ctx context.Context, workerID uuid.UUID, caps []strin
 		UPDATE scan_task SET
 		  status='leased',
 		  worker_id=$1,
+		  -- worker_id is cleared on retry and nulled if the worker row is ever
+		  -- deleted, so the identity is copied onto the task as well. Without it
+		  -- a finished run cannot say who ran it (see 00012).
+		  worker_name=(SELECT name FROM worker WHERE id=$1),
+		  worker_kind=(SELECT kind FROM worker WHERE id=$1),
 		  lease_token=gen_random_uuid(),
 		  lease_expires_at = now() + make_interval(secs => $5),
 		  attempts = attempts + 1,
@@ -201,7 +206,12 @@ func (s *Store) FailTask(ctx context.Context, taskID, leaseToken uuid.UUID, msg 
 	_, err := s.Pool.Exec(ctx, `
 		UPDATE scan_task SET
 		  status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
-		  error=$3, lease_token=NULL, worker_id=NULL, lease_expires_at=NULL
+		  error=$3, lease_token=NULL, worker_id=NULL, lease_expires_at=NULL,
+		  -- A task going back to the queue belongs to nobody, so its stamped
+		  -- worker is cleared too; one that has failed for good keeps the name
+		  -- of the worker that last tried it.
+		  worker_name = CASE WHEN attempts >= max_attempts THEN worker_name END,
+		  worker_kind = CASE WHEN attempts >= max_attempts THEN worker_kind END
 		WHERE id=$1 AND lease_token=$2`, taskID, leaseToken, msg)
 	return err
 }
@@ -218,6 +228,8 @@ func (s *Store) ReapExpiredLeases(ctx context.Context) (int64, error) {
 		UPDATE scan_task SET
 		  status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
 		  lease_token=NULL, worker_id=NULL, lease_expires_at=NULL,
+		  worker_name = CASE WHEN attempts >= max_attempts THEN worker_name END,
+		  worker_kind = CASE WHEN attempts >= max_attempts THEN worker_kind END,
 		  error = coalesce(error,'') || ' [lease expired]'
 		WHERE status IN ('leased','running') AND lease_expires_at < now()`)
 	if err != nil {
@@ -350,7 +362,8 @@ func (s *Store) RunActivity(ctx context.Context, runID uuid.UUID, limit int) ([]
 		       COALESCE(t.target->>'domain', t.target->>'ip', t.target->>'url',
 		                t.target->>'cidr', ''),
 		       t.status, t.attempts,
-		       t.worker_id, w.name, w.kind,
+		       t.worker_id,
+		       COALESCE(w.name, t.worker_name), COALESCE(w.kind, t.worker_kind),
 		       t.started_at, t.finished_at, t.error
 		FROM scan_task t
 		LEFT JOIN worker w ON w.id = t.worker_id
