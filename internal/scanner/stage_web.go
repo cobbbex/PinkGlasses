@@ -21,13 +21,19 @@ import (
 
 var titleRe = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
-func webClient() *http.Client {
+func webClient() *http.Client { return proxiedClient("") }
+
+// proxiedClient is webClient routed through a proxy, for the pure-Go probes
+// that run when a tool is missing or disabled. They must leave by the same
+// address as the tools, or a proxied scan would still leak the worker's own IP
+// from whichever stage happened to fall back.
+func proxiedClient(px string) *http.Client {
 	return &http.Client{
 		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
+		Transport: proxyTransport(&http.Transport{
 			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, // we inspect, not trust
 			DisableKeepAlives: true,
-		},
+		}, px),
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }
@@ -40,12 +46,15 @@ func (s *Scanner) serviceProbe(ctx context.Context, job scanproto.Job) ([]scanpr
 		return nil, nil
 	}
 	var obs []scanproto.Observation
-	client := webClient()
+	pr := jobParams(job)
+	px := proxyFor(job, pr)
+	logProxy("service_probe", "built-in prober", px)
+	client := proxiedClient(px)
 
 	for _, scheme := range schemesFor(port) {
 		url := scheme + "://" + ip + portSuffix(scheme, port)
 		req, _ := http.NewRequestWithContext(withTimeout(ctx, 10*time.Second), http.MethodGet, url, nil)
-		req.Header.Set("User-Agent", "pinkglasses-worker")
+		req.Header.Set("User-Agent", userAgent(pr))
 		resp, err := client.Do(req)
 		if err != nil {
 			continue
@@ -105,9 +114,9 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 	ip, port := targetIPPort(job)
 	var obs []scanproto.Observation
 
-	if have("httpx") {
+	pr := jobParams(job)
+	if have("httpx") && pr.enabled("httpx") {
 		// Tools.md: httpx -title -sc -cl -location -fr -silent -delay 1s
-		pr := jobParams(job)
 		hxArgs := []string{
 			"-silent", "-json", "-title", "-sc", "-cl", "-location",
 			"-tech-detect",
@@ -115,6 +124,14 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 			"-timeout", pr.intStr("httpx_timeout_s", "10"),
 			"-threads", pr.intStr("httpx_threads", "50"),
 			"-retries", pr.intStr("httpx_retries", "1"),
+			// httpx randomises the User-Agent by default, which would override
+			// the one configured for this scan.
+			"-random-agent=false",
+			"-H", "User-Agent: " + userAgent(pr),
+		}
+		if px := proxyFor(job, pr); proxyUsableBy("httpx", px) {
+			logProxy("tech_detect", "httpx", px)
+			hxArgs = append(hxArgs, "-proxy", px)
 		}
 		if pr.boolVal("httpx_follow_redirects", true) {
 			hxArgs = append(hxArgs, "-fr")
@@ -170,8 +187,9 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 	}
 
 	// Fallback: stdlib probe, fingerprinting from response headers.
-	client := webClient()
+	client := proxiedClient(proxyFor(job, pr))
 	req, _ := http.NewRequestWithContext(withTimeout(ctx, 8*time.Second), http.MethodGet, url, nil)
+	req.Header.Set("User-Agent", userAgent(pr))
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil
@@ -195,7 +213,8 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 // Previously this emitted an object key without ever uploading the file, so
 // every screenshot reference in the UI pointed at nothing.
 func (s *Scanner) screenshot(ctx context.Context, job scanproto.Job) ([]scanproto.Observation, error) {
-	if !s.Detected[scanproto.CapBrowser] || !have("httpx") {
+	pr := jobParams(job)
+	if !s.Detected[scanproto.CapBrowser] || !have("httpx") || !pr.enabled("httpx") {
 		return nil, nil
 	}
 	url := targetURL(job)
@@ -211,10 +230,17 @@ func (s *Scanner) screenshot(ctx context.Context, job scanproto.Job) ([]scanprot
 	defer os.RemoveAll(outDir)
 
 	// Tools.md: httpx -sc -title -tech-detect -screenshot -timeout 200 -screenshot-timeout 200
-	_, _ = runLines(ctx, 5*time.Minute, "httpx",
+	shotArgs := []string{
 		"-silent", "-sc", "-title", "-tech-detect", "-screenshot",
 		"-timeout", "200", "-screenshot-timeout", "200",
-		"-srd", outDir, "-u", url)
+		"-random-agent=false", "-H", "User-Agent: " + userAgent(pr),
+	}
+	if px := proxyFor(job, pr); proxyUsableBy("httpx", px) {
+		logProxy("screenshot", "httpx", px)
+		shotArgs = append(shotArgs, "-proxy", px)
+	}
+	shotArgs = append(shotArgs, "-srd", outDir, "-u", url)
+	_, _ = runLines(ctx, 5*time.Minute, "httpx", shotArgs...)
 
 	png := findFirstFile(outDir, ".png")
 	if png == "" {

@@ -42,7 +42,7 @@ func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanpro
 	add(root, "seed")
 
 	// --- subfinder (Tools.md: `subfinder -d example.com`) ---
-	if have("subfinder") {
+	if have("subfinder") && jobParams(job).enabled("subfinder") {
 		pr := jobParams(job)
 		maxTime := pr.intStr("subfinder_max_time", "3")
 		args := []string{"-silent", "-json", "-d", root, "-max-time", maxTime}
@@ -108,7 +108,7 @@ func (s *Scanner) resolveNames(ctx context.Context, names []string, pr params) [
 	if len(names) == 0 {
 		return nil
 	}
-	if have("dnsx") {
+	if have("dnsx") && pr.enabled("dnsx") {
 		if obs := s.resolveWithDNSX(ctx, names, pr); obs != nil {
 			return obs
 		}
@@ -181,7 +181,7 @@ func (s *Scanner) enrichAddresses(ctx context.Context, ips []string, pr params) 
 		return nil
 	}
 	ptr := map[string]string{}
-	if have("dnsx") {
+	if have("dnsx") && pr.enabled("dnsx") {
 		rows, err := runJSONLStdin(ctx, 3*time.Minute, strings.Join(ips, "\n"),
 			"dnsx", "-silent", "-json", "-ptr", "-resp",
 			"-t", pr.intStr("dnsx_threads", "100"))

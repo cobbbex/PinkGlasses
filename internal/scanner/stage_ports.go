@@ -54,7 +54,7 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 
 	var obs []scanproto.Observation
 
-	if wide && have("naabu") {
+	if wide && have("naabu") && pr.enabled("naabu") {
 		// Wide sweeps are what naabu is for: it finds open ports far faster than
 		// nmap over a large range, and nmap then fingerprints only the hits.
 		open := s.naabuSweep(ctx, hosts, ports, deep, pr)
@@ -65,13 +65,13 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 				})
 			}
 		}
-		if have("nmap") {
+		if have("nmap") && pr.enabled("nmap") {
 			obs = append(obs, s.nmapVersions(ctx, open, deep, pr)...)
 		}
 		return obs, nil
 	}
 
-	if have("nmap") {
+	if have("nmap") && pr.enabled("nmap") {
 		// At top-100 width nmap alone is simpler and returns service versions in
 		// the same pass, so there is nothing for a separate discovery scan to add.
 		found := s.nmapScan(ctx, hosts, "--top-ports", "100", deep, pr)

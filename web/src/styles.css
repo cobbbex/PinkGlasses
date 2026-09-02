@@ -264,6 +264,10 @@ h2 { margin: 0 0 16px; } h3 { margin: 0; font-size: 15px; }
   gap: 14px; padding: 8px 12px; border-bottom: 1px solid var(--border);
 }
 .param-row:last-child { border-bottom: none; }
+/* A tool switched off: its own row stays legible, the knobs below it read as
+   inert rather than disappearing, so it is obvious why they stopped mattering. */
+.param-row.tool-off { opacity: .95; }
+.param-row.tool-off ~ .param-row { opacity: .45; }
 .param-label { display: flex; align-items: center; font-size: 13px; }
 .param-changed {
   margin-left: 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px;

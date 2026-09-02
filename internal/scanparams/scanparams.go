@@ -6,6 +6,7 @@ package scanparams
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -26,7 +27,23 @@ const (
 	// and commas only, and it may never begin with '-' — otherwise a value
 	// could smuggle in an extra flag when it lands in the argv of a scan tool.
 	KindCSV Kind = "csv"
+	// KindText is a free-text value that becomes one process argument — a
+	// User-Agent, say. Printable ASCII only, no control characters and never
+	// leading '-', so it cannot smuggle in another flag.
+	KindText Kind = "text"
+	// KindProxy is a list of proxy URLs, one per line or comma-separated. Each
+	// must parse as a URL with an http, socks4 or socks5 scheme.
+	KindProxy Kind = "proxy"
 )
+
+// iPhoneUA is the default User-Agent for web probing: a current mobile Safari.
+// A phone is the least remarkable client in a web log, and some sites serve a
+// reduced page to anything that announces itself as a tool.
+const iPhoneUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) " +
+	"AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+
+// textRe bounds KindText: printable ASCII, no leading dash.
+var textRe = regexp.MustCompile(`^[A-Za-z0-9][ -~]{0,255}$`)
 
 // csvRe bounds KindCSV values. No spaces, no shell metacharacters, no path
 // separators: this string becomes a process argument on a scan box.
@@ -53,6 +70,39 @@ type Spec struct {
 // Every entry here MUST be consumed by a worker stage; exposing a knob the
 // worker ignores would be a lie in the UI.
 var Specs = []Spec{
+	// --- which tools run at all ---
+	//
+	// One switch per tool, so a scan can be narrowed to the stages you actually
+	// want without editing a profile. A disabled tool is skipped, not run and
+	// discarded: the stage either falls back to the pure-Go implementation or
+	// contributes nothing. shuffledns has no switch here because it already had
+	// one — dns_bruteforce, below — and two switches for one tool is a bug
+	// waiting to be filed.
+	{Key: "subfinder_enabled", Tool: "subfinder", Label: "Enabled", Kind: KindBool,
+		Default: "true",
+		Help: "Passive subdomain enumeration. Off leaves only the seed names and whatever brute force finds."},
+	{Key: "dnsx_enabled", Tool: "dnsx", Label: "Enabled", Kind: KindBool,
+		Default: "true",
+		Help: "Off falls back to the worker's own resolver, which is slower and does no wildcard filtering or PTR lookups."},
+	{Key: "naabu_enabled", Tool: "naabu", Label: "Enabled", Kind: KindBool,
+		Default: "true",
+		Help: "The fast port sweep, used only for wide port sets. Off sends the whole port selection to nmap instead."},
+	{Key: "nmap_enabled", Tool: "nmap", Label: "Enabled", Kind: KindBool,
+		Default: "true",
+		Help: "Service and version detection. Off reports open ports with no idea what is behind them."},
+	{Key: "katana_enabled", Tool: "katana", Label: "Enabled", Kind: KindBool,
+		Default: "true",
+		Help: "Crawling seeds directory search with real linked paths. Off leaves the brute force guessing blind."},
+	{Key: "httpx_enabled", Tool: "httpx", Label: "Enabled", Kind: KindBool,
+		Default: "true",
+		Help: "Web probing, technology detection and screenshots. Off falls back to a plain header fingerprint."},
+	{Key: "gobuster_enabled", Tool: "gobuster", Label: "Enabled", Kind: KindBool,
+		Default: "true",
+		Help: "Directory brute force — the loudest stage. Off still reports the paths crawling found."},
+	{Key: "nuclei_enabled", Tool: "nuclei", Label: "Enabled", Kind: KindBool,
+		Default: "true",
+		Help: "Vulnerability templates. Off skips the vuln_check stage entirely."},
+
 	// --- subdomain discovery ---
 	{Key: "subfinder_max_time", Tool: "subfinder", Label: "Max enumeration time (min)", Kind: KindInt,
 		Min: 1, Max: 30, Default: "3",
@@ -116,6 +166,12 @@ var Specs = []Spec{
 		Min: 1, Max: 200, Default: "50", Help: "Concurrent probes."},
 	{Key: "httpx_retries", Tool: "httpx", Label: "Retries", Kind: KindInt,
 		Min: 0, Max: 5, Default: "1", Help: "Retries per endpoint."},
+	{Key: "httpx_user_agent", Tool: "httpx", Label: "User-Agent", Kind: KindText,
+		Default: iPhoneUA,
+		Help: "Sent by every web request the scan makes. The default is a current iPhone Safari string: a mobile browser is the least remarkable thing in a web log, and some sites serve a stripped-down site to anything that looks automated."},
+	{Key: "httpx_proxy", Tool: "httpx", Label: "Proxies", Kind: KindProxy,
+		Default: "",
+		Help: "Route web probing through a proxy. One per line or comma-separated; a task picks one, so a list spreads a scan across several egress addresses. http://, socks4:// and socks5:// are accepted, with optional user:pass@ credentials. Empty means direct."},
 	{Key: "httpx_follow_redirects", Tool: "httpx", Label: "Follow redirects", Kind: KindBool,
 		Default: "true", Help: "Follow 3xx responses to the final destination. Turn off to record the redirect itself."},
 
@@ -197,6 +253,16 @@ func validateOne(spec Spec, v string) error {
 			}
 		}
 		return fmt.Errorf("must be one of %v", spec.Enum)
+	case KindText:
+		if v == "" {
+			return nil
+		}
+		if !textRe.MatchString(v) {
+			return fmt.Errorf("must be printable ASCII and may not start with '-'")
+		}
+		return nil
+	case KindProxy:
+		return validateProxies(v)
 	case KindCSV:
 		if v == "" {
 			return nil // empty means "leave the tool's own default alone"
@@ -232,4 +298,55 @@ func WithDefaults(p map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// ParseProxies splits a proxy field into individual proxy URLs. Entries are
+// separated by newlines or commas so a list can be pasted from anywhere.
+func ParseProxies(v string) []string {
+	var out []string
+	for _, part := range strings.FieldsFunc(v, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == ',' || r == ' ' || r == '\t'
+	}) {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// validateProxies checks every entry of a proxy list. A proxy string becomes a
+// process argument and carries credentials, so it is parsed properly rather
+// than pattern-matched: scheme must be one this pipeline can actually use, and
+// a host and port must be present.
+func validateProxies(v string) error {
+	list := ParseProxies(v)
+	if len(list) == 0 {
+		return nil // empty means scan direct
+	}
+	if len(list) > 64 {
+		return fmt.Errorf("at most 64 proxies")
+	}
+	for _, raw := range list {
+		u, err := url.Parse(raw)
+		if err != nil {
+			return fmt.Errorf("%q is not a URL: %v", raw, err)
+		}
+		switch u.Scheme {
+		case "http", "https", "socks4", "socks5", "socks5h":
+		case "":
+			return fmt.Errorf("%q needs a scheme, e.g. socks5://%s", raw, raw)
+		default:
+			return fmt.Errorf("%q: unsupported scheme %q (use http, socks4 or socks5)", raw, u.Scheme)
+		}
+		if u.Hostname() == "" {
+			return fmt.Errorf("%q has no host", raw)
+		}
+		if u.Port() == "" {
+			return fmt.Errorf("%q has no port", raw)
+		}
+		if strings.ContainsAny(raw, " \t\n\r\"'`$;|&<>") {
+			return fmt.Errorf("%q contains characters that are not allowed in a proxy URL", raw)
+		}
+	}
+	return nil
 }

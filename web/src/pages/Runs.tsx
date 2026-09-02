@@ -4,10 +4,28 @@ import { api, Run, RunTarget, RunActivity } from "../api";
 import { Badge, useToast, Modal } from "../components/ui";
 import ScanSettings from "../components/ScanSettings";
 
+// What each profile actually does, not what it sounds like. The difference
+// between them is narrow and worth stating precisely: passive changes which
+// stages run at all, deep only changes how the port scan behaves.
 const PROFILES = [
-  { id: "passive", label: "Passive", desc: "CT logs, DNS and public APIs only. No packets are sent to the target — always safe to run." },
-  { id: "standard", label: "Standard", desc: "Top-1000 ports, service probing, tech detection and screenshots. Needs authorized targets." },
-  { id: "deep", label: "Deep", desc: "Full port range, DNS brute force, directory brute force. Loud and slow." },
+  {
+    id: "passive",
+    label: "Passive",
+    desc: "Public sources only — certificate transparency, passive DNS and the API providers you have keys for — then resolution and ASN enrichment. Nothing is sent to the targets themselves, so it runs against any target, authorized or not.",
+    note: "No port scan, no web probing, no brute force.",
+  },
+  {
+    id: "standard",
+    label: "Standard",
+    desc: "The whole pipeline at everyday settings: passive discovery and subdomain brute force, the top 100 ports with service versions, web probing and technology detection, screenshots, and directory search.",
+    note: "Sends traffic to the target, so only targets carrying an active authorization are scanned — the rest are skipped and reported as such.",
+  },
+  {
+    id: "deep",
+    label: "Deep",
+    desc: "Standard, with the port scan opened up: all 65,535 ports swept rather than the top 100, and nmap running its aggressive fingerprint (-A) instead of plain version detection.",
+    note: "Hours rather than minutes, and unmistakable in anyone's logs. The stages are the same as Standard — only the port scan changes.",
+  },
 ];
 
 export default function Runs({ scopeID }: { scopeID: string }) {
@@ -93,6 +111,9 @@ function LaunchModal({
   const [manual, setManual] = useState(false);
   const [params, setParams] = useState<Record<string, string>>({});
   const [presetID, setPresetID] = useState("");
+  // Explicitly chosen lists. Empty is the normal case and means "whatever the
+  // registry marks default", so a plain scan needs no wordlist knowledge.
+  const [wordlistIDs, setWordlistIDs] = useState<string[]>([]);
 
   async function start() {
     setBusy(true);
@@ -102,6 +123,7 @@ function LaunchModal({
         all: true,
         ...(presetID ? { profile_id: presetID } : {}),
         ...(Object.keys(params).length ? { params } : {}),
+        ...(wordlistIDs.length ? { wordlist_ids: wordlistIDs } : {}),
       });
       toast("ok", `${profile} scan started`);
       onDone();
@@ -117,6 +139,8 @@ function LaunchModal({
     setManual(false);
     onClose();
   }
+
+  const listChoices = wordlistIDs.length;
 
   const overrides = Object.keys(params).length;
 
@@ -152,6 +176,7 @@ function LaunchModal({
           <span>
             <strong>{p.label}</strong>
             <div className="hint" style={{ marginTop: 2 }}>{p.desc}</div>
+            <div className="hint muted" style={{ marginTop: 2 }}>{p.note}</div>
           </span>
         </label>
       ))}
@@ -161,9 +186,12 @@ function LaunchModal({
           {manual ? "▾ Hide manual setup" : "▸ Manual setup"}
         </button>
         <span className="muted" style={{ fontSize: 12 }}>
-          {overrides > 0
-            ? `${overrides} tool setting${overrides === 1 ? "" : "s"} overridden`
-            : "Using default parameters for every tool"}
+          {overrides > 0 || listChoices > 0
+            ? [
+                overrides > 0 && `${overrides} tool setting${overrides === 1 ? "" : "s"} overridden`,
+                listChoices > 0 && `${listChoices} wordlist${listChoices === 1 ? "" : "s"} chosen`,
+              ].filter(Boolean).join(" · ")
+            : "Using default parameters and wordlists for every tool"}
         </span>
       </div>
 
@@ -175,6 +203,8 @@ function LaunchModal({
             onChange={setParams}
             presetID={presetID}
             onPresetChange={setPresetID}
+            wordlistIDs={wordlistIDs}
+            onWordlistsChange={setWordlistIDs}
           />
         </div>
       )}

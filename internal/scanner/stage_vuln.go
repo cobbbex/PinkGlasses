@@ -14,7 +14,7 @@ import (
 // never handled in Scanner.Run, so nuclei could never execute.
 func (s *Scanner) vulnCheck(ctx context.Context, job scanproto.Job) ([]scanproto.Observation, error) {
 	url := targetURL(job)
-	if url == "" || !have("nuclei") {
+	if url == "" || !have("nuclei") || !jobParams(job).enabled("nuclei") {
 		return nil, nil
 	}
 	ip, port := targetIPPort(job)

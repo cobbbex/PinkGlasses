@@ -40,3 +40,15 @@ func (p params) boolVal(key string, def bool) bool {
 		return def
 	}
 }
+
+// enabled reports whether a tool may run. Every tool has an on/off switch in
+// the scan settings (shuffledns's is "dns_bruteforce", which predates the
+// others), and a disabled tool is skipped rather than run and ignored — the
+// stage falls back to its pure-Go implementation or contributes nothing.
+func (p params) enabled(tool string) bool {
+	key := tool + "_enabled"
+	if tool == "shuffledns" {
+		key = "dns_bruteforce"
+	}
+	return p.boolVal(key, true)
+}

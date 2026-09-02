@@ -262,11 +262,39 @@ presets, with the `Tools.md` values as the shipped defaults.
       called out. Targets and progress are aggregated in the same query as the runs, so
       the list stays one round trip. Verified live in a browser: the bar tracked a running
       scan from 2/3 through 9/9 as the planner added stages.
-- [ ] Add to manual scan parameters at shuffledns dropdown menu with avaliable subdomains wordlist where you user can chose wich one to use. Make it with checkboxes. Test it.
-- [ ] Add to manual scan parameters at shuffledns dropdown manu where user can chose wich resolvers wordlists to chose. Make it with checkboxes too. Test it.
-- [ ] In manual scan setup add to nmap ability to set custom ports and ports ranges. Test it.
-- [ ] Add possability in manual scan setup enable or disable every tool. Test it.
-- [ ] Add to manual scan setting for httpx useragent string filed setup. By default it should be like iphone.
-- [ ] Add new feature to save scan profiles.
-- [ ] Add to manual scan settings for httpx proxies field for scanning where you user can put list of proxies. Proxy could be http, socks4 socks5m with creds and without creds. here working proxies for tests: socks5 184.178.172.17 4145, socks4 98.182.147.97 4145. Test this new feature.
-- [ ] Update information about every scan type in Start to scan window.
+- [x] 16.3 Wordlist checkboxes in manual setup, for all three kinds: subdomain lists under
+      shuffledns, resolver lists under dnsx, directory lists under gobuster. Ticking none
+      means "use the registry defaults", which is the normal case. A run may now name lists
+      of any kind and each kind it stays silent about falls back to its defaults; an unknown
+      or not-ready list is refused rather than silently ignored. Verified: a run naming a
+      non-default subdomain list and resolver list got exactly those, plus the default
+      directory list.
+- [x] 16.4 (covered by 16.3 — resolver lists use the same picker.)
+- [x] 16.5 Custom ports and ranges were already settable and validated; the UI's "custom…"
+      option and the `1-1024` / `80,443` grammar both existed. Verified live rather than
+      rebuilt: a run with `ports=22,80` reached naabu as `-p 22,80` and nmap as `-p 22,80`.
+- [x] 16.6 A switch per tool (nine of them; shuffledns keeps its existing `dns_bruteforce`
+      key rather than growing a second one). A disabled tool is skipped, not run and
+      discarded — the stage falls back to its Go implementation or contributes nothing.
+      ffuf answers to gobuster's switch, since turning the brute force off must not quietly
+      swap in the other tool. Verified live: with subfinder, nmap, katana, gobuster and
+      bruteforce off, only dnsx/httpx/urlfinder ran, the port scan fell back to the connect
+      scan, and the run still completed.
+- [x] 16.7 httpx User-Agent field, defaulting to a current iPhone Safari string. It applies
+      to every web request the scan makes, not just httpx's — the built-in probes used to
+      send "pinkglasses-worker". httpx's `-random-agent` is disabled so the setting is not
+      overridden. Verified in the invocation log.
+- [x] 16.8 Saving scan profiles already existed (15.6). Verified in a browser rather than
+      rebuilt: named, saved, and offered in the preset dropdown afterwards.
+- [x] 16.9 httpx proxy field: a list, one per line or comma-separated, http/socks4/socks5
+      with or without credentials. A task picks one by hashing its target, so a list spreads
+      a scan over several egress addresses while a retry reuses the same one. Proxies are
+      parsed, not pattern-matched, and credentials are never logged. httpx, katana, gobuster
+      and the built-in Go probes all honour it, so a proxied scan cannot leak the worker's
+      own address from whichever stage happened to fall back. Verified end to end through
+      socks5 184.178.172.17:4145: the whole web half of the pipeline ran through it and
+      still found 12 paths.
+- [x] 16.10 Scan-type descriptions in the launch window rewritten against what the profiles
+      actually do. The old text claimed Standard scanned the top 1000 ports (it is 100) and
+      implied Deep added DNS and directory brute forcing (both already run on Standard —
+      Deep only widens the port scan and switches nmap to `-A`).

@@ -42,7 +42,8 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	}
 
 	// --- katana crawl (Tools.md: katana -d 5 -jsl -c 3 -p 3 -rl 10 -silent) ---
-	if have("katana") {
+	pr := jobParams(job)
+	if have("katana") && pr.enabled("katana") {
 		// katana emits URLs; -jsonl adds structure but plain -silent lines are
 		// simplest and robust. (-json is not a valid flag and aborts the run.)
 		kp := jobParams(job)
@@ -54,6 +55,10 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 		}
 		if kp.boolVal("katana_js_crawl", false) {
 			kArgs = append(kArgs, "-jsl")
+		}
+		if px := proxyFor(job, kp); proxyUsableBy("katana", px) {
+			logProxy("dir_brute", "katana", px)
+			kArgs = append(kArgs, "-proxy", px)
 		}
 		kArgs = append(kArgs, "-u", base)
 		lines, _ := runLines(ctx, 90*time.Second, "katana", kArgs...)
@@ -85,9 +90,8 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	wordlist, _ := s.dirWordlistPath(ctx, job)
 
 	switch {
-	case have("gobuster") && fileExists(wordlist):
+	case have("gobuster") && pr.enabled("gobuster") && fileExists(wordlist):
 		// Tools.md: gobuster dir -u <url> -w <wordlist> -k [--exclude-length N]
-		pr := jobParams(job)
 		wl := wordlist
 		if job.Params.WordlistURL == "" && pr.str("dir_wordlist", "common") == "dns" {
 			// No registry list attached, so the shipped ones are all there is
@@ -95,7 +99,12 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 			wl = wordlistDNS()
 		}
 		args := []string{"dir", "-q", "-u", base, "-w", wl, "-k",
-			"--no-color", "-t", pr.intStr("dir_concurrency", "10")}
+			"--no-color", "-t", pr.intStr("dir_concurrency", "10"),
+			"-a", userAgent(pr)}
+		if px := proxyFor(job, pr); proxyUsableBy("gobuster", px) {
+			logProxy("dir_brute", "gobuster", px)
+			args = append(args, "--proxy", px)
+		}
 		if el := pr.intStr("dir_exclude_length", "0"); el != "0" {
 			args = append(args, "--exclude-length", el)
 		}
@@ -112,7 +121,9 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 				add(p, st)
 			}
 		}
-	case have("ffuf"):
+	case have("ffuf") && pr.enabled("gobuster"):
+		// ffuf is gobuster's stand-in, so it answers to the same switch: turning
+		// the brute force off must not quietly swap in the other tool.
 		wl := job.Params.Wordlist
 		if wl == "" {
 			wl = wordlist
@@ -123,12 +134,16 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 				add("/"+p, num(r, "status"))
 			}
 		}
+	case !pr.enabled("gobuster"):
+		// Brute forcing is switched off; the crawl's paths are still reported.
+		slog.Info("directory brute force disabled", "url", base)
 	default:
 		// no brute-force tool: probe a short common-path list so the stage still
 		// contributes something on a bare worker.
-		client := webClient()
+		client := proxiedClient(proxyFor(job, pr))
 		for _, p := range commonPaths {
 			req, _ := http.NewRequestWithContext(withTimeout(ctx, 6*time.Second), http.MethodGet, base+p, nil)
+			req.Header.Set("User-Agent", userAgent(pr))
 			resp, err := client.Do(req)
 			if err != nil {
 				continue
@@ -142,7 +157,7 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 
 	// Crawled/passive paths arrive with status 0. Probe them (bounded) so every
 	// reported path carries a real HTTP status, and drop the ones that 404.
-	obs := s.probePaths(ctx, base, ip, port, seen)
+	obs := s.probePaths(ctx, base, ip, port, seen, pr, proxyFor(job, pr))
 
 	byStatus := map[int]int{}
 	for _, o := range obs {
@@ -192,7 +207,8 @@ func cleanPath(path string) string {
 // probePaths GETs each candidate path (capped, modest concurrency) and returns
 // observations only for paths that exist. gobuster/ffuf hits already carry a
 // status and are trusted as-is; everything else is verified here.
-func (s *Scanner) probePaths(ctx context.Context, base, ip string, port int, seen map[string]int) []scanproto.Observation {
+func (s *Scanner) probePaths(ctx context.Context, base, ip string, port int, seen map[string]int,
+	pr params, px string) []scanproto.Observation {
 	type job struct {
 		path   string
 		status int
@@ -206,7 +222,7 @@ func (s *Scanner) probePaths(ctx context.Context, base, ip string, port int, see
 		todo = todo[:1500]
 	}
 
-	client := webClient()
+	client := proxiedClient(px)
 	var (
 		obs []scanproto.Observation
 		mu  sync.Mutex
@@ -225,6 +241,7 @@ func (s *Scanner) probePaths(ctx context.Context, base, ip string, port int, see
 			defer wg.Done()
 			defer func() { <-sem }()
 			req, _ := http.NewRequestWithContext(withTimeout(ctx, 8*time.Second), http.MethodGet, base+path, nil)
+			req.Header.Set("User-Agent", userAgent(pr))
 			resp, err := client.Do(req)
 			if err != nil {
 				return

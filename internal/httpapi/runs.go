@@ -23,7 +23,8 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		All       bool              `json:"all"`
 		ProfileID string            `json:"profile_id"` // saved preset
 		Params    map[string]string `json:"params"`     // ad-hoc overrides
-		WordlistIDs []string        `json:"wordlist_ids"` // DNS bruteforce lists; empty = the defaults
+		// Lists of any kind. A kind not named here falls back to its defaults.
+		WordlistIDs []string `json:"wordlist_ids"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
@@ -106,32 +107,37 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Which wordlists this run brute-forces with. An empty selection means the
-	// registry defaults, so a standard scan picks up the shipped assetnote
-	// lists without the caller having to name them.
+	// Which lists this run uses. A caller may name lists of any kind; every kind
+	// it stays silent about falls back to the registry defaults, so a plain scan
+	// needs no wordlist knowledge at all while a manual one can override just
+	// the subdomain lists and leave resolvers alone.
+	chosen := map[string]bool{}
 	var wlIDs []uuid.UUID
 	for _, raw := range in.WordlistIDs {
-		if id, err := uuid.Parse(raw); err == nil {
-			wlIDs = append(wlIDs, id)
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			continue
 		}
+		wl, err := s.st.GetWordlist(r.Context(), id)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "unknown wordlist "+raw)
+			return
+		}
+		if wl.Status != "ready" {
+			writeErr(w, http.StatusBadRequest,
+				"wordlist \""+wl.Name+"\" is not ready ("+wl.Status+")")
+			return
+		}
+		chosen[wl.Kind] = true
+		wlIDs = append(wlIDs, id)
 	}
-	if len(wlIDs) == 0 {
-		for _, kind := range []string{"dns", "resolvers", "dir"} {
-			if defs, err := s.st.DefaultWordlists(r.Context(), kind); err == nil {
-				for _, d := range defs {
-					wlIDs = append(wlIDs, d.ID)
-				}
-			}
+	for _, kind := range []string{"dns", "resolvers", "dir"} {
+		if chosen[kind] {
+			continue
 		}
-	} else {
-		// An explicit choice names the subdomain lists to brute-force with. It
-		// says nothing about the resolvers those need, nor about the directory
-		// list a later stage uses, so both still come from the defaults.
-		for _, kind := range []string{"resolvers", "dir"} {
-			if defs, err := s.st.DefaultWordlists(r.Context(), kind); err == nil {
-				for _, d := range defs {
-					wlIDs = append(wlIDs, d.ID)
-				}
+		if defs, err := s.st.DefaultWordlists(r.Context(), kind); err == nil {
+			for _, d := range defs {
+				wlIDs = append(wlIDs, d.ID)
 			}
 		}
 	}
