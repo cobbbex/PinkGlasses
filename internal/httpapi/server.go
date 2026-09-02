@@ -75,6 +75,7 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/scopes/{scopeID}/graph", s.domainGraph)
 		r.Get("/scopes/{scopeID}/hosts", s.listHosts)
 		r.Get("/scopes/{scopeID}/hostrows", s.listHostRows)
+		r.Get("/hosts/{ipID}", s.hostDetail)
 		r.Get("/hosts/{ipID}/services", s.hostServices)
 		r.Get("/scopes/{scopeID}/search", s.search)
 		r.Get("/search", s.searchGlobal) // cross-company, Shodan-style

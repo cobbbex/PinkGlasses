@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, HostRow } from "../api";
-import { Modal, InfoDot, Spinner } from "../components/ui";
+import { api } from "../api";
+import { InfoDot, Spinner } from "../components/ui";
 import Graph from "../components/Graph";
 
 /**
@@ -17,7 +17,6 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
   // are kept, but they are not current attack surface, so they are out of the
   // default view.
   const [showUnresolved, setShowUnresolved] = useState(false);
-  const [sel, setSel] = useState<HostRow | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["hostrows", scopeID, q, showUnresolved],
@@ -100,8 +99,16 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
               {list.map((r, i) => (
                 <tr key={(r.domain_id ?? "") + (r.ip_id ?? "") + i}
                     style={{ cursor: r.ip_id ? "pointer" : "default" }}
-                    onClick={() => r.ip_id && setSel(r)}>
-                  <td className="mono">{r.name}</td>
+                    title={r.ip_id ? "Open host details in a new tab" : undefined}
+                    onClick={() => r.ip_id && window.open(`/host/${r.ip_id}`, "_blank", "noopener")}>
+                  <td className="mono">
+                    {r.ip_id ? (
+                      // A real link, so the row also answers to middle-click,
+                      // ctrl-click and "copy link address".
+                      <a href={`/host/${r.ip_id}`} target="_blank" rel="noreferrer"
+                         onClick={(e) => e.stopPropagation()}>{r.name}</a>
+                    ) : r.name}
+                  </td>
                   <td className="mono">
                     {r.addr ?? <span className="muted">did not resolve</span>}
                     {r.is_shared && <span className="pill" style={{ marginLeft: 6 }}>shared</span>}
@@ -118,54 +125,6 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
         </div>
       )}
 
-      <HostDetail row={sel} onClose={() => setSel(null)} />
     </div>
-  );
-}
-
-function HostDetail({ row, onClose }: { row: HostRow | null; onClose: () => void }) {
-  const { data: services } = useQuery({
-    queryKey: ["svc", row?.ip_id], queryFn: () => api.hostServices(row!.ip_id!), enabled: !!row?.ip_id,
-  });
-  if (!row) return null;
-
-  return (
-    <Modal title={row.name} open={!!row} onClose={onClose}
-      footer={<button className="ghost" onClick={onClose}>Close</button>}>
-      <div className="cards" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 16 }}>
-        <div className="card">
-          <div className="l">Address</div><div className="mono">{row.addr ?? "—"}</div>
-          <div className="muted" style={{ fontSize: 12 }}>{row.ptr ?? "no reverse DNS"}</div>
-        </div>
-        <div className="card">
-          <div className="l">Network</div>
-          <div>{row.asn ? `AS${row.asn}` : "—"}</div>
-          <div className="muted" style={{ fontSize: 12 }}>
-            {row.as_org ?? ""}{row.as_range ? ` · ${row.as_range}` : ""}
-          </div>
-        </div>
-      </div>
-
-      <div className="section-title" style={{ marginTop: 0 }}>Open services</div>
-      {(services ?? []).length === 0 ? (
-        <div className="empty">No open services recorded.</div>
-      ) : (
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Port</th><th>Proto</th><th>State</th><th>First seen</th></tr></thead>
-            <tbody>
-              {(services ?? []).map((s) => (
-                <tr key={s.id}>
-                  <td className="mono">{s.port}</td>
-                  <td>{s.proto}</td>
-                  <td><span className="badge b-open">{s.last_state}</span></td>
-                  <td className="muted">{new Date(s.first_seen).toLocaleDateString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Modal>
   );
 }

@@ -13,8 +13,9 @@ export interface Domain {
   sources: string[]; first_seen: string; last_seen: string;
 }
 export interface Host {
-  id: string; addr: string; ptr?: string | null; asn?: number | null;
-  as_org?: string | null; country?: string | null; cloud?: string | null;
+  id: string; scope_id?: string; addr: string; ptr?: string | null; asn?: number | null;
+  as_org?: string | null; as_range?: string | null;
+  country?: string | null; cloud?: string | null;
   is_shared: boolean; first_seen: string; last_seen: string;
 }
 export interface Service {
@@ -81,6 +82,23 @@ export interface ScanProfilePreset {
   scope_id?: string | null; params: Record<string, string>; is_default: boolean;
 }
 
+export interface HostName {
+  name: string; via: string; first_seen: string; last_seen: string;
+}
+export interface HostTech { name: string; version?: string | null; cpe?: string | null }
+/** An open port plus the most recent thing observed answering on it. */
+export interface HostService extends Service {
+  banner?: string | null; product?: string | null; version?: string | null;
+  http?: { title?: string; status?: number; favicon?: string;
+           headers?: Record<string, string> } | null;
+  tls?: Record<string, any> | null;
+  observed_at?: string | null;
+  technologies: HostTech[];
+}
+export interface HostDetail {
+  host: Host; names: HostName[]; services: HostService[]; findings: Finding[];
+}
+
 export interface SearchResult {
   service_id: string; scope_id?: string; company?: string;
   ip: string; port: number; product?: string | null;
@@ -113,6 +131,13 @@ export const api = {
       `/scopes/${s}/hostrows?q=${encodeURIComponent(q)}&unresolved=${unresolved}`,
     ).then((r) => ({ rows: r.rows ?? [], unresolvedHidden: r.unresolved_hidden })),
   hosts: (s: string) => req<Host[] | null>(`/scopes/${s}/hosts`).then((x) => x ?? []),
+  host: (ip: string) =>
+    req<HostDetail>(`/hosts/${ip}`).then((h) => ({
+      ...h,
+      names: h.names ?? [],
+      services: (h.services ?? []).map((sv) => ({ ...sv, technologies: sv.technologies ?? [] })),
+      findings: h.findings ?? [],
+    })),
   hostServices: (ip: string) => req<Service[] | null>(`/hosts/${ip}/services`).then((x) => x ?? []),
   search: (s: string, q: string) => req<SearchResult[] | null>(`/scopes/${s}/search?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
   searchGlobal: (q: string, scope?: string) =>

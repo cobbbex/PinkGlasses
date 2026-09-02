@@ -10,6 +10,7 @@ import Fleet from "./pages/Fleet";
 import Wordlists from "./components/Wordlists";
 import Findings from "./pages/Findings";
 import Search from "./pages/Search";
+import Host from "./pages/Host";
 
 const NAV = [
   { to: "/", label: "Dashboard", ic: "◆" },
@@ -96,28 +97,36 @@ export default function App() {
       </aside>
 
       <main className="main">
-        {!scopeID ? (
-          <div className="empty">
-            <p>No company yet. Each company is a separate scope — its own targets,
-              inventory and scanning authorization.</p>
-            <button onClick={() => setOpen(true)}>Add your first company</button>
-          </div>
-        ) : (
-          <Routes>
-            <Route path="/" element={<Dashboard scopeID={scopeID} />} />
-            {/* Domains merged into Hosts */}
-            <Route path="/domains" element={<Navigate to="/hosts" replace />} />
-            <Route path="/hosts" element={<Hosts scopeID={scopeID} />} />
-            <Route path="/search" element={<Search scopeID={scopeID} />} />
-            <Route path="/findings" element={<Findings scopeID={scopeID} />} />
-            <Route path="/runs" element={<Runs scopeID={scopeID} />} />
-            <Route path="/workers" element={<Fleet />} />
-            <Route path="/wordlists" element={<Wordlists />} />
-            {/* old link kept working */}
-            <Route path="/fleet" element={<Navigate to="/workers" replace />} />
-            <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
-        )}
+        <Routes>
+          {/* A host page names its own scope, so it renders before one is
+              picked — otherwise opening a host in a new tab would land on the
+              "no company yet" screen while scopes are still loading. */}
+          <Route path="/host/:ipID" element={<Host />} />
+          <Route path="*" element={
+            !scopeID ? (
+              <div className="empty">
+                <p>No company yet. Each company is a separate scope — its own targets,
+                  inventory and scanning authorization.</p>
+                <button onClick={() => setOpen(true)}>Add your first company</button>
+              </div>
+            ) : (
+              <Routes>
+                <Route path="/" element={<Dashboard scopeID={scopeID} />} />
+                {/* Domains merged into Hosts */}
+                <Route path="/domains" element={<Navigate to="/hosts" replace />} />
+                <Route path="/hosts" element={<Hosts scopeID={scopeID} />} />
+                <Route path="/search" element={<Search scopeID={scopeID} />} />
+                <Route path="/findings" element={<Findings scopeID={scopeID} />} />
+                <Route path="/runs" element={<Runs scopeID={scopeID} />} />
+                <Route path="/workers" element={<Fleet />} />
+                <Route path="/wordlists" element={<Wordlists />} />
+                {/* old link kept working */}
+                <Route path="/fleet" element={<Navigate to="/workers" replace />} />
+                <Route path="*" element={<Navigate to="/" />} />
+              </Routes>
+            )
+          } />
+        </Routes>
       </main>
 
       <Modal

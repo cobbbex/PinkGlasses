@@ -302,3 +302,166 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 	return res, rows.Err()
 }
 
+
+// --- host detail (the Shodan-style per-address page) ---
+
+// HostName is a discovered name that resolves to a host, with the record type
+// that connected them.
+type HostName struct {
+	Name      string    `json:"name"`
+	Via       string    `json:"via"`
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
+}
+
+// HostTech is a technology fingerprinted on one service.
+type HostTech struct {
+	Name    string  `json:"name"`
+	Version *string `json:"version,omitempty"`
+	CPE     *string `json:"cpe,omitempty"`
+}
+
+// HostService is an open port with the most recent thing observed on it. The
+// service row records that the port is open; the observation carries what
+// answered — banner, product and version, and the HTTP/TLS detail.
+type HostService struct {
+	domain.Service
+	Banner       *string         `json:"banner,omitempty"`
+	Product      *string         `json:"product,omitempty"`
+	Version      *string         `json:"version,omitempty"`
+	HTTP         json.RawMessage `json:"http,omitempty"`
+	TLS          json.RawMessage `json:"tls,omitempty"`
+	ObservedAt   *time.Time      `json:"observed_at,omitempty"`
+	Technologies []HostTech      `json:"technologies"`
+}
+
+// HostDetailResult is everything known about one address.
+type HostDetailResult struct {
+	Host     domain.IPAddress `json:"host"`
+	Names    []HostName       `json:"names"`
+	Services []HostService    `json:"services"`
+	Findings []domain.Finding `json:"findings"`
+}
+
+// HostDetail assembles the full record for one address: its enrichment, the
+// names pointing at it, every open port with its latest observation and
+// fingerprinted technologies, and the findings raised against the host or any
+// of its services.
+func (s *Store) HostDetail(ctx context.Context, ipID uuid.UUID) (HostDetailResult, error) {
+	var res HostDetailResult
+	res.Names = []HostName{}
+	res.Services = []HostService{}
+	res.Findings = []domain.Finding{}
+
+	h := &res.Host
+	if err := s.Pool.QueryRow(ctx, `
+		SELECT id, scope_id, host(addr), ptr, asn, as_org, as_range, country, cloud,
+		       is_shared, first_seen, last_seen
+		FROM ip_address WHERE id=$1`, ipID).Scan(
+		&h.ID, &h.ScopeID, &h.Addr, &h.PTR, &h.ASN, &h.ASOrg, &h.ASRange,
+		&h.Country, &h.Cloud, &h.IsShared, &h.FirstSeen, &h.LastSeen); err != nil {
+		return res, err
+	}
+
+	nameRows, err := s.Pool.Query(ctx, `
+		SELECT d.name, di.via, di.first_seen, di.last_seen
+		FROM domain_ip di JOIN domain d ON d.id = di.domain_id
+		WHERE di.ip_id=$1 ORDER BY d.name`, ipID)
+	if err != nil {
+		return res, err
+	}
+	defer nameRows.Close()
+	for nameRows.Next() {
+		var n HostName
+		if err := nameRows.Scan(&n.Name, &n.Via, &n.FirstSeen, &n.LastSeen); err != nil {
+			return res, err
+		}
+		res.Names = append(res.Names, n)
+	}
+	if err := nameRows.Err(); err != nil {
+		return res, err
+	}
+
+	// One row per open port, joined to its most recent observation. A service is
+	// re-observed on every run, so without the LATERAL limit this would return
+	// the whole history of each port.
+	svcRows, err := s.Pool.Query(ctx, `
+		SELECT sv.id, sv.ip_id, sv.port, sv.proto, sv.last_state, sv.first_seen, sv.last_seen,
+		       o.banner, o.product, o.version, o.http, o.tls, o.observed_at
+		FROM service sv
+		LEFT JOIN LATERAL (
+		  SELECT banner, product, version, http, tls, observed_at
+		  FROM service_observation
+		  WHERE service_id = sv.id
+		  ORDER BY observed_at DESC LIMIT 1
+		) o ON true
+		WHERE sv.ip_id=$1
+		ORDER BY sv.port`, ipID)
+	if err != nil {
+		return res, err
+	}
+	defer svcRows.Close()
+	byService := map[uuid.UUID]int{}
+	for svcRows.Next() {
+		var sv HostService
+		sv.Technologies = []HostTech{}
+		if err := svcRows.Scan(&sv.ID, &sv.IPID, &sv.Port, &sv.Proto, &sv.LastState,
+			&sv.FirstSeen, &sv.LastSeen,
+			&sv.Banner, &sv.Product, &sv.Version, &sv.HTTP, &sv.TLS, &sv.ObservedAt); err != nil {
+			return res, err
+		}
+		byService[sv.ID] = len(res.Services)
+		res.Services = append(res.Services, sv)
+	}
+	if err := svcRows.Err(); err != nil {
+		return res, err
+	}
+
+	techRows, err := s.Pool.Query(ctx, `
+		SELECT t.service_id, t.name, t.version, t.cpe
+		FROM technology t JOIN service sv ON sv.id = t.service_id
+		WHERE sv.ip_id=$1 ORDER BY t.name`, ipID)
+	if err != nil {
+		return res, err
+	}
+	defer techRows.Close()
+	for techRows.Next() {
+		var sid uuid.UUID
+		var t HostTech
+		if err := techRows.Scan(&sid, &t.Name, &t.Version, &t.CPE); err != nil {
+			return res, err
+		}
+		if i, ok := byService[sid]; ok {
+			res.Services[i].Technologies = append(res.Services[i].Technologies, t)
+		}
+	}
+	if err := techRows.Err(); err != nil {
+		return res, err
+	}
+
+	// Findings are raised against either the host itself or one of its services;
+	// the page shows both, because "which machine is this about" is the question
+	// being asked here.
+	findRows, err := s.Pool.Query(ctx, `
+		SELECT f.id, f.scope_id, f.asset_kind, f.asset_id, f.kind, f.severity,
+		       f.title, f.status, f.first_seen, f.last_seen
+		FROM finding f
+		WHERE (f.asset_kind='ip' AND f.asset_id=$1)
+		   OR (f.asset_kind='service' AND f.asset_id IN (SELECT id FROM service WHERE ip_id=$1))
+		ORDER BY CASE f.severity
+		           WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2
+		           WHEN 'low' THEN 3 ELSE 4 END, f.last_seen DESC`, ipID)
+	if err != nil {
+		return res, err
+	}
+	defer findRows.Close()
+	for findRows.Next() {
+		var f domain.Finding
+		if err := findRows.Scan(&f.ID, &f.ScopeID, &f.AssetKind, &f.AssetID, &f.Kind,
+			&f.Severity, &f.Title, &f.Status, &f.FirstSeen, &f.LastSeen); err != nil {
+			return res, err
+		}
+		res.Findings = append(res.Findings, f)
+	}
+	return res, findRows.Err()
+}

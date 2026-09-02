@@ -1,7 +1,10 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -67,6 +70,27 @@ func (s *Server) listHosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+// hostDetail serves the per-address page: enrichment, the names that resolve
+// here, every open port with what answered on it, and the findings raised
+// against the host or its services.
+func (s *Server) hostDetail(w http.ResponseWriter, r *http.Request) {
+	ipID, err := uuid.Parse(chi.URLParam(r, "ipID"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad host id")
+		return
+	}
+	out, err := s.st.HostDetail(r.Context(), ipID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "no such host")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) hostServices(w http.ResponseWriter, r *http.Request) {
