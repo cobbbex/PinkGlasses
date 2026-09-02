@@ -60,6 +60,7 @@ interface RunActivityWire {
   workers: (Omit<WorkerBusy, "stages"> & { stages: string[] | null })[] | null;
 }
 export interface HostRow {
+  screenshot_service_id?: string | null;
   domain_id?: string | null; name: string;
   ip_id?: string | null; addr?: string | null; ptr?: string | null;
   asn?: number | null; as_org?: string | null; as_range?: string | null;
@@ -88,6 +89,7 @@ export interface HostName {
 export interface HostTech { name: string; version?: string | null; cpe?: string | null }
 /** An open port plus the most recent thing observed answering on it. */
 export interface HostService extends Service {
+  has_screenshot?: boolean;
   banner?: string | null; product?: string | null; version?: string | null;
   http?: { title?: string; status?: number; favicon?: string;
            headers?: Record<string, string> } | null;
@@ -131,6 +133,9 @@ export const api = {
       `/scopes/${s}/hostrows?q=${encodeURIComponent(q)}&unresolved=${unresolved}`,
     ).then((r) => ({ rows: r.rows ?? [], unresolvedHidden: r.unresolved_hidden })),
   hosts: (s: string) => req<Host[] | null>(`/scopes/${s}/hosts`).then((x) => x ?? []),
+  // Served by the API, not object storage: the CSP allows images from 'self'
+  // only, and a presigned URL in the page would be a bearer token for it.
+  screenshotURL: (serviceID: string) => `/api/v1/services/${serviceID}/screenshot`,
   host: (ip: string) =>
     req<HostDetail>(`/hosts/${ip}`).then((h) => ({
       ...h,

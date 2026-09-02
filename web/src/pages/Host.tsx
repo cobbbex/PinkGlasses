@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { api, HostService } from "../api";
 import { Spinner } from "../components/ui";
+import { ScreenshotButton } from "../components/Screenshot";
 
 /**
  * Everything known about one address, on its own URL so it can be opened in a
@@ -161,6 +162,9 @@ function ServiceCard({ sv }: { sv: HostService }) {
             ? `observed ${new Date(sv.observed_at).toLocaleString()}`
             : `seen ${new Date(sv.last_seen).toLocaleString()}`}
         </span>
+        {sv.has_screenshot && (
+          <ScreenshotButton serviceID={sv.id} title={`${sv.port}/${sv.proto}`} />
+        )}
       </div>
 
       {http?.title && (

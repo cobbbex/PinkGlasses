@@ -3,9 +3,11 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/benlik386/pinkglasses/internal/domain"
 )
@@ -283,6 +285,10 @@ type HostRow struct {
 	IsShared  bool       `json:"is_shared"`
 	Services  int        `json:"services"`
 	LastSeen  time.Time  `json:"last_seen"`
+	// ScreenshotServiceID is the service on this address holding the most
+	// recent screenshot, so the list can offer to show one without asking for
+	// each row's services separately.
+	ScreenshotServiceID *uuid.UUID `json:"screenshot_service_id,omitempty"`
 }
 
 // HostRowsResult carries the rows plus how many names were filtered out, so the
@@ -317,10 +323,17 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 		SELECT d.id, d.name, ip.id, host(ip.addr), ip.ptr, ip.asn, ip.as_org,
 		       ip.as_range, ip.country, ip.cloud, COALESCE(ip.is_shared,false),
 		       COALESCE((SELECT count(*) FROM service sv WHERE sv.ip_id = ip.id), 0),
-		       d.last_seen
+		       d.last_seen, shot.service_id
 		FROM domain d
 		LEFT JOIN domain_ip di ON di.domain_id = d.id
 		LEFT JOIN ip_address ip ON ip.id = di.ip_id
+		LEFT JOIN LATERAL (
+		  SELECT o.service_id
+		  FROM service_observation o
+		  JOIN service sv ON sv.id = o.service_id
+		  WHERE sv.ip_id = ip.id AND COALESCE(o.screenshot_key,'') <> ''
+		  ORDER BY o.observed_at DESC LIMIT 1
+		) shot ON true
 		WHERE d.scope_id = $1
 		  AND ($4 OR ip.id IS NOT NULL)
 		  AND ($2 = '' OR d.name ILIKE '%'||$2||'%' OR host(ip.addr) ILIKE '%'||$2||'%'
@@ -335,7 +348,8 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 	for rows.Next() {
 		var h HostRow
 		if err := rows.Scan(&h.DomainID, &h.Name, &h.IPID, &h.Addr, &h.PTR, &h.ASN,
-			&h.ASOrg, &h.ASRange, &h.Country, &h.Cloud, &h.IsShared, &h.Services, &h.LastSeen); err != nil {
+			&h.ASOrg, &h.ASRange, &h.Country, &h.Cloud, &h.IsShared, &h.Services,
+			&h.LastSeen, &h.ScreenshotServiceID); err != nil {
 			return res, err
 		}
 		res.Rows = append(res.Rows, h)
@@ -343,6 +357,21 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 	return res, rows.Err()
 }
 
+
+// LatestScreenshotKey returns the object key of the most recent screenshot of a
+// service, or "" when none was ever captured. Callers address screenshots by
+// service, never by key, so the key never leaves the server.
+func (s *Store) LatestScreenshotKey(ctx context.Context, serviceID uuid.UUID) (string, error) {
+	var key string
+	err := s.Pool.QueryRow(ctx, `
+		SELECT screenshot_key FROM service_observation
+		WHERE service_id=$1 AND COALESCE(screenshot_key,'') <> ''
+		ORDER BY observed_at DESC LIMIT 1`, serviceID).Scan(&key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return key, err
+}
 
 // --- host detail (the Shodan-style per-address page) ---
 
@@ -374,6 +403,9 @@ type HostService struct {
 	TLS          json.RawMessage `json:"tls,omitempty"`
 	ObservedAt   *time.Time      `json:"observed_at,omitempty"`
 	Technologies []HostTech      `json:"technologies"`
+	// The key itself stays server-side: the image is fetched by service id,
+	// so a caller cannot ask the API for an arbitrary object.
+	HasScreenshot bool `json:"has_screenshot"`
 }
 
 // HostDetailResult is everything known about one address.
@@ -428,7 +460,9 @@ func (s *Store) HostDetail(ctx context.Context, ipID uuid.UUID) (HostDetailResul
 	// the whole history of each port.
 	svcRows, err := s.Pool.Query(ctx, `
 		SELECT sv.id, sv.ip_id, sv.port, sv.proto, sv.last_state, sv.first_seen, sv.last_seen,
-		       o.banner, o.product, o.version, o.http, o.tls, o.observed_at
+		       o.banner, o.product, o.version, o.http, o.tls, o.observed_at,
+		       EXISTS (SELECT 1 FROM service_observation so
+		                WHERE so.service_id = sv.id AND COALESCE(so.screenshot_key,'') <> '')
 		FROM service sv
 		LEFT JOIN LATERAL (
 		  SELECT banner, product, version, http, tls, observed_at
@@ -448,7 +482,8 @@ func (s *Store) HostDetail(ctx context.Context, ipID uuid.UUID) (HostDetailResul
 		sv.Technologies = []HostTech{}
 		if err := svcRows.Scan(&sv.ID, &sv.IPID, &sv.Port, &sv.Proto, &sv.LastState,
 			&sv.FirstSeen, &sv.LastSeen,
-			&sv.Banner, &sv.Product, &sv.Version, &sv.HTTP, &sv.TLS, &sv.ObservedAt); err != nil {
+			&sv.Banner, &sv.Product, &sv.Version, &sv.HTTP, &sv.TLS, &sv.ObservedAt,
+			&sv.HasScreenshot); err != nil {
 			return res, err
 		}
 		byService[sv.ID] = len(res.Services)
