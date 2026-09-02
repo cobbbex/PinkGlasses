@@ -121,7 +121,8 @@ var Specs = []Spec{
 
 	// --- directory search ---
 	{Key: "dir_wordlist", Tool: "gobuster", Label: "Wordlist", Kind: KindWordlist,
-		Enum: []string{"common", "dns"}, Default: "common", Help: "Which shipped wordlist to brute-force with."},
+		Enum: []string{"common", "dns"}, Default: "common",
+		Help: "Which list baked into the worker image to brute-force with. Ignored when a directory wordlist is marked default in the registry, which is delivered to the worker instead."},
 	{Key: "dir_concurrency", Tool: "gobuster", Label: "Threads", Kind: KindInt,
 		Min: 1, Max: 30, Default: "10", Help: "This is the loudest stage; keep it modest against production hosts."},
 	{Key: "dir_exclude_length", Tool: "gobuster", Label: "Exclude response length", Kind: KindInt,

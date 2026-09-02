@@ -116,17 +116,23 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(wlIDs) == 0 {
-		for _, kind := range []string{"dns", "resolvers"} {
+		for _, kind := range []string{"dns", "resolvers", "dir"} {
 			if defs, err := s.st.DefaultWordlists(r.Context(), kind); err == nil {
 				for _, d := range defs {
 					wlIDs = append(wlIDs, d.ID)
 				}
 			}
 		}
-	} else if res, err := s.st.DefaultWordlists(r.Context(), "resolvers"); err == nil {
-		// An explicit wordlist choice still needs resolvers to brute-force with.
-		for _, d := range res {
-			wlIDs = append(wlIDs, d.ID)
+	} else {
+		// An explicit choice names the subdomain lists to brute-force with. It
+		// says nothing about the resolvers those need, nor about the directory
+		// list a later stage uses, so both still come from the defaults.
+		for _, kind := range []string{"resolvers", "dir"} {
+			if defs, err := s.st.DefaultWordlists(r.Context(), kind); err == nil {
+				for _, d := range defs {
+					wlIDs = append(wlIDs, d.ID)
+				}
+			}
 		}
 	}
 	if err := s.st.SetRunWordlists(r.Context(), run.ID, wlIDs); err != nil {

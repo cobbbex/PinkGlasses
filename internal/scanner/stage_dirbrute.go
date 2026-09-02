@@ -80,12 +80,18 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	}
 
 	// --- gobuster dir brute (Tools.md default; ffuf as the alternative) ---
+	// The list this run selected in the registry, downloaded and cached by
+	// content hash, or the one baked into the image when the run has none.
+	wordlist, _ := s.dirWordlistPath(ctx, job)
+
 	switch {
-	case have("gobuster") && fileExists(wordlistDir()):
+	case have("gobuster") && fileExists(wordlist):
 		// Tools.md: gobuster dir -u <url> -w <wordlist> -k [--exclude-length N]
 		pr := jobParams(job)
-		wl := wordlistDir()
-		if pr.str("dir_wordlist", "common") == "dns" {
+		wl := wordlist
+		if job.Params.WordlistURL == "" && pr.str("dir_wordlist", "common") == "dns" {
+			// No registry list attached, so the shipped ones are all there is
+			// and the parameter still chooses between them.
 			wl = wordlistDNS()
 		}
 		args := []string{"dir", "-q", "-u", base, "-w", wl, "-k",
@@ -109,7 +115,7 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	case have("ffuf"):
 		wl := job.Params.Wordlist
 		if wl == "" {
-			wl = wordlistDir()
+			wl = wordlist
 		}
 		rows, _ := runJSONL(ctx, 5*time.Minute, "ffuf", "-s", "-of", "json", "-u", base+"/FUZZ", "-w", wl)
 		for _, r := range rows {
@@ -143,9 +149,17 @@ func (s *Scanner) dirBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 		byStatus[o.Status]++
 		slog.Debug("path", "url", base, "path", o.Path, "status", o.Status)
 	}
-	slog.Info("content discovery", "url", base,
+	slog.Info("content discovery", "url", base, "wordlist", listName(job, wordlist),
 		"candidates", len(seen), "confirmed", len(obs), "by_status", fmt.Sprint(byStatus))
 	return obs, nil
+}
+
+// dirWordlistPath returns a local path to this job's directory wordlist: the
+// one its run selected in the registry, or the list shipped in the worker image
+// when no run list is attached.
+func (s *Scanner) dirWordlistPath(ctx context.Context, job scanproto.Job) (string, error) {
+	return s.cachedList(ctx, job.Params.WordlistURL, job.Params.WordlistSHA,
+		job.Params.WordlistName, wordlistDir())
 }
 
 // cleanPath keeps only plausible URL paths, rejecting the text fragments a
@@ -228,6 +242,15 @@ func (s *Scanner) probePaths(ctx context.Context, base, ip string, port int, see
 	return obs
 }
 
+// listName names the wordlist a run actually used, so the log distinguishes a
+// registry list from the image's fallback.
+func listName(job scanproto.Job, path string) string {
+	if job.Params.WordlistName != "" {
+		return job.Params.WordlistName
+	}
+	return "image default (" + path + ")"
+}
+
 // pathOf extracts the path component from a URL, defaulting to "/".
 func pathOf(u string) string {
 	i := strings.Index(u, "://")
@@ -240,18 +263,31 @@ func pathOf(u string) string {
 	return "/"
 }
 
-// parseGobusterLine parses gobuster dir's default output, e.g.
-// "/admin (Status: 301) [Size: 0]".
+// parseGobusterLine parses one gobuster dir hit, e.g.
+// "index.html           (Status: 200) [Size: 6974]" or
+// "shared               (Status: 301) [Size: 312] [--> http://h/shared/]".
+//
+// The leading slash is optional: gobuster prints the raw wordlist entry, so in
+// quiet mode a hit arrives as "index.html". Requiring the slash silently threw
+// away every result this stage ever produced, leaving only the paths the
+// crawler had already found.
 func parseGobusterLine(ln string) (string, int) {
 	ln = strings.TrimSpace(ln)
-	if !strings.HasPrefix(ln, "/") {
+	if ln == "" {
 		return "", 0
 	}
 	path := ln
-	status := 0
-	if i := strings.Index(ln, " "); i > 0 {
+	if i := strings.IndexAny(ln, " \t"); i > 0 {
 		path = ln[:i]
 	}
+	// Only a hit line starts with a path; gobuster's own notices do not.
+	if strings.ContainsAny(path, "()[]") {
+		return "", 0
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	status := 0
 	if i := strings.Index(ln, "Status: "); i >= 0 {
 		fmt.Sscanf(ln[i+len("Status: "):], "%d", &status)
 	}

@@ -55,3 +55,27 @@ func TestSplitProductVersion(t *testing.T) {
 		}
 	}
 }
+
+// gobuster prints the wordlist entry as it appears in the list, so in quiet
+// mode a hit has no leading slash. Requiring one discarded every hit, and the
+// stage reported only what the crawler had already found.
+func TestParseGobusterLine(t *testing.T) {
+	cases := []struct {
+		line   string
+		path   string
+		status int
+	}{
+		{"index.html           (Status: 200) [Size: 6974]", "/index.html", 200},
+		{"shared               (Status: 301) [Size: 312] [--> http://h/shared/]", "/shared", 301},
+		{"/admin (Status: 301) [Size: 0]", "/admin", 301},
+		{"  images   (Status: 301) [Size: 312]", "/images", 301},
+		{"", "", 0},
+		{"(Status: 200)", "", 0},
+	}
+	for _, c := range cases {
+		p, st := parseGobusterLine(c.line)
+		if p != c.path || st != c.status {
+			t.Errorf("parseGobusterLine(%q) = (%q, %d), want (%q, %d)", c.line, p, st, c.path, c.status)
+		}
+	}
+}

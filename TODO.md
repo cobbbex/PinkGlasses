@@ -251,4 +251,11 @@ presets, with the `Tools.md` values as the shipped defaults.
       by type and allowed range, and reject anything unrecognised rather than forwarding it.
 
 ## Phase 16 - Tunning
-- [ ] Add to wordlists dirs wordlists feature
+- [x] 16.1 Directory wordlists in the registry: a `dir` kind in the Wordlists UI, two
+      shipped SecLists defaults, delivery to the worker by presigned URL and content-hash
+      cache, and `gobuster dir` using the run's list. Verified live with an uploaded list:
+      the worker cached the exact file and its hits landed as findings — which surfaced
+      that `gobuster`'s output was never parsed at all (it prints entries without a leading
+      slash), so this stage had only ever reported the crawler's paths.
+- [ ] Add to scans run table target column and progress bar. Test it.
+

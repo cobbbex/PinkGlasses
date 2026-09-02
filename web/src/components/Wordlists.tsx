@@ -18,6 +18,8 @@ function human(n: number) {
 const KINDS = [
   { id: "dns", label: "Subdomain wordlists",
     blurb: "Brute-forced by shuffledns. Every list marked default runs as its own task, so several lists spread across workers instead of running one after another." },
+  { id: "dir", label: "Directory wordlists",
+    blurb: "Brute-forced by gobuster against each web service found. This is the loudest stage in the pipeline, so the size of the list you mark default is the main thing deciding how noisy a scan is." },
   { id: "resolvers", label: "DNS resolvers",
     blurb: "The nameservers shuffledns queries. A large, healthy resolver list is what makes brute-forcing fast and keeps false positives down — a stale one is the usual cause of a slow or wrong brute force." },
 ];

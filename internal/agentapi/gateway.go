@@ -244,11 +244,43 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// attachDirWordlist gives a dir_brute job the directory list its run selected.
+//
+// Unlike subdomain brute-forcing, which fans out one task per list, directory
+// search runs one task per URL and uses a single list: the run's default. A run
+// without one is not an error — the worker falls back to the list baked into
+// its image.
+func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job) {
+	runID, err := uuid.Parse(job.RunID)
+	if err != nil {
+		return
+	}
+	lists, err := g.st.RunWordlistsByKind(ctx, runID, "dir")
+	if err != nil || len(lists) == 0 {
+		return
+	}
+	wl := lists[0]
+	url, err := g.obj.PresignGet(wl.ObjectKey, 2*time.Hour, time.Now())
+	if err != nil {
+		slog.Warn("could not presign directory wordlist", "list", wl.Name, "err", err)
+		return
+	}
+	job.Params.WordlistURL = url
+	job.Params.WordlistName = wl.Name
+	if wl.SHA256 != nil {
+		job.Params.WordlistSHA = *wl.SHA256
+	}
+}
+
 // paramsForRun returns a run's validated scan params, cached to avoid a DB hit
 // attachWordlist gives a dns_brute job a short-lived download URL for the list
 // it must use. The URL is minted at dispatch rather than at planning time so it
 // is still valid when the task is actually leased, which may be much later.
 func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job) {
+	if job.Stage == scanproto.StageDirBrute {
+		g.attachDirWordlist(ctx, job)
+		return
+	}
 	if job.Stage != scanproto.StageDNSBrute || len(job.Targets) == 0 {
 		return
 	}
