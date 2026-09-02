@@ -126,11 +126,17 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 				Type: scanproto.ObsHTTP, IP: ip, Port: port,
 				Status: num(r, "status_code"),
 				Title:  str(r, "title"),
-				Headers: map[string]string{
-					"server":         str(r, "webserver"),
-					"content-length": str(r, "content_length"),
-					"location":       str(r, "location"),
-				},
+				// Only headers that actually carry a value: an empty one is not a
+				// fact about the service, and it would overwrite what a stage
+				// with a fuller view of the response already recorded.
+				// Canonical header casing, matching what the service probe
+				// records — otherwise the two stages contribute "Server" and
+				// "server" and the merged document carries both.
+				Headers: nonEmpty(map[string]string{
+					"Server":         str(r, "webserver"),
+					"Content-Length": str(r, "content_length"),
+					"Location":       str(r, "location"),
+				}),
 				Favicon: str(r, "favicon"),
 				Product: str(r, "webserver"),
 			})
@@ -310,6 +316,17 @@ func targetIPPort(job scanproto.Job) (string, int) {
 	// observation attributable to a service: an observation with no IP cannot be
 	// stored against one, and ingest rejects the batch it arrives in.
 	return ipPortFromURL(t.URL, t.Port)
+}
+
+// nonEmpty drops map entries with an empty value.
+func nonEmpty(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		if v != "" {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // ipPortFromURL pulls the host and port out of a service URL, falling back to

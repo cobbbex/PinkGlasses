@@ -99,8 +99,12 @@ func (s *Store) UpsertService(ctx context.Context, ipID uuid.UUID, port int, pro
 
 // UpsertServiceObservation records the per-run service snapshot.
 func (s *Store) UpsertServiceObservation(ctx context.Context, serviceID, runID uuid.UUID, workerID *uuid.UUID, o domain.ServiceObs) error {
-	httpJSON, _ := json.Marshal(o.HTTP)
-	tlsJSON, _ := json.Marshal(o.TLS)
+	// An absent document is stored as SQL NULL, not as the JSON value `null`
+	// that marshalling a nil map produces. The difference matters: COALESCE and
+	// the merge below only recognize SQL NULL, and jsonb `null` concatenated
+	// with an object yields an array rather than a merge.
+	httpJSON := jsonOrNil(o.HTTP)
+	tlsJSON := jsonOrNil(o.TLS)
 	_, err := s.Pool.Exec(ctx, `
 		INSERT INTO service_observation (service_id, run_id, worker_id, observed_at, banner, product, version, http, tls, screenshot_key, raw_key)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
@@ -115,12 +119,39 @@ func (s *Store) UpsertServiceObservation(ctx context.Context, serviceID, runID u
 		  banner=COALESCE(NULLIF(EXCLUDED.banner,''), service_observation.banner),
 		  product=COALESCE(NULLIF(EXCLUDED.product,''), service_observation.product),
 		  version=COALESCE(NULLIF(EXCLUDED.version,''), service_observation.version),
-		  http=COALESCE(NULLIF(EXCLUDED.http,'null'::jsonb), service_observation.http),
+		  -- Merged rather than replaced, and the headers with it: the probe
+		  -- captures the whole response, tech detection a handful of fields it
+		  -- cares about. Assigning the newer document would throw away the
+		  -- fuller one purely because it arrived second.
+		  http=CASE
+		         -- IS DISTINCT FROM, not <>: jsonb_typeof(NULL) is NULL, and a
+		         -- NULL comparison is not true, so <> would fall through to the
+		         -- merge and NULL out the column it was meant to preserve.
+		         WHEN jsonb_typeof(EXCLUDED.http) IS DISTINCT FROM 'object' THEN service_observation.http
+		         WHEN jsonb_typeof(service_observation.http) IS DISTINCT FROM 'object' THEN EXCLUDED.http
+		         ELSE service_observation.http || EXCLUDED.http
+		              || jsonb_build_object('headers',
+		                   COALESCE(service_observation.http->'headers','{}'::jsonb)
+		                   || COALESCE(EXCLUDED.http->'headers','{}'::jsonb))
+		       END,
 		  tls=COALESCE(NULLIF(EXCLUDED.tls,'null'::jsonb), service_observation.tls),
 		  screenshot_key=COALESCE(NULLIF(EXCLUDED.screenshot_key,''), service_observation.screenshot_key),
 		  raw_key=COALESCE(NULLIF(EXCLUDED.raw_key,''), service_observation.raw_key)`,
 		serviceID, runID, workerID, o.At, o.Banner, o.Product, o.Version, httpJSON, tlsJSON, o.ScreenshotKey, o.RawKey)
 	return err
+}
+
+// jsonOrNil marshals a document, returning nil — a SQL NULL — when there is
+// nothing to store, rather than the four bytes "null".
+func jsonOrNil(v map[string]any) []byte {
+	if len(v) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // UpsertTechnology records a detected technology on a service.
