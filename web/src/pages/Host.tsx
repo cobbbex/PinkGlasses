@@ -143,7 +143,11 @@ function ServiceCard({ sv }: { sv: HostService }) {
   const http = sv.http ?? null;
   const headers = http?.headers ?? {};
   const headerKeys = Object.keys(headers).sort();
-  const product = [sv.product, sv.version].filter(Boolean).join(" ");
+  // A version already spelled out in the product string is not repeated:
+  // banners like "Apache/2.4.7 (Ubuntu)" would otherwise read "… 2.4.7 2.4.7".
+  const product = sv.version && !(sv.product ?? "").includes(sv.version)
+    ? [sv.product, sv.version].filter(Boolean).join(" ")
+    : (sv.product ?? "");
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>

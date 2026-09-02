@@ -34,3 +34,24 @@ func TestTargetIPPortDerivesAddressFromURL(t *testing.T) {
 		})
 	}
 }
+
+// A Server header is a banner, not a product name. Storing it whole put the
+// version in the product field and then again beside it ("Apache/2.4.7
+// (Ubuntu) 2.4.7"), and left version search with nothing to match.
+func TestSplitProductVersion(t *testing.T) {
+	cases := []struct{ in, product, version string }{
+		{"Apache/2.4.7 (Ubuntu)", "Apache", "2.4.7"},
+		{"nginx/1.25.3", "nginx", "1.25.3"},
+		{"Microsoft-IIS/10.0", "Microsoft-IIS", "10.0"},
+		{"cloudflare", "cloudflare", ""},
+		{"", "", ""},
+		{"gws/", "gws", ""},
+		{"  nginx/1.2  ", "nginx", "1.2"},
+	}
+	for _, c := range cases {
+		p, v := splitProductVersion(c.in)
+		if p != c.product || v != c.version {
+			t.Errorf("splitProductVersion(%q) = (%q, %q), want (%q, %q)", c.in, p, v, c.product, c.version)
+		}
+	}
+}

@@ -122,6 +122,7 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 		hxArgs = append(hxArgs, "-u", url)
 		rows, _ := runJSONL(ctx, 3*time.Minute, "httpx", hxArgs...)
 		for _, r := range rows {
+			hxProduct, hxVersion := splitProductVersion(str(r, "webserver"))
 			obs = append(obs, scanproto.Observation{
 				Type: scanproto.ObsHTTP, IP: ip, Port: port,
 				Status: num(r, "status_code"),
@@ -138,7 +139,12 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 					"Location":       str(r, "location"),
 				}),
 				Favicon: str(r, "favicon"),
-				Product: str(r, "webserver"),
+				// Parsed, not the raw header: product must hold a product name.
+				// Storing "Apache/2.4.7 (Ubuntu)" here left the version beside
+				// it duplicated in the UI, and made the field useless to search.
+				// The header itself is still recorded, under Headers.
+				Product: hxProduct,
+				Version: hxVersion,
 			})
 			if techs, ok := r["tech"].([]any); ok {
 				for _, t := range techs {
@@ -279,11 +285,23 @@ func html(s string) string {
 	return s
 }
 
+// splitProductVersion parses a Server-style banner into a product and a
+// version: "Apache/2.4.7 (Ubuntu)" -> ("Apache", "2.4.7").
+//
+// Only the version token is kept. The trailing build or distribution note is
+// not a version, and carrying it makes version search ("version:2.4.7") miss.
 func splitProductVersion(s string) (string, string) {
-	if i := strings.IndexByte(s, '/'); i > 0 {
-		return strings.TrimSpace(s[:i]), strings.TrimSpace(s[i+1:])
+	s = strings.TrimSpace(s)
+	i := strings.IndexByte(s, '/')
+	if i <= 0 {
+		return s, ""
 	}
-	return strings.TrimSpace(s), ""
+	product := strings.TrimSpace(s[:i])
+	version := strings.TrimSpace(s[i+1:])
+	if j := strings.IndexAny(version, " \t"); j > 0 {
+		version = version[:j]
+	}
+	return product, strings.Trim(version, "()")
 }
 
 func schemesFor(port int) []string {
