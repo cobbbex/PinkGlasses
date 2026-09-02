@@ -27,7 +27,9 @@ Workers ── WSS/HTTPS ─▶ gateway┘         │
 ## Scan pipeline (per run, across many targets)
 
 ```
-subdomains → dns resolve → [coalesce: dedupe IPs] → port scan → service probe
+subdomains ─┬─────────────────┐
+            └─ dns bruteforce ┴→ dns resolve → [coalesce: dedupe IPs]
+                                                  → port scan → service probe
                                                          ├─ tech detect
                                                          ├─ screenshot
                                                          └─ directory brute
@@ -38,11 +40,22 @@ implementations when a binary is absent, so it works before you install anything
 
 | Stage | Primary tool | Fallback |
 |---|---|---|
-| Subdomains | subfinder, alterx, dnsx | stdlib resolver |
+| Subdomains | subfinder | stdlib resolver |
+| DNS bruteforce | shuffledns + massdns | skipped |
+| Resolution & enrichment | dnsx, Team Cymru | stdlib resolver |
 | Ports & services | naabu → **nmap -sV** | Go connect-scan (+ nmap when present) |
 | Tech & versions | httpx `-tech-detect`, nuclei | header/body fingerprint |
 | Screenshots | httpx `-screenshot` | (needs `browser` capability) |
-| Directory brute | katana → ffuf/feroxbuster | built-in common-path probe |
+| Directory brute | katana, urlfinder → gobuster/ffuf | built-in common-path probe |
+
+**DNS bruteforce is a separate task per wordlist**, so several lists spread across
+workers instead of grinding through one after another. See
+[Wordlists and resolvers](#wordlists-and-resolvers).
+
+**Every resolved address carries its network provenance** — reverse DNS, AS
+number, AS name and the announcing prefix. dnsx supplies PTR; the ASN details
+come from Team Cymru's DNS interface, which needs no extra binary and no API key.
+Enrichment runs once per unique address, not once per name.
 
 ## Run it (docker-compose)
 
@@ -172,6 +185,93 @@ inventory with fabricated assets (`architecture.md` §10.3).
 The install token is single-use and expires in 1 hour; the worker's long-lived credential is
 minted on enrollment and never leaves the box. See `scripts/install.sh`.
 
+## The Hosts view
+
+Names and the machines they point at are one question in practice, so there is a
+single **Hosts** page rather than separate Domains and Hosts pages. Each row is a
+discovered name with the address it resolves to and that address's provenance:
+
+| Subdomain | Address | Reverse DNS | ASN | AS name | AS range | Services |
+|---|---|---|---|---|---|---|
+
+**Names that no longer resolve are hidden by default.** Passive sources record
+every name a domain has ever used — certificate transparency and passive DNS
+archives go back years — and for a long-lived domain that is tens of thousands of
+names, almost none of them current. They are still recorded, the count of what is
+hidden is shown, and a checkbox brings them back. They are evidence of past
+infrastructure, not present attack surface.
+
+A Map toggle renders the same data as a force-directed asset graph.
+
+## Wordlists and resolvers
+
+**Wordlists** in the UI manages both the subdomain wordlists shuffledns brute-forces
+and the resolver lists it queries through. Both are the same kind of object — a
+line-oriented file — so they share one registry.
+
+Three lists ship as built-ins and download themselves on first boot:
+
+| List | Kind | Size |
+|---|---|---|
+| assetnote `best-dns-wordlist` | subdomain | ~9.5M entries |
+| assetnote `httparchive_subdomains` | subdomain | ~3.2M entries |
+| trickest public resolvers | resolvers | ~12.7k entries |
+
+Until a download finishes the entry shows as `pending` and scans skip it.
+
+**Files live in object storage, not in the worker image.** A worker downloads each
+list once and caches it on disk by content hash, so the same list is never fetched
+twice — and editing a list changes its hash, which is what makes workers pick up
+the new version rather than serving the old one from cache.
+
+You can **upload** your own list, mark which lists are **used by default**, and
+**edit** entries in place. Editing is capped at 4 MB: resolver lists are kilobytes,
+but the assetnote wordlists are hundreds of megabytes and are replaced by upload
+instead.
+
+Resolver entries are validated on save — each must be an IP, optionally with a
+port — and bad lines are reported with their line numbers. A malformed resolver
+otherwise degrades every brute force that uses the list with no visible error.
+
+Every list marked default for the subdomain kind becomes **its own dns_brute task**,
+so lists run in parallel across workers.
+
+## Watching a scan
+
+Expanding a run in **Runs** shows, refreshed every few seconds:
+
+- **Pipeline** — a chip per stage with done/total, a dot while work is in flight,
+  and a count of failures
+- **Workers on this scan** — each worker, how many tasks it is running and has
+  finished, and which stages it is on
+- **Activity** — running tasks first, then recently finished: stage, target,
+  which worker, status, retries and elapsed time
+
+The same story appears in the worker log:
+
+```
+tool finished  tool=subfinder args="-silent -json -d example.com -max-time 3"
+               results=24948 took=1.949s ok=true
+passive enumeration  domain=example.com candidates=24949
+               by_source="map[seed:1 subfinder:24948]"
+dns_brute finished   wordlist="best-dns-wordlist" resolvers="trickest" found=37
+address enrichment   addresses=4 with_asn=4 with_ptr=0
+```
+
+`by_source` is worth watching: it distinguishes a dead API key or a rate-limited
+provider from a domain that genuinely has few names.
+
+Set `ASM_LOG_LEVEL` to `debug` for the individual findings behind those summaries —
+every candidate name, port with its product, discovered path, and each tool's
+command line before it runs:
+
+```bash
+ASM_LOG_LEVEL=debug docker compose up -d worker
+```
+
+`info` (the default) is every tool invocation and stage summary; `warn` and `error`
+narrow it further.
+
 ## Develop
 
 Backend (Go 1.23):
@@ -233,9 +333,11 @@ This tool sends packets to real infrastructure. Read `architecture.md` §10 firs
 ## Layout
 
 ```
-cmd/         api · gateway · scheduler · worker · migrate
+cmd/         api · gateway · scheduler · worker · provisioner · migrate
 internal/    domain · store · scanproto · scopeguard · planner · dispatch · ingest · diff
-             search · notify · obj · audit · httpapi · agentapi · scanner (the pipeline)
+             search · notify · obj · audit · httpapi · agentapi · provisioner
+             scanparams (the settable scan knobs) · wordlists (registry seeding)
+             scanner (the pipeline)
 migrations/  goose SQL
 web/         Vite + React + TS SPA
 deploy/      worker Dockerfile
@@ -243,9 +345,26 @@ deploy/      worker Dockerfile
 
 ## Status
 
-First working cut. The Go control plane and worker build and vet clean; the SPA type-checks
-and builds. Deliberately deferred (see `architecture.md` §14): multi-tenancy, ClickHouse
-analytics, SSH-push provisioning, worker auto-update, cloud-inventory connectors. The worker
-prefers real tools when installed and falls back to Go implementations otherwise, so the
-`naabu`/`nmap`/`nuclei`/etc. libraries can be swapped in behind the `scanner` package without
-touching the rest of the system.
+Working end to end: discovery, DNS brute-forcing, port and service scanning, ASN and
+reverse-DNS enrichment, per-worker scan visibility, and a wordlist/resolver registry that
+workers fetch and cache. The Go control plane and worker build and vet clean, the test
+suite passes, and the SPA type-checks and builds.
+
+The worker prefers real tools when installed and falls back to Go implementations
+otherwise, so a tool can be swapped or removed behind the `scanner` package without
+touching the rest of the system. Every tool invocation is logged with its result count and
+duration — an unsupported flag silently disabling a stage has cost real debugging time
+here, and that class of failure is now visible.
+
+Deliberately deferred (see `architecture.md` §14): multi-tenancy, ClickHouse analytics,
+SSH-push provisioning, worker auto-update, cloud-inventory connectors.
+
+Known rough edges:
+
+- Rebuilding a worker leaves its previous fleet row `active`, and new tasks are leased to
+  the dead one until the reaper clears it. The worker should deregister on shutdown, or the
+  gateway should drop the row when its control channel closes.
+- Results held by a worker that is stopped mid-task are lost. The agent logs
+  "spooling would retry", but no spool exists yet.
+- Provisioner-created workers are not rebuilt by `docker compose up --build`, so they keep
+  running an older image until removed and recreated.

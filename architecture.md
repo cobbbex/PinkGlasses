@@ -218,11 +218,15 @@ flowchart TB
 
     T1 --> P1[passive_enum]
     T2 --> P2[passive_enum]
+    T1 --> B1["dns_brute<br/>one task per wordlist"]
+    T2 --> B2["dns_brute<br/>one task per wordlist"]
     P1 --> D1[dns_resolve fan-out]
     P2 --> D2[dns_resolve fan-out]
 
     D1 --> C{{"coalesce barrier<br/>dedupe IP set across ALL targets"}}
     D2 --> C
+    B1 --> C
+    B2 --> C
     T3 --> C
 
     C --> S1[port_scan 203.0.113.10]
@@ -271,6 +275,11 @@ pointed at it, so per-domain reporting stays correct after deduplication.
   differ processes the targets that succeeded and flags the rest as `incomplete`.
 
 ### 4.3 Stage barriers
+
+The barrier waits for `dns_brute` as well as `passive_enum` and `dns_resolve`, and takes
+the union of what all three discovered. Brute-force tasks fan out per (domain × wordlist),
+so several wordlists run as independent tasks that the dispatcher can spread across workers
+rather than serialising millions of names on one box.
 
 Only `dns_resolve → coalesce → port_scan` is a hard barrier. Everything after it pipelines:
 a host that finished port scanning goes straight to probing while other hosts are still
@@ -545,6 +554,44 @@ object storage keyed by run. Old observation rows can be rolled up after N month
 losing the asset inventory.
 
 ---
+
+### 5.6 Wordlists and resolvers
+
+Subdomain wordlists and DNS resolver lists are the same kind of object — a
+line-oriented file that workers need a copy of — so they share one registry table
+keyed by `kind` rather than getting parallel machinery.
+
+```sql
+CREATE TABLE wordlist (
+    id          uuid PRIMARY KEY,
+    name        text NOT NULL UNIQUE,
+    kind        text NOT NULL DEFAULT 'dns',   -- 'dns' | 'dir' | 'resolvers'
+    object_key  text NOT NULL,                 -- the file lives in object storage
+    source_url  text,                          -- where a built-in came from
+    sha256      text,                          -- also the worker's cache key
+    builtin     boolean NOT NULL DEFAULT false,
+    is_default  boolean NOT NULL DEFAULT false,
+    status      text NOT NULL DEFAULT 'pending'
+);
+```
+
+**Files are deliberately not in the worker image.** The assetnote DNS lists are
+9.5M and 3.2M entries; baking them in would add hundreds of megabytes to every
+worker and make updating a list mean rebuilding an image. Instead the control
+plane fetches each built-in once into object storage on first boot, and workers
+download by presigned URL and cache on disk **keyed by content hash**.
+
+That hash is what makes editing work: rewriting a list changes its sha256, so
+workers fetch the new version rather than serving the previous one from cache. No
+invalidation protocol is needed — the cache key *is* the content.
+
+`run_wordlist` records which lists a run used, so a run stays reproducible after
+the registry changes.
+
+Resolver entries are validated where they are written: each must be an IP,
+optionally with a port. A malformed resolver degrades every brute force that uses
+the list with no visible error, which is the same silent-failure shape the tool
+runner's non-zero-exit logging exists to catch.
 
 ## 6. The worker: one box with the whole toolchain
 
@@ -1009,7 +1056,20 @@ On a user's VPS, `install.sh` writes a systemd unit that runs the single worker 
 with `--cap-add=NET_RAW`, a memory limit, and the agent credential in
 `/etc/asm-worker/credential` (0600). Nothing else is installed on the box.
 
-Observability: `slog` → Loki; Prometheus metrics from api/gateway/workers (queue depth,
+Observability, as built: the worker logs every tool invocation with its arguments, result
+count, duration and exit status, and every stage logs what it produced. `ASM_LOG_LEVEL`
+(debug|info|warn|error) selects the depth — `info` is invocations and stage summaries,
+`debug` adds the individual findings and each command line before it runs.
+
+This is deliberately more verbose than a scanner usually is. Two separate bugs in this
+codebase were unsupported tool flags that made a stage return nothing while looking exactly
+like a clean "found nothing"; a stage that silently does nothing has to be visible.
+
+The control plane exposes the same picture over `GET /runs/{id}/activity`: per-stage
+counts, a per-worker rollup, and the task list with in-flight work first — which is what
+the run view renders.
+
+Still to add: `slog` → Loki; Prometheus metrics from api/gateway/workers (queue depth,
 lease expirations, tasks/sec per worker, per-stage error rate, scan duration histograms);
 OpenTelemetry traces with `run_id` as the correlating attribute, so one batch run is one
 trace tree spanning every worker that participated.

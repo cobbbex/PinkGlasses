@@ -17,9 +17,9 @@ flowchart TB
     E --> F
 
     subgraph A_
-      a1[subfinder<br/>passive enum] --> a2[alterx<br/>permutations]
-      a2 --> a3[dnsx<br/>resolve + wildcard filter]
-      a3 -.optional.-> a4[shuffledns<br/>DNS brute w/ massdns]
+      a1[subfinder<br/>passive enum] --> a3[dnsx<br/>resolve + wildcard filter]
+      a4[shuffledns<br/>one task per wordlist] --> a3
+      a3 --> a5[Team Cymru<br/>ASN + prefix]
     end
     subgraph B_
       b1[naabu<br/>fast port discovery] --> b2[nmap -sV<br/>service + version on open ports only]
@@ -31,7 +31,7 @@ flowchart TB
       d1[httpx -screenshot<br/>headless chromium]
     end
     subgraph E_
-      e1[katana<br/>crawl -> seed real paths] --> e2[ffuf / feroxbuster<br/>recursive brute]
+      e1[katana + urlfinder<br/>crawl -> seed real paths] --> e2[gobuster / ffuf<br/>brute force]
     end
 ```
 
@@ -46,14 +46,33 @@ screenshot and a directory brute don't depend on each other.
 
 | Tool | Role | Source |
 |---|---|---|
-| **subfinder** | Passive enumeration from 30+ sources (CT logs, DNS aggregators, and the APIs you have keys for — Shodan/Censys/SecurityTrails). Zero packets to the target. | PD |
-| **alterx** | Generates permutation/mutation candidates (`api-`, `-dev`, `staging.`, numbered) from what subfinder found — catches subdomains no data source lists. | PD |
-| **dnsx** | Resolves every candidate, follows CNAME chains, and — critically — does **wildcard detection** so `*.example.com` doesn't flood you with thousands of fake hits. Emits A/AAAA/CNAME/etc. | PD |
-| **shuffledns** *(optional, `deep` profile)* | Brute-forces subdomains from a large wordlist using **massdns** as the resolver engine. Only worth it when passive+permutation isn't enough; it is the loud, high-volume option. | PD (wraps massdns) |
+| **subfinder** | Passive enumeration from 30+ sources (CT logs, DNS aggregators, and the APIs you have keys for). Zero packets to the target. | PD |
+| **shuffledns** | Brute-forces subdomains from a wordlist using **massdns** as the resolver engine. The loud, high-volume option, and the one that finds names no data source lists. | PD (wraps massdns) |
+| **dnsx** | Resolves every candidate, follows CNAME chains, and does **wildcard detection** so `*.example.com` doesn't flood you with fake hits. Emits A/AAAA/CNAME/etc. | PD |
+| **Team Cymru** | AS number, AS name and announcing prefix for each resolved address, over plain DNS TXT. No binary, no API key, no database file. | — |
 
-**Order:** subfinder → alterx → dnsx (→ shuffledns on deep). dnsx is the gate: only names
-that actually resolve move downstream. Its resolved IP set feeds the coalesce barrier in
-`architecture.md` §4.
+**Order:** subfinder and shuffledns run in parallel, then dnsx resolves the union. dnsx is
+the gate: only names that actually resolve move downstream, and its resolved IP set feeds
+the coalesce barrier in `architecture.md` §4.
+
+**shuffledns runs as its own `dns_brute` stage, one task per wordlist.** The planner fans
+out a task per (domain × wordlist), so several lists spread across workers rather than
+grinding through one after another on a single box. Each task carries a presigned download
+for its wordlist and for the resolver list; the worker caches both by content hash.
+
+Two flag details this codebase learned the hard way, both of which made the stage return
+nothing while looking like a clean "found nothing":
+
+- shuffledns here has **no `-mode` flag** — passing `-d` with `-w` is what selects
+  brute-force mode. It also runs with `-strict-wildcard`, which re-checks every hit rather
+  than sampling, so a wildcarded domain or an NXDOMAIN-hijacking resolver cannot turn the
+  whole wordlist into "found" subdomains.
+- dnsx spells its retry flag **`-retry`**, not `-retries` like naabu, httpx and nuclei.
+
+**ASN does not come from dnsx.** Its `-asn` flag is accepted but silently returns nothing
+in this image, so the worker queries Team Cymru's DNS interface instead. Lookups retry and
+the AS-name query is single-flighted, because Cymru rate-limits and a dropped UDP reply
+otherwise costs an address its whole ASN.
 
 ### 2 · Open ports and services
 
@@ -103,9 +122,9 @@ Two tools, used together:
 | Tool | Role | Source |
 |---|---|---|
 | **katana** | Crawls each live site first to discover *real* linked paths, JS endpoints, and forms. Seeds the brute force with ground truth so you're not blindly guessing paths that crawling would have handed you. | PD |
-| **ffuf** *(recommended)* or **feroxbuster** | The actual content brute force against a wordlist. **feroxbuster** recurses into discovered directories automatically (best for deep trees); **ffuf** is faster and more scriptable for a single level. Both honor rate limits, filter by status/size/word count to cut false positives. | non-PD |
+| **gobuster** *(default)* or **ffuf** | The actual content brute force against a wordlist. gobuster is what the worker reaches for first; ffuf is the fallback when gobuster is absent, and a small built-in common-path probe runs when neither is. Hits are re-probed so every reported path carries a real HTTP status. | non-PD |
 
-**Order:** katana (crawl, cheap, informs the wordlist) → ffuf/feroxbuster (brute, expensive).
+**Order:** katana and urlfinder (crawl and passive URLs, cheap, seed real paths) → gobuster/ffuf (brute, expensive).
 Directory brute is the loudest, most rate-limit-sensitive stage — it fires many requests at
 one host, so cap concurrency per target and respect the worker's per-provider rate settings
 (`architecture.md` §7.3).
@@ -116,11 +135,11 @@ one host, so cap concurrency per target and respect the worker's per-provider ra
 
 | # | Stage | ProjectDiscovery | Non-PD |
 |---|---|---|---|
-| 1 | Subdomains | subfinder, alterx, dnsx, shuffledns | massdns *(shuffledns dependency)* |
+| 1 | Subdomains | subfinder, dnsx, shuffledns | massdns *(shuffledns dependency)*, Team Cymru *(ASN, over DNS)* |
 | 2 | Ports & services | naabu | **nmap** (`-sV`) |
 | 3 | Tech & versions | httpx (`-tech-detect`), nuclei, cdncheck | — |
 | 4 | Screenshots | httpx (`-screenshot`) + bundled Chromium | *(gowitness alt.)* |
-| 5 | Directory brute | katana (crawl seed) | **ffuf** or **feroxbuster** |
+| 5 | Directory brute | katana, urlfinder (crawl seed) | **gobuster** (default) or **ffuf** |
 
 **Shared PD helpers** already implied above: **dnsx** (resolution throughout), **cdncheck**
 (don't port-scan CDN IPs — feeds the `is_shared` flag), **mapcidr** / **asnmap** (expand
@@ -130,7 +149,7 @@ CIDR/ASN scope targets before scanning).
 
 - **Capabilities (§6.2):** stage 4 needs `browser`; stage 2's naabu SYN mode needs
   `raw_socket`. Everything else runs on any box.
-- **Non-PD binaries** — nmap, ffuf/feroxbuster, (massdns) — are the only shelled-out
+- **Non-PD binaries** — nmap, gobuster/ffuf, massdns — are the only shelled-out
   processes and must be baked into the worker image with pinned versions. Everything with a
   PD name is a linked Go library.
 - **Stage requirements** map onto `scan_task.requires`: a directory-brute task requires
