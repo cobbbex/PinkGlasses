@@ -65,6 +65,9 @@ export default function App() {
     <div className={"app" + (collapsed ? " collapsed" : "")}>
       <aside className="sidebar">
         <div className="brand-row">
+          {/* alt is empty while the <h1> beside it names the app; when collapsed the
+              heading is gone, so the mark has to carry the name itself. */}
+          <img className="brand-mark" src="/logo.svg" alt={collapsed ? "PinkGlasses" : ""} />
           {!collapsed && (
             <h1 className="brand">PinkGlasses<small>external attack surface</small></h1>
           )}

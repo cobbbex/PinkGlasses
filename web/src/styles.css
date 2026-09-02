@@ -27,8 +27,12 @@ a { color: var(--accent); text-decoration: none; }
 }
 .app.collapsed .sidebar { padding: 16px 8px; align-items: center; }
 
-.brand-row { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 12px; min-height: 30px; }
-.app.collapsed .brand-row { justify-content: center; margin-bottom: 14px; }
+.brand-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 12px; min-height: 30px; }
+/* Collapsed the row is 48px wide, too narrow for mark and button side by side,
+   so they stack instead. */
+.app.collapsed .brand-row { flex-direction: column; align-items: center; gap: 8px; margin-bottom: 14px; }
+.brand-mark { height: 30px; width: auto; flex: none; display: block; }
+.app.collapsed .brand-mark { height: 22px; }
 .collapse-btn {
   background: transparent; border: 1px solid var(--border); color: var(--muted);
   border-radius: 6px; padding: 3px 8px; font-size: 12px; line-height: 1.4;

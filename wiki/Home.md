@@ -1,4 +1,6 @@
-# PinkGlasses
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cobbbex/PinkGlasses/main/assets/brand/lockup-dark-1880.png" alt="PinkGlasses — external attack surface, continuously watched." width="620">
+</p>
 
 A self-hosted external attack-surface scanner: a Go control plane, a React SPA,
 and a fleet of workers you own — including VPS boxes you enrol from the UI.

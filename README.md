@@ -1,4 +1,9 @@
-# PinkGlasses
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/lockup-dark-1880.png">
+    <img src="assets/brand/lockup-light-1880.png" alt="PinkGlasses — external attack surface, continuously watched." width="620">
+  </picture>
+</p>
 
 A self-hosted web application that discovers and continuously monitors the external attack
 surface of one organization — domains, DNS, hosts, open ports, services, technologies, TLS

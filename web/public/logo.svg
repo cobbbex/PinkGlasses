@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 136" width="256" height="136" role="img" aria-label="PinkGlasses">
+  <title>PinkGlasses</title>
+  <defs>
+    <linearGradient id="pg-glass" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0"    stop-color="#F0348A"/>
+      <stop offset="0.55" stop-color="#C61068"/>
+      <stop offset="1"    stop-color="#7E0844"/>
+    </linearGradient>
+    <linearGradient id="pg-frame" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#FFC2E0"/>
+      <stop offset="1" stop-color="#FF5CA5"/>
+    </linearGradient>
+    <clipPath id="pg-cl"><rect x="22" y="30" width="96" height="92" rx="30"/></clipPath>
+    <clipPath id="pg-cr"><rect x="138" y="30" width="96" height="92" rx="30"/></clipPath>
+  </defs>
+  <rect x="22" y="30" width="96" height="92" rx="30" fill="url(#pg-glass)"/>
+  <rect x="138" y="30" width="96" height="92" rx="30" fill="url(#pg-glass)"/>
+  <g fill="#FFFFFF" opacity="0.16">
+    <g clip-path="url(#pg-cl)"><path d="M10 130 L78 18 h26 L36 130 Z"/></g>
+    <g clip-path="url(#pg-cr)"><path d="M126 130 L194 18 h26 L152 130 Z"/></g>
+  </g>
+  <g fill="none" stroke="#FFD0E7" stroke-width="6" stroke-linecap="round">
+    <circle cx="70" cy="76" r="19"/>
+    <path d="M70 44v11M70 97v11M35 76h11M94 76h11"/>
+    <circle cx="186" cy="76" r="19"/>
+    <path d="M186 44v11M186 97v11M151 76h11M210 76h11"/>
+  </g>
+  <g fill="none" stroke="url(#pg-frame)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="22" y="30" width="96" height="92" rx="30"/>
+    <rect x="138" y="30" width="96" height="92" rx="30"/>
+    <path d="M118 52c7-16 13-16 20 0"/>
+    <path d="M22 47C13 42 8 33 7 20"/>
+    <path d="M234 47c9-5 14-14 15-27"/>
+  </g>
+</svg>
