@@ -53,6 +53,11 @@ export interface WorkerBusy {
 export interface RunActivity {
   tasks: TaskActivity[]; stages: StageCount[]; workers: WorkerBusy[];
 }
+/** What the wire may actually carry, before coercion. */
+interface RunActivityWire {
+  tasks: TaskActivity[] | null; stages: StageCount[] | null;
+  workers: (Omit<WorkerBusy, "stages"> & { stages: string[] | null })[] | null;
+}
 export interface HostRow {
   domain_id?: string | null; name: string;
   ip_id?: string | null; addr?: string | null; ptr?: string | null;
@@ -100,7 +105,9 @@ export const api = {
   addTarget: (s: string, body: unknown) =>
     req<Target[] | null>(`/scopes/${s}/targets`, { method: "POST", body: JSON.stringify(body) }).then((x) => x ?? []),
   domains: (s: string, q = "") => req<Domain[] | null>(`/scopes/${s}/domains?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
-  graph: (s: string) => req<{ nodes: any[]; edges: any[] }>(`/scopes/${s}/graph`),
+  graph: (s: string) =>
+    req<{ nodes: any[] | null; edges: any[] | null }>(`/scopes/${s}/graph`)
+      .then((g) => ({ nodes: g.nodes ?? [], edges: g.edges ?? [] })),
   hostRows: (s: string, q = "", unresolved = false) =>
     req<{ rows: HostRow[] | null; unresolved_hidden: number }>(
       `/scopes/${s}/hostrows?q=${encodeURIComponent(q)}&unresolved=${unresolved}`,
@@ -122,7 +129,15 @@ export const api = {
   createRun: (s: string, body: unknown) =>
     req<Run>(`/scopes/${s}/runs`, { method: "POST", body: JSON.stringify(body) }),
   run: (id: string) => req<{ run: Run; progress: any }>(`/runs/${id}`),
-  runActivity: (id: string) => req<RunActivity>(`/runs/${id}/activity`),
+  // The server answers [] for an empty list, but the panels here read .length
+  // off every one of these, so a null from an older build white-screens the run
+  // view rather than degrading. Coerce on the way in.
+  runActivity: (id: string) =>
+    req<RunActivityWire>(`/runs/${id}/activity`).then((a) => ({
+      tasks: a.tasks ?? [],
+      stages: a.stages ?? [],
+      workers: (a.workers ?? []).map((w) => ({ ...w, stages: w.stages ?? [] })),
+    })),
   runTargets: (id: string) => req<RunTarget[] | null>(`/runs/${id}/targets`).then((x) => x ?? []),
   cancelRun: (id: string) => req(`/runs/${id}/cancel`, { method: "POST" }),
   workers: () => req<Worker[] | null>("/workers").then((x) => x ?? []),

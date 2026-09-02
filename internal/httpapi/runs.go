@@ -230,7 +230,10 @@ func (s *Server) runActivity(w http.ResponseWriter, r *http.Request) {
 			if a.WorkerKind != nil {
 				kind = *a.WorkerKind
 			}
-			wb = &workerBusy{Name: *a.WorkerName, Kind: kind}
+			// Stages is filled only from running tasks, so a worker whose
+			// work has all finished would serialize as null and break a
+			// caller reading its length — which is every run, at the end.
+			wb = &workerBusy{Name: *a.WorkerName, Kind: kind, Stages: []string{}}
 			byWorker[*a.WorkerName] = wb
 		}
 		switch a.Status {

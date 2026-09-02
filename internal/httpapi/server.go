@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -116,7 +117,33 @@ func securityHeaders(next http.Handler) http.Handler {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(jsonArrays(v))
+}
+
+// jsonArrays replaces nil slices with empty ones so a list endpoint with
+// nothing to report answers [] rather than null.
+//
+// Go marshals a nil slice as null, which every store method returns when a
+// query matches no rows. The SPA's types promise arrays and read .length off
+// them, so an empty result crashed the page instead of rendering "none yet" —
+// a scope with no findings, a run whose targets are not planned yet. Doing it
+// here fixes the whole class at once; a new list handler cannot reintroduce it.
+//
+// Composite payloads are built as map[string]any (run activity, the asset
+// graph), so those are walked too. Slices nested inside structs are not
+// reachable this way and are initialized at their construction site.
+func jsonArrays(v any) any {
+	if m, ok := v.(map[string]any); ok {
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			out[k] = jsonArrays(val)
+		}
+		return out
+	}
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
+		return reflect.MakeSlice(rv.Type(), 0, 0).Interface()
+	}
+	return v
 }
 
 func writeErr(w http.ResponseWriter, status int, msg string) {
