@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -260,6 +261,17 @@ func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job) {
 		return
 	}
 	wl := lists[0]
+	if len(lists) > 1 {
+		// Subdomain brute-forcing fans out one task per default list; directory
+		// search uses one. Marking several default is therefore not an error but
+		// it is a surprise, so say which one is actually being used.
+		names := make([]string, len(lists))
+		for i, l := range lists {
+			names[i] = l.Name
+		}
+		slog.Warn("several directory wordlists are marked default; using the first",
+			"using", wl.Name, "available", strings.Join(names, ", "))
+	}
 	url, err := g.obj.PresignGet(wl.ObjectKey, 2*time.Hour, time.Now())
 	if err != nil {
 		slog.Warn("could not presign directory wordlist", "list", wl.Name, "err", err)
