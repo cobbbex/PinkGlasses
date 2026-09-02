@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/benlik386/asm/internal/provisioner"
+	"github.com/benlik386/pinkglasses/internal/provisioner"
 )
 
 func main() {
@@ -20,8 +20,8 @@ func main() {
 		Addr:        env("ASM_PROVISIONER_ADDR", ":8091"),
 		Token:       env("ASM_PROVISIONER_TOKEN", ""),
 		Socket:      env("ASM_DOCKER_SOCKET", "/var/run/docker.sock"),
-		Image:       env("ASM_WORKER_IMAGE", "scan_tool-worker"),
-		Network:     env("ASM_WORKER_NETWORK", "scan_tool_default"),
+		Image:       env("ASM_WORKER_IMAGE", "pinkglasses-worker"),
+		Network:     env("ASM_WORKER_NETWORK", "pinkglasses_default"),
 		GatewayURL:  env("ASM_GATEWAY_URL", "http://gateway:8090"),
 		EnrollToken: env("ASM_LOCAL_BOOTSTRAP_TOKEN", ""),
 		MaxWorkers:  envInt("ASM_PROVISIONER_MAX_WORKERS", 20),

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 var titleRe = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
@@ -43,7 +43,7 @@ func (s *Scanner) serviceProbe(ctx context.Context, job scanproto.Job) ([]scanpr
 	for _, scheme := range schemesFor(port) {
 		url := scheme + "://" + ip + portSuffix(scheme, port)
 		req, _ := http.NewRequestWithContext(withTimeout(ctx, 10*time.Second), http.MethodGet, url, nil)
-		req.Header.Set("User-Agent", "asm-worker")
+		req.Header.Set("User-Agent", "pinkglasses-worker")
 		resp, err := client.Do(req)
 		if err != nil {
 			continue

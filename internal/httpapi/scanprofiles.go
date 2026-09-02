@@ -6,8 +6,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/benlik386/asm/internal/scanparams"
-	"github.com/benlik386/asm/internal/store"
+	"github.com/benlik386/pinkglasses/internal/scanparams"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 // listScanParamSpecs returns the settable parameters and their bounds, so the

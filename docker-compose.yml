@@ -1,3 +1,6 @@
+# PinkGlasses — self-hosted external attack surface monitor.
+name: pinkglasses
+
 # Self-hosted control plane + one bundled local worker (architecture.md §12).
 services:
   postgres:
@@ -92,8 +95,8 @@ services:
       ASM_PROVISIONER_TOKEN: "${ASM_PROVISIONER_TOKEN:-change-me-provisioner}"
       ASM_PROVISIONER_MAX_WORKERS: "20"
       ASM_DOCKER_SOCKET: "/var/run/docker.sock"
-      ASM_WORKER_IMAGE: "scan_tool-worker"
-      ASM_WORKER_NETWORK: "scan_tool_default"
+      ASM_WORKER_IMAGE: "pinkglasses-worker"
+      ASM_WORKER_NETWORK: "pinkglasses_default"
       ASM_GATEWAY_URL: "http://gateway:8090"
       ASM_LOCAL_BOOTSTRAP_TOKEN: "${ASM_LOCAL_BOOTSTRAP_TOKEN:-change-me-local-bootstrap}"
     volumes:
@@ -153,7 +156,14 @@ services:
       - wordlistcache:/var/cache/asm/wordlists
     depends_on: [gateway]
 
+# Volume names are pinned to what they were before the project was renamed.
+# Compose derives volume names from the project, so without this the rename
+# would silently start against empty volumes and leave the existing database,
+# artifacts and wordlist cache orphaned.
 volumes:
   wordlistcache:
+    name: scan_tool_wordlistcache
   pgdata:
+    name: scan_tool_pgdata
   miniodata:
+    name: scan_tool_miniodata

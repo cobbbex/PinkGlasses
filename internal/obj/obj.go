@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/benlik386/asm/internal/config"
+	"github.com/benlik386/pinkglasses/internal/config"
 )
 
 // Store presigns object-storage operations.

@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/benlik386/asm/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/domain"
 )
 
 // CreateEnrollmentToken stores the hash of an enrollment token. The token's

@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/benlik386/asm/internal/scanner"
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanner"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 // runStageTest executes a single pipeline stage locally and prints the

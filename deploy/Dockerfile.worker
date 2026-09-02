@@ -95,6 +95,6 @@ COPY --from=build /out/worker /usr/local/bin/worker
 
 # Per-container credential (no shared volume, so replicas never clobber
 # each other). Lost on recreate, which is fine: the worker re-enrolls.
-RUN mkdir -p /etc/asm-worker && chmod 700 /etc/asm-worker
-ENV ASM_WORKER_CREDENTIAL_FILE=/etc/asm-worker/credential
+RUN mkdir -p /etc/pinkglasses-worker && chmod 700 /etc/pinkglasses-worker
+ENV ASM_WORKER_CREDENTIAL_FILE=/etc/pinkglasses-worker/credential
 ENTRYPOINT ["/usr/local/bin/worker"]

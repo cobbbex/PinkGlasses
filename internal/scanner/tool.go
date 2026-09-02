@@ -72,7 +72,15 @@ func runTool(ctx context.Context, timeout time.Duration, stdin string, name stri
 
 // logResult records what an invocation produced, so a run can be followed
 // tool by tool rather than only stage by stage.
+//
+// A tool that produced nothing while writing to stderr is reported even when it
+// exited 0. Not every tool sets a failing status on a fatal error — naabu
+// rejects an argument, prints FTL and exits cleanly — and without this the run
+// looks like an honest "found nothing".
 func (e *execution) logResult(results int) {
+	if results == 0 && e.err == nil && strings.TrimSpace(e.stderr) != "" {
+		logToolFailure(e.name, e.args, errNoOutput, e.stderr)
+	}
 	slog.Info("tool finished",
 		"tool", e.name,
 		"args", argSummary(e.args),
@@ -81,6 +89,10 @@ func (e *execution) logResult(results int) {
 		"ok", e.err == nil,
 	)
 }
+
+// errNoOutput marks a tool that exited cleanly but produced nothing while
+// complaining on stderr.
+var errNoOutput = errors.New("exited 0 but produced no output")
 
 // argSummary renders a command line for logs, bounded so a port list or a
 // thousand-name stdin batch cannot flood the output.

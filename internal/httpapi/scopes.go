@@ -7,7 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/benlik386/asm/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/domain"
 )
 
 func (s *Server) createScope(w http.ResponseWriter, r *http.Request) {

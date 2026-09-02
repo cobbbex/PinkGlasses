@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 // top ports for the connect-scan fallback (subset of naabu's top-1000).
@@ -36,8 +36,21 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 	deep := job.Profile == "deep"
 	pr := jobParams(job)
 	ports := pr.str("ports", "top-100")
-	wide := deep || ports == "full" || ports == "top-1000" ||
-		strings.ContainsAny(ports, ",-") // an explicit range or list
+
+	// Which scanner to use depends on how wide the sweep is. The named presets
+	// have to be matched before testing for an explicit range: "top-100"
+	// contains a hyphen, so a naive punctuation check treats every preset as a
+	// custom range and sends the common case to the wrong scanner.
+	var wide bool
+	switch ports {
+	case "", "top-100":
+		wide = false
+	case "top-1000", "full":
+		wide = true
+	default:
+		wide = true // an explicit list or range, validated upstream
+	}
+	wide = wide || deep
 
 	var obs []scanproto.Observation
 
@@ -81,7 +94,9 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 // per host. Passing the pool as a list is what lets naabu apply its concurrency
 // and rate across hosts rather than to a single address at a time.
 func (s *Scanner) naabuSweep(ctx context.Context, hosts []string, ports string, deep bool, pr params) map[string][]int {
-	args := []string{"-silent", "-json", "-list", "-",
+	// Hosts go in on stdin. naabu has no "-list -" convention: it takes the flag
+	// literally and fails trying to open a file named "-", while still exiting 0.
+	args := []string{"-silent", "-json",
 		"-c", pr.intStr("naabu_concurrency", "4"),
 		"-rate", pr.intStr("naabu_rate", "20"),
 		"-timeout", pr.intStr("naabu_timeout_ms", "1000"),

@@ -1,4 +1,4 @@
-module github.com/benlik386/asm
+module github.com/benlik386/pinkglasses
 
 go 1.23
 

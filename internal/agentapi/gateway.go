@@ -20,14 +20,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
-	"github.com/benlik386/asm/internal/config"
-	"github.com/benlik386/asm/internal/dispatch"
-	"github.com/benlik386/asm/internal/domain"
-	"github.com/benlik386/asm/internal/ingest"
-	"github.com/benlik386/asm/internal/obj"
-	"github.com/benlik386/asm/internal/planner"
-	"github.com/benlik386/asm/internal/scanproto"
-	"github.com/benlik386/asm/internal/store"
+	"github.com/benlik386/pinkglasses/internal/config"
+	"github.com/benlik386/pinkglasses/internal/dispatch"
+	"github.com/benlik386/pinkglasses/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/ingest"
+	"github.com/benlik386/pinkglasses/internal/obj"
+	"github.com/benlik386/pinkglasses/internal/planner"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 // Gateway serves the agent-facing API.

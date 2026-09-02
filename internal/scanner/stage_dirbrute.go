@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 // commonPaths for the built-in fallback content probe.

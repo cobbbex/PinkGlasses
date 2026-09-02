@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/benlik386/asm/internal/store"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 // Logger appends audit records.

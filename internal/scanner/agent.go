@@ -16,7 +16,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 // AgentConfig configures the worker runtime.

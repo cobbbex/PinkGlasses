@@ -12,13 +12,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/benlik386/asm/internal/config"
-	"github.com/benlik386/asm/internal/diff"
-	"github.com/benlik386/asm/internal/domain"
-	"github.com/benlik386/asm/internal/obj"
-	"github.com/benlik386/asm/internal/planner"
-	"github.com/benlik386/asm/internal/wordlists"
-	"github.com/benlik386/asm/internal/store"
+	"github.com/benlik386/pinkglasses/internal/config"
+	"github.com/benlik386/pinkglasses/internal/diff"
+	"github.com/benlik386/pinkglasses/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/obj"
+	"github.com/benlik386/pinkglasses/internal/planner"
+	"github.com/benlik386/pinkglasses/internal/wordlists"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 const schedulerLockKey = 0x4153_4d31 // "ASM1"

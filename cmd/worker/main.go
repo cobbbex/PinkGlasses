@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/benlik386/asm/internal/config"
-	"github.com/benlik386/asm/internal/scanner"
+	"github.com/benlik386/pinkglasses/internal/config"
+	"github.com/benlik386/pinkglasses/internal/scanner"
 )
 
 // version is stamped at build time (-ldflags "-X main.version=...").

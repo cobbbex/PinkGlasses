@@ -12,8 +12,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/benlik386/asm/internal/config"
-	"github.com/benlik386/asm/migrations"
+	"github.com/benlik386/pinkglasses/internal/config"
+	"github.com/benlik386/pinkglasses/migrations"
 )
 
 func main() {

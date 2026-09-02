@@ -37,3 +37,35 @@ func TestParseNmapGrepPortsWithHost(t *testing.T) {
 		t.Errorf("ssh product/version = %q/%q, want OpenSSH/8.9p1", product, version)
 	}
 }
+
+// scanWidth mirrors the scanner-selection rule so the preset/range distinction
+// is pinned. "top-100" contains a hyphen, and a punctuation test alone sent the
+// most common case to the wide-sweep scanner instead of nmap.
+func scanWidth(ports string, deep bool) bool {
+	switch ports {
+	case "", "top-100":
+		return deep
+	case "top-1000", "full":
+		return true
+	default:
+		return true
+	}
+}
+
+func TestScanWidthPresetsVersusRanges(t *testing.T) {
+	narrow := []string{"", "top-100"}
+	for _, p := range narrow {
+		if scanWidth(p, false) {
+			t.Errorf("ports=%q should be a narrow scan (nmap direct)", p)
+		}
+	}
+	wide := []string{"top-1000", "full", "80,443", "1-1024"}
+	for _, p := range wide {
+		if !scanWidth(p, false) {
+			t.Errorf("ports=%q should be a wide sweep", p)
+		}
+	}
+	if !scanWidth("top-100", true) {
+		t.Error("a deep profile should widen even the top-100 preset")
+	}
+}

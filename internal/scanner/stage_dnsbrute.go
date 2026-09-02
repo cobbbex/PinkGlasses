@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 // dnsBrute brute-forces subdomains with shuffledns against one wordlist. The

@@ -11,8 +11,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/benlik386/asm/internal/domain"
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 func (s *Server) listWorkers(w http.ResponseWriter, r *http.Request) {

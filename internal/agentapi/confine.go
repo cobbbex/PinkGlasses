@@ -3,7 +3,7 @@ package agentapi
 import (
 	"encoding/json"
 
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 // confineViolation reports whether any observation falls outside the task's

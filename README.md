@@ -28,11 +28,12 @@ Workers ── WSS/HTTPS ─▶ gateway┘         │
 
 ```
 subdomains ─┬─────────────────┐
-            └─ dns bruteforce ┴→ dns resolve → [coalesce: dedupe IPs]
-                                                  → port scan → service probe
-                                                         ├─ tech detect
-                                                         ├─ screenshot
-                                                         └─ directory brute
+            └─ dns bruteforce ┴→ dns resolve ─→ [new addresses, deduped]
+                                                  → port scan (batched, 64/task)
+                                                         → service probe
+                                                              ├─ tech detect
+                                                              ├─ screenshot
+                                                              └─ directory brute
 ```
 
 Tools per stage (ProjectDiscovery where it fits; the worker falls back to pure-Go
@@ -52,6 +53,23 @@ implementations when a binary is absent, so it works before you install anything
 workers instead of grinding through one after another. See
 [Wordlists and resolvers](#wordlists-and-resolvers).
 
+**Port scanning is batched and incremental.** Resolution feeds addresses forward as
+they appear rather than waiting for every name to resolve, and each port-scan task
+carries a pool of up to 64 addresses handed to nmap on stdin (`-iL -`). Both halves
+matter:
+
+- *Incremental* — a slow wordlist no longer holds back scanning of the hosts already
+  found. Addresses are deduplicated as they arrive, so a shared IP behind twenty
+  names is still scanned once.
+- *Batched* — nmap is built to scan host groups. One address per task makes
+  `--min-hostgroup` and `--min-rate` meaningless and pays process startup per host;
+  a real pool makes the rate limits mean what they say.
+
+**Only authorized targets are port-scanned.** The planner resolves each address back
+to the scope target that produced it and drops the ones whose target is passive-only,
+so a name discovered under passive authorization can be enumerated and resolved but
+never has a packet sent to it. The scheduler log says so explicitly when it happens.
+
 **Every resolved address carries its network provenance** — reverse DNS, AS
 number, AS name and the announcing prefix. dnsx supplies PTR; the ASN details
 come from Team Cymru's DNS interface, which needs no extra binary and no API key.
@@ -69,6 +87,11 @@ docker compose up --build -d      # postgres, minio, migrate, api, gateway, sche
 
 The bundled local worker enrols itself, is auto-approved, and appears under
 **Workers → Local workers**. Add a scope, add a target, then start a scan from **Runs**.
+
+A good first target is `scanme.nmap.org`, which Nmap's authors publish for exactly this
+purpose. Add it as an **active** target (port scanning is refused otherwise) and a
+standard run walks the whole pipeline in about a minute, ending with 22/tcp and 80/tcp
+open on `45.33.32.156`.
 
 ## Stop it
 
@@ -256,7 +279,16 @@ passive enumeration  domain=example.com candidates=24949
                by_source="map[seed:1 subfinder:24948]"
 dns_brute finished   wordlist="best-dns-wordlist" resolvers="trickest" found=37
 address enrichment   addresses=4 with_asn=4 with_ptr=0
+queued port scans    addresses=2 tasks=1
+tool finished  tool=nmap args="-Pn --open --min-hostgroup 64 --min-rate 10000 ...
+               --top-ports 100 -sV -oG - -iL -" results=4 took=8.936s ok=true
+port scan      hosts=2 with_open_ports=1 open=2 scanner=nmap ports="--top-ports 100"
 ```
+
+`addresses=2 tasks=1` is the batching: both addresses went to nmap as one host group.
+A tool that exits cleanly but produces nothing while writing to stderr is reported as a
+failure too — naabu rejecting a flag and exiting 0 looked exactly like "found nothing"
+until that check existed.
 
 `by_source` is worth watching: it distinguishes a dead API key or a rate-limited
 provider from a domain that genuinely has few names.
@@ -345,10 +377,12 @@ deploy/      worker Dockerfile
 
 ## Status
 
-Working end to end: discovery, DNS brute-forcing, port and service scanning, ASN and
-reverse-DNS enrichment, per-worker scan visibility, and a wordlist/resolver registry that
-workers fetch and cache. The Go control plane and worker build and vet clean, the test
-suite passes, and the SPA type-checks and builds.
+Working end to end: discovery, DNS brute-forcing, batched port and service scanning, ASN
+and reverse-DNS enrichment, per-worker scan visibility, and a wordlist/resolver registry
+that workers fetch and cache. The Go control plane and worker build and vet clean, the
+test suite passes, and the SPA type-checks and builds. The pipeline is verified against
+`scanme.nmap.org`: passive enumeration → bruteforce → resolution → nmap over the address
+pool → service probe, finding its two open ports.
 
 The worker prefers real tools when installed and falls back to Go implementations
 otherwise, so a tool can be swapped or removed behind the `scanner` package without
@@ -365,3 +399,7 @@ Known rough edges:
   "spooling would retry", but no spool exists yet.
 - Provisioner-created workers are not rebuilt by `docker compose up --build`, so they keep
   running an older image until removed and recreated.
+- Configuration keeps the `ASM_` environment-variable prefix and the `asm` database role
+  from before the project was renamed, so existing `.env` files and volumes keep working.
+  The compose volumes are pinned to their original `scan_tool_*` names for the same
+  reason — renaming them would orphan the database.

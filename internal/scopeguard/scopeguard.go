@@ -6,7 +6,7 @@ import (
 	"net"
 	"net/netip"
 
-	"github.com/benlik386/asm/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/domain"
 )
 
 // Decision is the outcome of a scope check for one target.

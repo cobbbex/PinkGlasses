@@ -1,4 +1,4 @@
-# Build TODO — Attack Surface Monitor
+# Build TODO — PinkGlasses
 
 Derived from `architecture.md` (v0.2), `worker-pipeline.md` and `Tools.md`.
 Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` deferred/blocked

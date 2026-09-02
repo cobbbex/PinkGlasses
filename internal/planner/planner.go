@@ -16,10 +16,10 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/net/publicsuffix"
 
-	"github.com/benlik386/asm/internal/domain"
-	"github.com/benlik386/asm/internal/scanproto"
-	"github.com/benlik386/asm/internal/scopeguard"
-	"github.com/benlik386/asm/internal/store"
+	"github.com/benlik386/pinkglasses/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scopeguard"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 const cidrHostCap = 4096

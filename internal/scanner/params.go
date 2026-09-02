@@ -3,7 +3,7 @@ package scanner
 import (
 	"strconv"
 
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 // params reads a job's validated per-tool overrides with safe defaults. Values

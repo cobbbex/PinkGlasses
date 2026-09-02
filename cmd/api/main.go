@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/benlik386/asm/internal/config"
-	"github.com/benlik386/asm/internal/httpapi"
-	"github.com/benlik386/asm/internal/store"
+	"github.com/benlik386/pinkglasses/internal/config"
+	"github.com/benlik386/pinkglasses/internal/httpapi"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 func main() {

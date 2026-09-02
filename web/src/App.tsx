@@ -65,7 +65,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand-row">
           {!collapsed && (
-            <h1 className="brand">Attack Surface Monitor<small>external perimeter</small></h1>
+            <h1 className="brand">PinkGlasses<small>external attack surface</small></h1>
           )}
           <button
             className="collapse-btn"

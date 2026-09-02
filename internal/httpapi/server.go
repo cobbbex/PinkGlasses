@@ -10,12 +10,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/benlik386/asm/internal/audit"
-	"github.com/benlik386/asm/internal/config"
-	"github.com/benlik386/asm/internal/obj"
-	"github.com/benlik386/asm/internal/domain"
-	"github.com/benlik386/asm/internal/planner"
-	"github.com/benlik386/asm/internal/store"
+	"github.com/benlik386/pinkglasses/internal/audit"
+	"github.com/benlik386/pinkglasses/internal/config"
+	"github.com/benlik386/pinkglasses/internal/obj"
+	"github.com/benlik386/pinkglasses/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/planner"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 // Server holds dependencies for the API handlers.

@@ -6,8 +6,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/benlik386/asm/internal/search"
-	"github.com/benlik386/asm/internal/store"
+	"github.com/benlik386/pinkglasses/internal/search"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 func (s *Server) listDomains(w http.ResponseWriter, r *http.Request) {

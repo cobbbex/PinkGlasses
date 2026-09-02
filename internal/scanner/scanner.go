@@ -3,7 +3,7 @@ package scanner
 import (
 	"context"
 
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 // Scanner runs pipeline stages. Detected holds the worker's capabilities so a

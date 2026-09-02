@@ -6,8 +6,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/benlik386/asm/internal/domain"
-	"github.com/benlik386/asm/internal/scanparams"
+	"github.com/benlik386/pinkglasses/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/scanparams"
 )
 
 func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {

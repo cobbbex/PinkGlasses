@@ -15,8 +15,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/benlik386/asm/internal/obj"
-	"github.com/benlik386/asm/internal/store"
+	"github.com/benlik386/pinkglasses/internal/obj"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 // Seeder downloads pending wordlists and publishes them to object storage.

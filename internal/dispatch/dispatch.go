@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/benlik386/asm/internal/scanproto"
-	"github.com/benlik386/asm/internal/store"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 // Dispatcher assigns work to workers.

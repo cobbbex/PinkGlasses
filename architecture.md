@@ -1,4 +1,4 @@
-# Attack Surface Monitor — Architecture Plan
+# PinkGlasses — Architecture Plan
 
 > A self-hosted web application for discovering and continuously monitoring the external
 > attack surface of one organization: domains, DNS, hosts, open ports, services, TLS,
@@ -597,7 +597,7 @@ runner's non-zero-exit logging exists to catch.
 
 ### 6.1 Contents
 
-Distributed as a single OCI image (`asm-worker:<version>`) and a static binary for bare-metal
+Distributed as a single OCI image (`pinkglasses-worker:<version>`) and a static binary for bare-metal
 installs. The Go-native tools are **linked in as libraries**, not shelled out to — no
 subprocess management, no stdout parsing, no version drift between what you tested and what
 the box has:
@@ -1054,7 +1054,7 @@ docker-compose.yml (control plane)
 
 On a user's VPS, `install.sh` writes a systemd unit that runs the single worker container
 with `--cap-add=NET_RAW`, a memory limit, and the agent credential in
-`/etc/asm-worker/credential` (0600). Nothing else is installed on the box.
+`/etc/pinkglasses-worker/credential` (0600). Nothing else is installed on the box.
 
 Observability, as built: the worker logs every tool invocation with its arguments, result
 count, duration and exit status, and every stage logs what it produced. `ASM_LOG_LEVEL`

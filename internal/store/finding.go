@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/benlik386/asm/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/domain"
 )
 
 // UpsertFinding inserts or refreshes a finding keyed by (scope, asset, kind).

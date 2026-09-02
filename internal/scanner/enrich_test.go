@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 // TestEnrichAddresses checks that address enrichment turns into the ObsIP

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 // candidate is a discovered name plus the tool that found it, so provenance

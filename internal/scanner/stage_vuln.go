@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/benlik386/asm/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
 // vulnCheck runs nuclei against a live URL (Tools.md §Vulnerability Scanner).

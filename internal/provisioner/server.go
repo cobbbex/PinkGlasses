@@ -123,7 +123,7 @@ func (s *Server) scale(w http.ResponseWriter, r *http.Request) {
 			GatewayURL:  s.cfg.GatewayURL,
 			EnrollToken: s.cfg.EnrollToken,
 			Network:     s.cfg.Network,
-			NamePrefix:  "asm-worker",
+			NamePrefix:  "pinkglasses-worker",
 		}
 		for i := len(alive); i < in.Count; i++ {
 			if _, err := s.d.Create(r.Context(), spec, i); err != nil {

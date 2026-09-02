@@ -11,9 +11,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/benlik386/asm/internal/planner"
-	"github.com/benlik386/asm/internal/scanproto"
-	"github.com/benlik386/asm/internal/store"
+	"github.com/benlik386/pinkglasses/internal/planner"
+	"github.com/benlik386/pinkglasses/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 // Ingestor writes observations for a run.
