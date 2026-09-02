@@ -123,6 +123,17 @@ func (s *Store) LeaseTasks(ctx context.Context, workerID uuid.UUID, caps []strin
 		}
 		var tgt scanproto.Target
 		_ = json.Unmarshal(tgtRaw, &tgt)
+
+		// A batched task stores its pool as `ips`; expand it into one Target per
+		// address so the worker sees the same shape either way.
+		targets := []scanproto.Target{tgt}
+		if len(tgt.IPs) > 0 {
+			targets = make([]scanproto.Target, 0, len(tgt.IPs))
+			for _, ip := range tgt.IPs {
+				targets = append(targets, scanproto.Target{IP: ip})
+			}
+		}
+
 		jobs = append(jobs, scanproto.Job{
 			Schema:     scanproto.JobSchema,
 			JobID:      id.String(),
@@ -130,7 +141,7 @@ func (s *Store) LeaseTasks(ctx context.Context, workerID uuid.UUID, caps []strin
 			TaskID:     id.String(),
 			LeaseToken: leaseTok.String(),
 			Stage:      scanproto.Stage(stage),
-			Targets:    []scanproto.Target{tgt},
+			Targets:    targets,
 		})
 	}
 	return jobs, rows.Err()
@@ -399,4 +410,61 @@ func (s *Store) RunStages(ctx context.Context, runID uuid.UUID) ([]StageCount, e
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// ScannedAddresses returns every address that already has a port-scan task in
+// this run, batched or single. Used to scan discoveries incrementally: as each
+// discovery task finishes, only the addresses not already queued are scheduled,
+// so nothing waits for a barrier and nothing is scanned twice.
+func (s *Store) ScannedAddresses(ctx context.Context, runID uuid.UUID) (map[string]bool, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT ip FROM (
+		  SELECT jsonb_array_elements_text(target->'ips') AS ip
+		    FROM scan_task WHERE run_id=$1 AND stage='port_scan' AND target ? 'ips'
+		  UNION ALL
+		  SELECT target->>'ip' AS ip
+		    FROM scan_task WHERE run_id=$1 AND stage='port_scan' AND target ? 'ip'
+		) s WHERE ip IS NOT NULL`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			return nil, err
+		}
+		out[ip] = true
+	}
+	return out, rows.Err()
+}
+
+// ProbedEndpoints returns the ip:port pairs a run already has a service_probe
+// task for, so probes can also be enqueued incrementally without duplicates.
+func (s *Store) ProbedEndpoints(ctx context.Context, runID uuid.UUID) (map[string]bool, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT (target->>'ip') || ':' || (target->>'port')
+		FROM scan_task
+		WHERE run_id=$1 AND stage='service_probe' AND target ? 'ip'`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		out[key] = true
+	}
+	return out, rows.Err()
+}
+
+// TaskResult returns a task's stored stage summary, if any.
+func (s *Store) TaskResult(ctx context.Context, taskID uuid.UUID) ([]byte, error) {
+	var raw []byte
+	err := s.Pool.QueryRow(ctx, `SELECT result FROM scan_task WHERE id=$1`, taskID).Scan(&raw)
+	return raw, err
 }

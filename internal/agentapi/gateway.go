@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -48,11 +49,11 @@ type Gateway struct {
 // New builds a Gateway.
 func New(st *store.Store, cfg config.Gateway) *Gateway {
 	return &Gateway{
-		st:     st,
-		cfg:    cfg,
-		disp:   dispatch.New(st, int(cfg.LeaseTTL.Seconds())),
-		ingest: ingest.New(st),
-		obj:    obj.New(cfg.S3),
+		st:        st,
+		cfg:       cfg,
+		disp:      dispatch.New(st, int(cfg.LeaseTTL.Seconds())),
+		ingest:    ingest.New(st),
+		obj:       obj.New(cfg.S3),
 		conns:     map[uuid.UUID]*websocket.Conn{},
 		runParams: map[string]map[string]string{},
 		upgrader: websocket.Upgrader{
@@ -408,9 +409,17 @@ func (g *Gateway) results(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Merge every batch into the task's stored summary. Results arrive in
+	// chunks and the closing batch carries no observations, so computing the
+	// summary from one batch stored an empty one — which silently left the
+	// planner with no addresses to scan and no services to probe.
+	merged, err := g.mergeTaskSummary(r.Context(), taskID, summary)
+	if err != nil {
+		slog.Warn("could not merge task summary", "task", taskID, "err", err)
+	}
+
 	if res.Final {
-		sumJSON, _ := json.Marshal(summary)
-		_ = g.disp.Complete(r.Context(), taskID, leaseTok, sumJSON)
+		_ = g.disp.Complete(r.Context(), taskID, leaseTok, merged)
 	} else {
 		_ = g.disp.Heartbeat(r.Context(), taskID, leaseTok)
 	}
@@ -544,3 +553,51 @@ func firstNonEmpty(vals ...string) string {
 }
 
 var _ = planner.Apex
+
+// mergeTaskSummary folds a batch's summary into whatever the task has already
+// recorded, de-duplicating as it goes, and returns the merged JSON.
+func (g *Gateway) mergeTaskSummary(ctx context.Context, taskID uuid.UUID, add planner.StageSummary) ([]byte, error) {
+	var cur planner.StageSummary
+	if raw, err := g.st.TaskResult(ctx, taskID); err == nil && len(raw) > 0 {
+		_ = json.Unmarshal(raw, &cur)
+	}
+
+	cur.Domains = mergeStrings(cur.Domains, add.Domains)
+	cur.IPs = mergeStrings(cur.IPs, add.IPs)
+	cur.WebURLs = mergeStrings(cur.WebURLs, add.WebURLs)
+
+	seen := make(map[string]bool, len(cur.Services))
+	for _, s := range cur.Services {
+		seen[fmt.Sprintf("%s:%d", s.IP, s.Port)] = true
+	}
+	for _, s := range add.Services {
+		if k := fmt.Sprintf("%s:%d", s.IP, s.Port); !seen[k] {
+			seen[k] = true
+			cur.Services = append(cur.Services, s)
+		}
+	}
+
+	out, err := json.Marshal(cur)
+	if err != nil {
+		return nil, err
+	}
+	return out, g.st.SetTaskResult(ctx, taskID, out)
+}
+
+// mergeStrings appends the values of b not already in a.
+func mergeStrings(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[string]bool, len(a))
+	for _, v := range a {
+		seen[v] = true
+	}
+	for _, v := range b {
+		if !seen[v] {
+			seen[v] = true
+			a = append(a, v)
+		}
+	}
+	return a
+}

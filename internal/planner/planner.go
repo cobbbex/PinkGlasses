@@ -7,7 +7,10 @@ package planner
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/netip"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -30,10 +33,10 @@ func New(st *store.Store) *Planner { return &Planner{st: st} }
 // StageSummary is the compact result the gateway stores on a completed task,
 // read here to drive the next stage without re-querying the asset graph.
 type StageSummary struct {
-	Domains  []string    `json:"domains,omitempty"`  // discovered subdomains
-	IPs      []string    `json:"ips,omitempty"`      // resolved / enriched addresses
-	Services []IPPort    `json:"services,omitempty"` // open ports
-	WebURLs  []string    `json:"web_urls,omitempty"` // live http(s) endpoints
+	Domains  []string `json:"domains,omitempty"`  // discovered subdomains
+	IPs      []string `json:"ips,omitempty"`      // resolved / enriched addresses
+	Services []IPPort `json:"services,omitempty"` // open ports
+	WebURLs  []string `json:"web_urls,omitempty"` // live http(s) endpoints
 }
 
 // IPPort is an open service discovered by a port scan.
@@ -147,10 +150,10 @@ func (p *Planner) Advance(ctx context.Context, run domain.ScanRun) (bool, error)
 
 	// Barrier: once all discovery tasks are done, coalesce IPs -> port_scan.
 	if !passive {
-		if err := p.maybeCoalescePortScan(ctx, run); err != nil {
+		if err := p.scanNewAddresses(ctx, run); err != nil {
 			return false, err
 		}
-		if err := p.maybeProbe(ctx, run); err != nil {
+		if err := p.probeNewServices(ctx, run); err != nil {
 			return false, err
 		}
 		if err := p.maybePostProbe(ctx, run); err != nil {
@@ -172,19 +175,23 @@ func (p *Planner) Advance(ctx context.Context, run domain.ScanRun) (bool, error)
 	return false, nil
 }
 
-// maybeCoalescePortScan implements the dns_resolve -> coalesce -> port_scan barrier.
-func (p *Planner) maybeCoalescePortScan(ctx context.Context, run domain.ScanRun) error {
-	if exists, _ := p.st.StageExists(ctx, run.ID, scanproto.StagePortScan); exists {
-		return nil
-	}
-	out, err := p.st.StageOutstanding(ctx, run.ID,
-		string(scanproto.StagePassiveEnum), string(scanproto.StageDNSBrute),
-		string(scanproto.StageDNSResolve))
-	if err != nil || out > 0 {
-		return err
-	}
-	// Union all resolved IPs across every discovery task in the run
-	// (passive_enum resolves what it finds; dns_resolve resolves the root).
+// scanBatchSize is how many addresses go into one port-scan task. nmap is built
+// to take a host list and schedule across it, and its --min-hostgroup and rate
+// settings only mean anything with a real group. Batching also keeps a /24 from
+// becoming 254 tasks, each spawning its own scanner.
+const scanBatchSize = 64
+
+// scanNewAddresses queues port scans for addresses discovered so far that are
+// not already queued.
+//
+// This deliberately replaces the old discovery -> coalesce -> port_scan barrier.
+// The barrier made every address wait for the slowest discovery task, so
+// subfinder results (seconds) sat behind a shuffledns run over millions of names.
+// Scanning incrementally starts as soon as the first names resolve, while
+// deduplicating against what is already queued keeps the property the barrier
+// existed for: a host that two sources both found is still scanned once.
+func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) error {
+	// Union the addresses every finished discovery task has reported.
 	ipSet := map[string][]uuid.UUID{}
 	for _, stage := range []scanproto.Stage{
 		scanproto.StagePassiveEnum, scanproto.StageDNSBrute, scanproto.StageDNSResolve} {
@@ -193,7 +200,13 @@ func (p *Planner) maybeCoalescePortScan(ctx context.Context, run domain.ScanRun)
 			return err
 		}
 		for _, t := range tasks {
+			if t.Status != string(domain.TaskDone) {
+				continue // only completed tasks have a summary to read
+			}
 			sum := decode(t.Result)
+			if len(sum.IPs) == 0 {
+				continue
+			}
 			origins, _ := p.st.OriginsForTask(ctx, t.ID)
 			for _, ip := range sum.IPs {
 				ipSet[ip] = mergeOrigins(ipSet[ip], origins)
@@ -203,44 +216,118 @@ func (p *Planner) maybeCoalescePortScan(ctx context.Context, run domain.ScanRun)
 	if len(ipSet) == 0 {
 		return nil
 	}
-	var specs []store.TaskSpec
-	for ip, origins := range ipSet {
-		specs = append(specs, spec(scanproto.StagePortScan, scanproto.Target{IP: ip},
-			100, origins[0], string(scanproto.CapRawSocket)))
-		// attach remaining origins so results attribute to every domain
-		if len(origins) > 1 {
-			specs[len(specs)-1].Origins = origins
-		}
+
+	// Port scanning an address is active scanning of the target's
+	// infrastructure, so it needs the same authorization a CIDR target does.
+	// Discovery is passive and runs for any target; only addresses traceable to
+	// an authorized run_target may be scanned. The old barrier never completed
+	// in practice, which hid this: making scanning incremental reaches it.
+	authorized, err := p.authorizedRunTargets(ctx, run)
+	if err != nil {
+		return err
 	}
+
+	already, err := p.st.ScannedAddresses(ctx, run.ID)
+	if err != nil {
+		return err
+	}
+	fresh := make([]string, 0, len(ipSet))
+	skipped := 0
+	for ip, origins := range ipSet {
+		if already[ip] {
+			continue
+		}
+		permitted := false
+		for _, o := range origins {
+			if authorized[o] {
+				permitted = true
+				break
+			}
+		}
+		if !permitted {
+			skipped++
+			continue
+		}
+		fresh = append(fresh, ip)
+	}
+	if skipped > 0 {
+		slog.Info("not port scanning addresses from unauthorized targets",
+			"run", run.ID, "addresses", skipped)
+	}
+	if len(fresh) == 0 {
+		return nil
+	}
+	sort.Strings(fresh) // deterministic batches make a run reproducible
+
+	var specs []store.TaskSpec
+	for i := 0; i < len(fresh); i += scanBatchSize {
+		end := i + scanBatchSize
+		if end > len(fresh) {
+			end = len(fresh)
+		}
+		batch := fresh[i:end]
+
+		// A batch serves every run_target that contributed an address to it, so
+		// results attribute back to each domain that pointed there.
+		var origins []uuid.UUID
+		for _, ip := range batch {
+			origins = mergeOrigins(origins, ipSet[ip])
+		}
+		if len(origins) == 0 {
+			continue
+		}
+		sp := spec(scanproto.StagePortScan, scanproto.Target{IPs: batch},
+			100, origins[0], string(scanproto.CapRawSocket))
+		sp.Origins = origins
+		specs = append(specs, sp)
+	}
+	if len(specs) == 0 {
+		return nil
+	}
+	slog.Info("queued port scans", "run", run.ID, "addresses", len(fresh), "tasks", len(specs))
 	_, err = p.st.InsertTasks(ctx, run.ID, specs)
 	return err
 }
 
-// maybeProbe enqueues service_probe for open ports as port scans complete.
-func (p *Planner) maybeProbe(ctx context.Context, run domain.ScanRun) error {
+// probeNewServices enqueues service_probe for open ports as port scans finish.
+//
+// Incremental for the same reason scanning is: port-scan tasks now complete
+// continuously rather than all at once, so waiting for the whole stage would
+// reintroduce the head-of-line blocking that batching just removed.
+func (p *Planner) probeNewServices(ctx context.Context, run domain.ScanRun) error {
 	tasks, err := p.st.TasksByStage(ctx, run.ID, scanproto.StagePortScan)
 	if err != nil {
 		return err
 	}
-	if exists, _ := p.st.StageExists(ctx, run.ID, scanproto.StageServiceProbe); exists {
-		return nil
+	already, err := p.st.ProbedEndpoints(ctx, run.ID)
+	if err != nil {
+		return err
 	}
-	out, _ := p.st.StageOutstanding(ctx, run.ID, string(scanproto.StagePortScan))
-	if out > 0 {
-		return nil
-	}
+
 	var specs []store.TaskSpec
 	for _, t := range tasks {
+		if t.Status != string(domain.TaskDone) {
+			continue
+		}
 		sum := decode(t.Result)
+		if len(sum.Services) == 0 {
+			continue
+		}
 		origins, _ := p.st.OriginsForTask(ctx, t.ID)
-		for _, s := range sum.Services {
+		for _, sv := range sum.Services {
+			key := fmt.Sprintf("%s:%d", sv.IP, sv.Port)
+			if already[key] {
+				continue
+			}
+			already[key] = true // also dedupes within this pass
 			specs = append(specs, spec(scanproto.StageServiceProbe,
-				scanproto.Target{IP: s.IP, Port: s.Port}, 200, origin0(origins)))
+				scanproto.Target{IP: sv.IP, Port: sv.Port}, 200, origin0(origins)))
 		}
 	}
 	if len(specs) == 0 {
 		return nil
 	}
+	slog.Info("queued service probes", "run", run.ID, "endpoints", len(specs))
 	_, err = p.st.InsertTasks(ctx, run.ID, specs)
 	return err
 }
@@ -364,4 +451,28 @@ func isPrivateTarget(v string) bool {
 		return a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast()
 	}
 	return false
+}
+
+// authorizedRunTargets reports which of a run's targets permit active scanning.
+// A run_target carries only the value it was created from, so this maps back to
+// the scope target that authorizes it.
+func (p *Planner) authorizedRunTargets(ctx context.Context, run domain.ScanRun) (map[uuid.UUID]bool, error) {
+	scopeTargets, err := p.st.ListTargets(ctx, run.ScopeID, "")
+	if err != nil {
+		return nil, err
+	}
+	authByValue := make(map[string]bool, len(scopeTargets))
+	for _, t := range scopeTargets {
+		authByValue[t.Value] = t.Authorized()
+	}
+
+	runTargets, err := p.st.ListRunTargets(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]bool, len(runTargets))
+	for _, rt := range runTargets {
+		out[rt.ID] = authByValue[rt.Value]
+	}
+	return out, nil
 }

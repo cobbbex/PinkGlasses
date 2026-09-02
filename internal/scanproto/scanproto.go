@@ -139,6 +139,11 @@ type Target struct {
 	Domain string `json:"domain,omitempty"`
 	// WordlistID names the registry entry a dns_brute task brute-forces with.
 	WordlistID string `json:"wordlist_id,omitempty"`
+	// IPs carries a pool of addresses for a batched stage. Port scanning takes
+	// hosts in batches so nmap can form a real host group and schedule across
+	// them, which is what makes its rate and host-group settings mean anything.
+	// The gateway expands this into one Target per address when it leases.
+	IPs []string `json:"ips,omitempty"`
 	IP     string `json:"ip,omitempty"`
 	CIDR   string `json:"cidr,omitempty"`
 	Port   int    `json:"port,omitempty"`
