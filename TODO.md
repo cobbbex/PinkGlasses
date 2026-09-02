@@ -262,4 +262,11 @@ presets, with the `Tools.md` values as the shipped defaults.
       called out. Targets and progress are aggregated in the same query as the runs, so
       the list stays one round trip. Verified live in a browser: the bar tracked a running
       scan from 2/3 through 9/9 as the planner added stages.
-
+- [ ] Add to manual scan parameters at shuffledns dropdown menu with avaliable subdomains wordlist where you user can chose wich one to use. Make it with checkboxes. Test it.
+- [ ] Add to manual scan parameters at shuffledns dropdown manu where user can chose wich resolvers wordlists to chose. Make it with checkboxes too. Test it.
+- [ ] In manual scan setup add to nmap ability to set custom ports and ports ranges. Test it.
+- [ ] Add possability in manual scan setup enable or disable every tool. Test it.
+- [ ] Add to manual scan setting for httpx useragent string filed setup. By default it should be like iphone.
+- [ ] Add new feature to save scan profiles.
+- [ ] Add to manual scan settings for httpx proxies field for scanning where you user can put list of proxies. Proxy could be http, socks4 socks5m with creds and without creds. here working proxies for tests: socks5 184.178.172.17 4145, socks4 98.182.147.97 4145. Test this new feature.
+- [ ] Update information about every scan type in Start to scan window.
