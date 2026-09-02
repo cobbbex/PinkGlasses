@@ -249,3 +249,6 @@ presets, with the `Tools.md` values as the shipped defaults.
 - [x] 15.7 **Security: whitelist every settable parameter.** These values become process
       arguments on a scan box — never pass raw user strings to `exec`. Validate each field
       by type and allowed range, and reject anything unrecognised rather than forwarding it.
+
+## Phase 16 - Tunning
+- [ ] Add to wordlists dirs wordlists feature
