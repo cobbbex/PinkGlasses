@@ -194,3 +194,63 @@ func (s *Store) DeleteLocalWorkersByContainer(ctx context.Context, containerIDs 
 	}
 	return ct.RowsAffected(), nil
 }
+
+// ReviveWorker returns a stale worker to active. A worker that has just opened a
+// control channel is demonstrably alive, so leaving it stale would bench it
+// permanently: the dispatcher only leases to active workers, and nothing else
+// moves a worker out of stale.
+func (s *Store) ReviveWorker(ctx context.Context, id uuid.UUID) error {
+	_, err := s.Pool.Exec(ctx,
+		`UPDATE worker SET status='active', last_seen_at=now() WHERE id=$1 AND status='stale'`, id)
+	return err
+}
+
+// MarkWorkerDisconnected flags an active worker stale the moment its control
+// channel closes, rather than waiting for the heartbeat sweep. Only 'active' is
+// touched: draining, quarantined and revoked are deliberate states that a
+// disconnect must not clear.
+func (s *Store) MarkWorkerDisconnected(ctx context.Context, id uuid.UUID) error {
+	_, err := s.Pool.Exec(ctx,
+		`UPDATE worker SET status='stale' WHERE id=$1 AND status='active'`, id)
+	return err
+}
+
+// ReleaseWorkerLeases returns a worker's in-flight tasks to the queue at once.
+//
+// Only called when a worker says it is shutting down: then we know the work is
+// not continuing and another worker should pick it up immediately, instead of
+// the run stalling for the lease TTL. An abrupt disconnect deliberately does NOT
+// use this — the task may still be running, and the lease timeout exists to
+// tolerate a brief network blip without duplicating work.
+func (s *Store) ReleaseWorkerLeases(ctx context.Context, id uuid.UUID) (int64, error) {
+	ct, err := s.Pool.Exec(ctx, `
+		UPDATE scan_task SET
+		  status='pending', lease_token=NULL, worker_id=NULL, lease_expires_at=NULL
+		WHERE worker_id=$1 AND status IN ('leased','running')`, id)
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}
+
+// PruneReplacedWorker removes a disconnected local worker that a newly enrolling
+// one is replacing.
+//
+// Local workers hold ephemeral credentials, so a restarted container enrolls
+// afresh rather than resuming its old identity. Without this the fleet list
+// grows a duplicate row per restart — same name, one stale, one active — which
+// is confusing precisely when you are trying to tell whether a worker came back.
+// Only stale rows of the same name and kind are removed: an active worker with
+// that name is a different, live machine and must not be touched.
+func (s *Store) PruneReplacedWorker(ctx context.Context, name, kind string) (int64, error) {
+	if name == "" {
+		return 0, nil
+	}
+	ct, err := s.Pool.Exec(ctx, `
+		DELETE FROM worker
+		WHERE name = $1 AND kind = $2 AND status IN ('stale', 'pending')`, name, kind)
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}

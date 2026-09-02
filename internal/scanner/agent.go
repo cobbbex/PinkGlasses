@@ -46,6 +46,29 @@ type Agent struct {
 
 	mu      sync.Mutex
 	running map[string]bool
+
+	// writeMu serialises control-channel writes. gorilla/websocket permits one
+	// concurrent writer, and the heartbeat ticker and the shutdown announcement
+	// can otherwise reach the socket at the same moment.
+	writeMu sync.Mutex
+}
+
+// sendControl writes one control-channel message under the write lock.
+func (a *Agent) sendControl(conn *websocket.Conn, hb scanproto.Heartbeat) error {
+	a.writeMu.Lock()
+	defer a.writeMu.Unlock()
+	return conn.WriteJSON(hb)
+}
+
+// runningTasks snapshots the ids currently executing.
+func (a *Agent) runningTasks() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	ids := make([]string, 0, len(a.running))
+	for id := range a.running {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 // NewAgent builds a worker agent, detecting capabilities and tools and
@@ -209,6 +232,29 @@ func (a *Agent) connect(ctx context.Context) error {
 	defer cancel()
 	go a.heartbeat(hbCtx, conn)
 
+	// On a clean shutdown, tell the gateway before the socket closes: it then
+	// re-queues whatever this worker held instead of the run stalling until each
+	// lease times out, and the fleet list stops showing us as active.
+	//
+	// This has to be a watcher rather than a defer. The loop below blocks in
+	// ReadJSON, which cancelling the context does not interrupt — so the process
+	// would be killed with the announcement still undelivered. Closing the
+	// connection here is what unblocks the reader.
+	go func() {
+		<-ctx.Done()
+		cancel() // stop the heartbeat before taking the write lock ourselves
+		ids := a.runningTasks()
+		_ = conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+		if err := a.sendControl(conn, scanproto.Heartbeat{
+			WorkerID: a.workerID, RunningTasks: ids, Stopping: true, At: time.Now(),
+		}); err != nil {
+			slog.Warn("could not announce shutdown", "err", err)
+		} else {
+			slog.Info("announced shutdown to the gateway", "handing_back", len(ids))
+		}
+		_ = conn.Close()
+	}()
+
 	for {
 		var env scanproto.Envelope
 		if err := conn.ReadJSON(&env); err != nil {
@@ -228,13 +274,9 @@ func (a *Agent) heartbeat(ctx context.Context, conn *websocket.Conn) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			a.mu.Lock()
-			ids := make([]string, 0, len(a.running))
-			for id := range a.running {
-				ids = append(ids, id)
-			}
-			a.mu.Unlock()
-			_ = conn.WriteJSON(scanproto.Heartbeat{WorkerID: a.workerID, RunningTasks: ids, At: time.Now()})
+			_ = a.sendControl(conn, scanproto.Heartbeat{
+				WorkerID: a.workerID, RunningTasks: a.runningTasks(), At: time.Now(),
+			})
 		}
 	}
 }

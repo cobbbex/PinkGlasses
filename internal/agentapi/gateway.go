@@ -154,6 +154,14 @@ func (g *Gateway) enroll(w http.ResponseWriter, r *http.Request) {
 	if srcIP != "" {
 		worker.EgressIP = &srcIP
 	}
+	// A restarted container re-enrols under the same hostname; drop the row it
+	// left behind so the fleet shows one entry per worker rather than a growing
+	// column of duplicates.
+	if n, _ := g.st.PruneReplacedWorker(r.Context(), worker.Name, worker.Kind); n > 0 {
+		slog.Info("replaced a disconnected worker of the same name",
+			"name", worker.Name, "removed", n)
+	}
+
 	id, err := g.st.CreateWorker(r.Context(), worker, hash, status)
 	if err != nil {
 		http.Error(w, "enroll failed", http.StatusInternalServerError)
@@ -183,7 +191,15 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 	_ = g.st.TouchWorker(r.Context(), workerID, observedIP(r))
 
 	// reader: heartbeats and acks
-	go g.readLoop(workerID, conn)
+	// closed when the reader gives up, which is how a dead worker ends this
+	// handler: the HTTP request context does not cancel on a killed peer, so
+	// without this the dispatch loop would keep running against a corpse and
+	// unregister would never fire.
+	gone := make(chan struct{})
+	go func() {
+		defer close(gone)
+		g.readLoop(workerID, conn)
+	}()
 
 	// dispatch loop: lease tasks and push them while the worker is active.
 	ticker := time.NewTicker(2 * time.Second)
@@ -191,6 +207,8 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	for {
 		select {
+		case <-gone:
+			return
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
@@ -301,13 +319,39 @@ func (g *Gateway) paramsForRun(ctx context.Context, runID string) map[string]str
 	return p
 }
 
+// controlIdleTimeout is how long the gateway waits for any message from a worker
+// before treating the connection as dead. Workers heartbeat every 15s, so this
+// allows two misses. Without a deadline a killed worker leaves the read blocked
+// on a TCP connection that never closes, so the fleet keeps showing it active
+// and its connection is never released.
+const controlIdleTimeout = 45 * time.Second
+
 func (g *Gateway) readLoop(workerID uuid.UUID, conn *websocket.Conn) {
+	_ = conn.SetReadDeadline(time.Now().Add(controlIdleTimeout))
 	for {
 		var hb scanproto.Heartbeat
 		if err := conn.ReadJSON(&hb); err != nil {
+			slog.Info("control channel closed", "worker", workerID, "err", err)
 			return
 		}
+		// Any message proves the worker is alive; push the deadline out.
+		_ = conn.SetReadDeadline(time.Now().Add(controlIdleTimeout))
 		ctx := context.Background()
+
+		if hb.Stopping {
+			// The worker is shutting down cleanly, so its tasks are not
+			// continuing. Re-queue them now instead of stalling the run until
+			// each lease expires.
+			n, err := g.st.ReleaseWorkerLeases(ctx, workerID)
+			if err != nil {
+				slog.Warn("could not release leases on worker shutdown",
+					"worker", workerID, "err", err)
+			}
+			slog.Info("worker is stopping", "worker", workerID, "requeued_tasks", n)
+			_ = g.st.MarkWorkerDisconnected(ctx, workerID)
+			return
+		}
+
 		_ = g.st.TouchWorker(ctx, workerID, "")
 		for _, tid := range hb.RunningTasks {
 			if id, err := uuid.Parse(tid); err == nil {
@@ -447,23 +491,25 @@ func (g *Gateway) register(id uuid.UUID, conn *websocket.Conn) {
 	g.mu.Lock()
 	g.conns[id] = conn
 	g.mu.Unlock()
-	_ = g.st.SetWorkerStatus(context.Background(), id, keepStatus(g.st, id))
+	// A worker holding an open channel is demonstrably alive, so lift a stale
+	// mark. Nothing else does, and the dispatcher only leases to active workers,
+	// so leaving it stale benches a healthy worker permanently. Pending,
+	// draining, quarantined and revoked are deliberate states and are untouched
+	// — registration must never silently approve a pending worker (§7.2).
+	if err := g.st.ReviveWorker(context.Background(), id); err != nil {
+		slog.Warn("could not revive worker", "worker", id, "err", err)
+	}
 }
 
 func (g *Gateway) unregister(id uuid.UUID) {
 	g.mu.Lock()
 	delete(g.conns, id)
 	g.mu.Unlock()
-}
-
-// keepStatus returns the worker's current status (registration must not
-// silently activate a pending worker — approval is a human action, §7.2).
-func keepStatus(st *store.Store, id uuid.UUID) domain.WorkerStatus {
-	w, _, err := st.WorkerForAuth(context.Background(), id)
-	if err != nil {
-		return domain.WorkerPending
+	// Reflect the disconnect at once rather than leaving the fleet list claiming
+	// the worker is active until the heartbeat sweep notices 90 seconds later.
+	if err := g.st.MarkWorkerDisconnected(context.Background(), id); err != nil {
+		slog.Warn("could not mark worker disconnected", "worker", id, "err", err)
 	}
-	return w.Status
 }
 
 // --- helpers ---

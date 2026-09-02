@@ -361,9 +361,6 @@ SSH-push provisioning, worker auto-update, cloud-inventory connectors.
 
 Known rough edges:
 
-- Rebuilding a worker leaves its previous fleet row `active`, and new tasks are leased to
-  the dead one until the reaper clears it. The worker should deregister on shutdown, or the
-  gateway should drop the row when its control channel closes.
 - Results held by a worker that is stopped mid-task are lost. The agent logs
   "spooling would retry", but no spool exists yet.
 - Provisioner-created workers are not rebuilt by `docker compose up --build`, so they keep

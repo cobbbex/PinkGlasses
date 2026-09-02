@@ -106,9 +106,14 @@ type CancelMessage struct {
 }
 
 // Heartbeat is sent by the worker over the control channel while a task runs.
+// A final heartbeat with Stopping set announces a clean shutdown, which lets the
+// gateway re-queue the worker's tasks at once instead of waiting out their
+// leases. An abrupt disconnect carries no such promise and falls back to the
+// lease timeout.
 type Heartbeat struct {
 	WorkerID     string   `json:"worker_id"`
 	RunningTasks []string `json:"running_tasks"`
+	Stopping     bool     `json:"stopping,omitempty"`
 	At           time.Time `json:"at"`
 }
 
