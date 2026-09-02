@@ -100,6 +100,64 @@ func (s *Store) SetRunTargetStatus(ctx context.Context, id uuid.UUID, status dom
 }
 
 // ListRuns returns recent runs for a scope.
+// RunListItem is a run as the runs table shows it: the run itself, what it is
+// scanning, and how far along it is. Targets and progress are aggregated in the
+// same query rather than fetched per row, so the list costs one round trip
+// however many runs it shows.
+type RunListItem struct {
+	domain.ScanRun
+	Targets     []string `json:"targets"`
+	TargetCount int      `json:"target_count"`
+	Total       int      `json:"tasks_total"`
+	Done        int      `json:"tasks_done"`
+	Failed      int      `json:"tasks_failed"`
+	Outstanding int      `json:"tasks_outstanding"`
+}
+
+// ListRunSummaries returns runs with their targets and task progress.
+func (s *Store) ListRunSummaries(ctx context.Context, scopeID uuid.UUID, limit int) ([]RunListItem, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT r.id, r.scope_id, r.profile, r.trigger, r.status, r.pool_id,
+		       r.max_concurrency, r.started_at, r.finished_at, r.created_at,
+		       COALESCE(t.cnt, 0), COALESCE(t.names, '{}'),
+		       COALESCE(p.total, 0), COALESCE(p.done, 0),
+		       COALESCE(p.failed, 0), COALESCE(p.outstanding, 0)
+		FROM scan_run r
+		LEFT JOIN LATERAL (
+		  -- a label for the row, not the whole list: a run can cover hundreds
+		  SELECT count(*) AS cnt, (array_agg(value ORDER BY value))[1:3] AS names
+		  FROM run_target WHERE run_id = r.id
+		) t ON true
+		LEFT JOIN LATERAL (
+		  SELECT count(*) AS total,
+		         count(*) FILTER (WHERE status='done') AS done,
+		         count(*) FILTER (WHERE status='failed') AS failed,
+		         count(*) FILTER (WHERE status IN ('pending','leased','running')) AS outstanding
+		  FROM scan_task WHERE run_id = r.id
+		) p ON true
+		WHERE r.scope_id=$1 ORDER BY r.created_at DESC LIMIT $2`, scopeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []RunListItem{}
+	for rows.Next() {
+		var it RunListItem
+		r := &it.ScanRun
+		if err := rows.Scan(&r.ID, &r.ScopeID, &r.Profile, &r.Trigger, &r.Status, &r.PoolID,
+			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt,
+			&it.TargetCount, &it.Targets,
+			&it.Total, &it.Done, &it.Failed, &it.Outstanding); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListRuns(ctx context.Context, scopeID uuid.UUID, limit int) ([]domain.ScanRun, error) {
 	if limit <= 0 {
 		limit = 50

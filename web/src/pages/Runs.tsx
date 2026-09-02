@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, RunTarget, RunActivity } from "../api";
+import { api, Run, RunTarget, RunActivity } from "../api";
 import { Badge, useToast, Modal } from "../components/ui";
 import ScanSettings from "../components/ScanSettings";
 
@@ -36,13 +36,18 @@ export default function Runs({ scopeID }: { scopeID: string }) {
       ) : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Started</th><th>Profile</th><th>Status</th><th></th></tr></thead>
+            <thead><tr>
+              <th>Started</th><th>Target</th><th>Profile</th>
+              <th style={{ width: 190 }}>Progress</th><th>Status</th><th></th>
+            </tr></thead>
             <tbody>
               {(runs ?? []).map((r) => (
                 <Fragment key={r.id}>
                   <tr style={{ cursor: "pointer" }} onClick={() => setOpen(open === r.id ? "" : r.id)}>
                     <td className="muted">{new Date(r.created_at).toLocaleString()}</td>
+                    <td className="mono"><TargetLabel run={r} /></td>
                     <td>{r.profile}</td>
+                    <td><RunProgress run={r} /></td>
                     <td><Badge status={r.status} /></td>
                     <td style={{ textAlign: "right" }}>
                       {["queued", "planning", "running"].includes(r.status) && (
@@ -55,7 +60,7 @@ export default function Runs({ scopeID }: { scopeID: string }) {
                     </td>
                   </tr>
                   {open === r.id && (
-                    <tr><td colSpan={4} style={{ background: "var(--bg)" }}><RunDetail runID={r.id} /></td></tr>
+                    <tr><td colSpan={6} style={{ background: "var(--bg)" }}><RunDetail runID={r.id} /></td></tr>
                   )}
                 </Fragment>
               ))}
@@ -174,6 +179,49 @@ function LaunchModal({
         </div>
       )}
     </Modal>
+  );
+}
+
+/**
+ * What a run is scanning. A run can cover hundreds of targets, so the row shows
+ * the first few and says how many more there are; the expanded view lists them
+ * all with their own progress.
+ */
+function TargetLabel({ run }: { run: Run }) {
+  const names = run.targets ?? [];
+  if (names.length === 0) {
+    return <span className="muted">planning…</span>;
+  }
+  const extra = (run.target_count ?? names.length) - names.length;
+  return (
+    <span title={names.join(", ") + (extra > 0 ? ` and ${extra} more` : "")}>
+      {names.join(", ")}
+      {extra > 0 && <span className="muted"> +{extra}</span>}
+    </span>
+  );
+}
+
+/**
+ * Task progress for the whole run. Failed tasks count as finished — the run has
+ * dealt with them — but are called out separately, because a bar at 100% hides
+ * whether everything worked.
+ */
+function RunProgress({ run }: { run: Run }) {
+  const total = run.tasks_total ?? 0;
+  const done = run.tasks_done ?? 0;
+  const failed = run.tasks_failed ?? 0;
+  if (total === 0) {
+    return <span className="muted">—</span>;
+  }
+  const pct = Math.round((100 * (done + failed)) / total);
+  return (
+    <div className="row" style={{ margin: 0, gap: 8 }}>
+      <div className="bar" style={{ flex: 1 }}><span style={{ width: pct + "%" }} /></div>
+      <span className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+        {done}/{total}
+        {failed > 0 && <span className="sev-high"> ✕{failed}</span>}
+      </span>
+    </div>
   );
 }
 

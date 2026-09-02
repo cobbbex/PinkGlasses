@@ -161,7 +161,7 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad scope id")
 		return
 	}
-	list, err := s.st.ListRuns(r.Context(), scopeID, 50)
+	list, err := s.st.ListRunSummaries(r.Context(), scopeID, 50)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

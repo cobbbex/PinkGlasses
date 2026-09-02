@@ -25,6 +25,10 @@ export interface Service {
 export interface Run {
   id: string; scope_id: string; profile: string; status: string;
   started_at?: string | null; finished_at?: string | null; created_at: string;
+  /** A label for the row — the first few targets, not the whole list. */
+  targets?: string[] | null; target_count?: number;
+  tasks_total?: number; tasks_done?: number;
+  tasks_failed?: number; tasks_outstanding?: number;
 }
 export interface RunTarget {
   id: string; run_id: string; kind: string; value: string; status: string;

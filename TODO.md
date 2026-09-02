@@ -257,5 +257,9 @@ presets, with the `Tools.md` values as the shipped defaults.
       the worker cached the exact file and its hits landed as findings — which surfaced
       that `gobuster`'s output was never parsed at all (it prints entries without a leading
       slash), so this stage had only ever reported the crawler's paths.
-- [ ] Add to scans run table target column and progress bar. Test it.
+- [x] 16.2 Runs table shows what each run is scanning and how far along it is: a target
+      column (first few names, "+N" for the rest) and a task progress bar with failures
+      called out. Targets and progress are aggregated in the same query as the runs, so
+      the list stays one round trip. Verified live in a browser: the bar tracked a running
+      scan from 2/3 through 9/9 as the planner added stages.
 
