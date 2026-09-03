@@ -146,20 +146,20 @@ type RunTarget struct {
 
 // Worker is a scan box in the fleet.
 type Worker struct {
-	ID             uuid.UUID    `json:"id"`
-	PoolID         *uuid.UUID   `json:"pool_id,omitempty"`
-	Name           string       `json:"name"`
-	Kind           string       `json:"kind"`
-	Status         WorkerStatus `json:"status"`
-	Capabilities   []string     `json:"capabilities"`
+	ID             uuid.UUID         `json:"id"`
+	PoolID         *uuid.UUID        `json:"pool_id,omitempty"`
+	Name           string            `json:"name"`
+	Kind           string            `json:"kind"`
+	Status         WorkerStatus      `json:"status"`
+	Capabilities   []string          `json:"capabilities"`
 	Tools          map[string]string `json:"tools"`
-	AgentVersion   string       `json:"agent_version"`
-	EgressIP       *string      `json:"egress_ip,omitempty"`
-	Country        *string      `json:"country,omitempty"`
-	MaxConcurrency int          `json:"max_concurrency"`
-	RunningTasks   int          `json:"running_tasks"`
-	LastSeenAt     *time.Time   `json:"last_seen_at,omitempty"`
-	EnrolledAt     time.Time    `json:"enrolled_at"`
+	AgentVersion   string            `json:"agent_version"`
+	EgressIP       *string           `json:"egress_ip,omitempty"`
+	Country        *string           `json:"country,omitempty"`
+	MaxConcurrency int               `json:"max_concurrency"`
+	RunningTasks   int               `json:"running_tasks"`
+	LastSeenAt     *time.Time        `json:"last_seen_at,omitempty"`
+	EnrolledAt     time.Time         `json:"enrolled_at"`
 }
 
 // Domain is a discovered (sub)domain.
@@ -213,17 +213,60 @@ type Finding struct {
 	Status    string    `json:"status"`
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`
+
+	// History is one entry per completed run that could have observed this
+	// finding — a run that executed the stage which produces its kind against
+	// its host — whether or not it did. Presence is derived from it: "active"
+	// when the latest such run observed the finding, otherwise "gone".
+	History     []FindingRun `json:"history,omitempty"`
+	Presence    string       `json:"presence,omitempty"`
+	SeenIn      int          `json:"seen_in"`
+	CoveredRuns int          `json:"covered_runs"`
+	GoneSince   *time.Time   `json:"gone_since,omitempty"`
+}
+
+// FindingRun is one run's verdict on a finding: it looked, and it did or did
+// not see it. ObservedAt and Severity are set only when it did.
+type FindingRun struct {
+	RunID      uuid.UUID  `json:"run_id"`
+	At         time.Time  `json:"at"`
+	Observed   bool       `json:"observed"`
+	ObservedAt *time.Time `json:"observed_at,omitempty"`
+	Severity   string     `json:"severity,omitempty"`
+}
+
+// DerivePresence fills Presence, SeenIn, CoveredRuns and GoneSince from
+// History. A finding nobody has had a chance to re-check is "active": the only
+// evidence is that it was seen.
+func (f *Finding) DerivePresence() {
+	f.CoveredRuns = len(f.History)
+	f.SeenIn = 0
+	f.GoneSince = nil
+	var lastSeenIdx = -1
+	for i, h := range f.History {
+		if h.Observed {
+			f.SeenIn++
+			lastSeenIdx = i
+		}
+	}
+	if f.CoveredRuns == 0 || lastSeenIdx == f.CoveredRuns-1 {
+		f.Presence = "active"
+		return
+	}
+	f.Presence = "gone"
+	at := f.History[lastSeenIdx+1].At // the first run that looked and did not find it
+	f.GoneSince = &at
 }
 
 // ServiceObs is a per-run snapshot of a service, assembled by ingest before it
 // is written to service_observation.
 type ServiceObs struct {
-	At            time.Time         `json:"at"`
-	Banner        string            `json:"banner,omitempty"`
-	Product       string            `json:"product,omitempty"`
-	Version       string            `json:"version,omitempty"`
-	HTTP          map[string]any    `json:"http,omitempty"`
-	TLS           map[string]any    `json:"tls,omitempty"`
-	ScreenshotKey string            `json:"screenshot_key,omitempty"`
-	RawKey        string            `json:"raw_key,omitempty"`
+	At            time.Time      `json:"at"`
+	Banner        string         `json:"banner,omitempty"`
+	Product       string         `json:"product,omitempty"`
+	Version       string         `json:"version,omitempty"`
+	HTTP          map[string]any `json:"http,omitempty"`
+	TLS           map[string]any `json:"tls,omitempty"`
+	ScreenshotKey string         `json:"screenshot_key,omitempty"`
+	RawKey        string         `json:"raw_key,omitempty"`
 }

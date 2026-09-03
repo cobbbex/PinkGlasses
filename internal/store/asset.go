@@ -73,7 +73,6 @@ func (s *Store) EnrichIP(ctx context.Context, id uuid.UUID, ptr, asOrg, country,
 	return err
 }
 
-
 // LinkDomainIP records a temporal domain->ip edge (the DNSDumpster map).
 func (s *Store) LinkDomainIP(ctx context.Context, domainID, ipID uuid.UUID, via string, at time.Time) error {
 	_, err := s.Pool.Exec(ctx, `
@@ -285,19 +284,19 @@ type GraphEdge struct {
 // the split Domains/Hosts pages — a name and where it lives are the same
 // question in practice.
 type HostRow struct {
-	DomainID  *uuid.UUID `json:"domain_id,omitempty"`
-	Name      string     `json:"name"`
-	IPID      *uuid.UUID `json:"ip_id,omitempty"`
-	Addr      *string    `json:"addr,omitempty"`
-	PTR       *string    `json:"ptr,omitempty"`
-	ASN       *int       `json:"asn,omitempty"`
-	ASOrg     *string    `json:"as_org,omitempty"`
-	ASRange   *string    `json:"as_range,omitempty"`
-	Country   *string    `json:"country,omitempty"`
-	Cloud     *string    `json:"cloud,omitempty"`
-	IsShared  bool       `json:"is_shared"`
-	Services  int        `json:"services"`
-	LastSeen  time.Time  `json:"last_seen"`
+	DomainID *uuid.UUID `json:"domain_id,omitempty"`
+	Name     string     `json:"name"`
+	IPID     *uuid.UUID `json:"ip_id,omitempty"`
+	Addr     *string    `json:"addr,omitempty"`
+	PTR      *string    `json:"ptr,omitempty"`
+	ASN      *int       `json:"asn,omitempty"`
+	ASOrg    *string    `json:"as_org,omitempty"`
+	ASRange  *string    `json:"as_range,omitempty"`
+	Country  *string    `json:"country,omitempty"`
+	Cloud    *string    `json:"cloud,omitempty"`
+	IsShared bool       `json:"is_shared"`
+	Services int        `json:"services"`
+	LastSeen time.Time  `json:"last_seen"`
 	// ScreenshotServiceID is the service on this address holding the most
 	// recent screenshot, so the list can offer to show one without asking for
 	// each row's services separately.
@@ -369,7 +368,6 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 	}
 	return res, rows.Err()
 }
-
 
 // LatestScreenshotKey returns the object key of the most recent screenshot of a
 // service, or "" when none was ever captured. Callers address screenshots by
@@ -533,8 +531,9 @@ func (s *Store) HostDetail(ctx context.Context, ipID uuid.UUID) (HostDetailResul
 	// being asked here.
 	findRows, err := s.Pool.Query(ctx, `
 		SELECT f.id, f.scope_id, f.asset_kind, f.asset_id, f.kind, f.severity,
-		       f.title, f.status, f.first_seen, f.last_seen
+		       f.title, f.status, f.first_seen, f.last_seen, COALESCE(h.hist, '[]'::jsonb)
 		FROM finding f
+		`+findingHistorySQL+`
 		WHERE (f.asset_kind='ip' AND f.asset_id=$1)
 		   OR (f.asset_kind='service' AND f.asset_id IN (SELECT id FROM service WHERE ip_id=$1))
 		ORDER BY CASE f.severity
@@ -545,9 +544,8 @@ func (s *Store) HostDetail(ctx context.Context, ipID uuid.UUID) (HostDetailResul
 	}
 	defer findRows.Close()
 	for findRows.Next() {
-		var f domain.Finding
-		if err := findRows.Scan(&f.ID, &f.ScopeID, &f.AssetKind, &f.AssetID, &f.Kind,
-			&f.Severity, &f.Title, &f.Status, &f.FirstSeen, &f.LastSeen); err != nil {
+		f, err := scanFindingWithHistory(findRows)
+		if err != nil {
 			return res, err
 		}
 		res.Findings = append(res.Findings, f)

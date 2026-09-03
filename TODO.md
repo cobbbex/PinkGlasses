@@ -339,6 +339,15 @@ what had happened rather than reading what the code intended.
       at planning time so switching it off means no task rather than a task that leases a
       worker to do nothing. Verified against the cookie lab: the task runs, and turning the
       switch off plans none.
+- [x] 18.1.1 Finding history. Every completed run that could have observed a finding — one
+      that ran the producing stage against its host — records whether it did, and presence
+      (`active` / `gone since`) is derived from that rather than set by hand. The ack/resolve
+      buttons are gone; the `finding` table is untouched. Shown as a dot-strip per finding on
+      the Findings and host pages, one dot per run with the date, time and severity on hover,
+      plus "seen 7/8". The differ records `finding_gone` and `finding_returned`. Verified by
+      hiding a path between scans: `●○●`, one gone event, one returned event, tooltips
+      reading "Not found 8:05:17 PM" on the hollow dot. History starts at the migration —
+      runs before it left no record and are excluded rather than read as "not found".
 - [ ] 18.2 **Tell someone when something changes.** The differ works — change events are
       being recorded — and `internal/notify` has webhook and Slack senders that nothing
       calls. Until they are connected this discovers and remembers, but does not monitor:
@@ -353,3 +362,4 @@ what had happened rather than reading what the code intended.
       exit. Configs carry private keys and credentials: encrypted at rest, never returned
       by the API, never written to a log. Each piece tested, including that traffic
       actually leaves through the tunnel rather than merely being configured to.
+- [ ] How to save and then show user historical data ?

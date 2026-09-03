@@ -192,7 +192,7 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 			// content-discovery hit; surfaced as an informational finding on the service
 			svcID, err := in.serviceID(ctx, scopeID, o.IP, o.Port, "tcp", "open", now)
 			if err == nil {
-				_ = in.st.UpsertFinding(ctx, scopeID, svcID, "service", "content_discovery", "info",
+				in.finding(ctx, runID, scopeID, svcID, "service", "content_discovery", "info",
 					"Discovered path: "+o.Path, map[string]any{"path": o.Path, "status": o.Status}, now)
 			}
 
@@ -201,7 +201,7 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 			if o.IP != "" && o.Port != 0 {
 				assetID, _ = in.serviceID(ctx, scopeID, o.IP, o.Port, "tcp", "open", now)
 			}
-			_ = in.st.UpsertFinding(ctx, scopeID, assetID, "service", o.FindingKind, sev(o.FindingSeverity),
+			in.finding(ctx, runID, scopeID, assetID, "service", o.FindingKind, sev(o.FindingSeverity),
 				o.FindingTitle, map[string]any{"banner": o.Banner}, now)
 		}
 	}
@@ -250,5 +250,20 @@ func sev(s string) string {
 		return s
 	default:
 		return "info"
+	}
+}
+
+// finding upserts a finding and records that this run observed it. The
+// observation is what makes history possible: without it a finding present in
+// one scan and absent in the next looks identical to one present in both.
+func (in *Ingestor) finding(ctx context.Context, runID, scopeID, assetID uuid.UUID,
+	assetKind, kind, severity, title string, evidence map[string]any, at time.Time) {
+	id, err := in.st.UpsertFinding(ctx, scopeID, assetID, assetKind, kind, severity, title, evidence, at)
+	if err != nil {
+		slog.Warn("finding not recorded", "kind", kind, "title", title, "err", err)
+		return
+	}
+	if err := in.st.RecordFindingObservation(ctx, id, runID, severity, evidence, at); err != nil {
+		slog.Warn("finding observation not recorded", "finding", id, "run", runID, "err", err)
 	}
 }

@@ -246,6 +246,30 @@ you created. "You" is whatever `X-Forwarded-User` says, or `local` — so this t
 a shared list, it does not protect anything. Real accounts are Phase 17; until then
 anyone who can reach the API can list every company by not asking for the filter.
 
+## Finding history
+
+Scanning the same host again does not overwrite what the last scan knew. Every run
+that *could* have seen a finding — one that executed the stage which produces its
+kind against that host — records whether it did, and a finding's presence is
+computed from that record rather than set by hand:
+
+- **active** — the latest run that looked for it found it;
+- **gone since \<date\>** — a later run looked and did not find it.
+
+The Findings page and each host page show this as a **dot-strip**: one dot per run,
+oldest on the left, filled when that run observed the finding and hollow when it
+looked and did not. Hovering a dot shows the date and time of that run and the
+severity it reported, so a gap or a severity change is readable in place. "Seen
+7/8" beside it is the same thing as a number.
+
+Presence is judged only against runs that actually looked. A passive scan never
+probes for paths, so a path it did not report has not gone anywhere; without that
+rule every passive scan would mark the whole inventory as vanished.
+
+The differ records `finding_gone` and `finding_returned` alongside `new_finding`.
+The one worth an alert is `finding_returned` — a new finding is noise until triaged,
+but something that was gone and is back is a regression.
+
 ## Wordlists and resolvers
 
 **Wordlists** in the UI manages every list a scan needs: the subdomain wordlists

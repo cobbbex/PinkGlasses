@@ -54,6 +54,13 @@ func main() {
 		// makes the target useless for telling a real finding from noise.
 		switch r.URL.Path {
 		case "/plain":
+			// LAB_HIDE_PLAIN=1 makes this path vanish, so a finding can be made
+			// to disappear between two scans and come back on a third — which
+			// is the only way to test that history records a gap honestly.
+			if os.Getenv("LAB_HIDE_PLAIN") == "1" {
+				http.NotFound(w, r)
+				return
+			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			fmt.Fprint(w, "<!doctype html><title>No cookies here</title><h1>No cookies here</h1>")
 			return

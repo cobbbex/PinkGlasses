@@ -172,6 +172,8 @@ services:
     build: {context: ., dockerfile: deploy/Dockerfile.cookielab}
     environment:
       PORT: "80"
+      # set to 1 to make /plain 404, so a finding can vanish and return
+      LAB_HIDE_PLAIN: "${LAB_HIDE_PLAIN:-}"
 
 # Volume names are pinned to what they were before the project was renamed.
 # Compose derives volume names from the project, so without this the rename

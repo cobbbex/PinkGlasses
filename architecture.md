@@ -565,6 +565,22 @@ CREATE TABLE change_event (
 and `.tls` for the search language; `gin (name gin_trgm_ops)` on `domain` for substring
 search across subdomains.
 
+### 5.4.1 Finding history
+
+`finding` is the current summary of one issue on one asset — first seen, last seen,
+current severity. `finding_observation` is the trail behind it: one row per finding per
+run that observed it, with the severity and evidence as they were at the time.
+
+Presence is derived, never stored. For a finding, the covering runs are the completed
+runs that executed the stage producing its kind (`dir_brute` for paths, `vuln_check` for
+nuclei, `service_probe` otherwise) against its host; the finding is `active` if the
+latest covering run observed it, otherwise `gone` since the first covering run that
+did not. Restricting to covering runs is what keeps a passive scan from marking every
+active-scan finding as vanished.
+
+The differ compares each covering run with the previous one and records `finding_gone`
+and `finding_returned` change events, alongside `new_finding`.
+
 ### 5.5 Why temporal upsert rather than event sourcing
 
 An append-only observations table is purer, but every UI query then needs a window function

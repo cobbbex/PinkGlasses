@@ -44,9 +44,19 @@ export interface Worker {
   country?: string | null; max_concurrency: number; running_tasks: number;
   last_seen_at?: string | null;
 }
+/** One run's verdict on a finding: it looked, and did or did not see it. */
+export interface FindingRun {
+  run_id: string; at: string; observed: boolean;
+  observed_at?: string | null; severity?: string;
+}
 export interface Finding {
   id: string; asset_kind: string; asset_id: string; kind: string;
   severity: string; title: string; status: string; first_seen: string; last_seen: string;
+  /** Every completed run that could have seen this finding, oldest first. */
+  history?: FindingRun[] | null;
+  /** "active" if the latest covering run observed it, else "gone". */
+  presence?: "active" | "gone";
+  seen_in?: number; covered_runs?: number; gone_since?: string | null;
 }
 export interface TaskActivity {
   task_id: string; stage: string; target: string; status: string; attempts: number;
@@ -154,13 +164,15 @@ export const api = {
       ...h,
       names: h.names ?? [],
       services: (h.services ?? []).map((sv) => ({ ...sv, technologies: sv.technologies ?? [] })),
-      findings: h.findings ?? [],
+      findings: (h.findings ?? []).map((f) => ({ ...f, history: f.history ?? [] })),
     })),
   hostServices: (ip: string) => req<Service[] | null>(`/hosts/${ip}/services`).then((x) => x ?? []),
   search: (s: string, q: string) => req<SearchResult[] | null>(`/scopes/${s}/search?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
   searchGlobal: (q: string, scope?: string) =>
     req<SearchResult[] | null>(`/search?q=${encodeURIComponent(q)}${scope ? "&scope=" + scope : ""}`).then((x) => x ?? []),
-  findings: (s: string) => req<Finding[] | null>(`/scopes/${s}/findings`).then((x) => x ?? []),
+  findings: (s: string) =>
+    req<Finding[] | null>(`/scopes/${s}/findings`)
+      .then((x) => (x ?? []).map((f) => ({ ...f, history: f.history ?? [] }))),
   patchFinding: (id: string, status: string) =>
     req(`/findings/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
   runs: (s: string) => req<Run[] | null>(`/scopes/${s}/runs`).then((x) => x ?? []),

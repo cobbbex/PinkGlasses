@@ -49,6 +49,48 @@ func (d *Differ) Diff(ctx context.Context, run domain.ScanRun) (int, error) {
 	} else {
 		n += c
 	}
+	// Findings that vanished, and ones that came back.
+	if c, err := d.findingPresence(ctx, run); err != nil {
+		return n, err
+	} else {
+		n += c
+	}
+	return n, nil
+}
+
+// findingPresence records finding_gone for a finding the previous covering run
+// observed and this one did not, and finding_returned for the reverse. Only
+// findings this run actually looked for are considered — a passive run never
+// looks for paths, so its silence about a path says nothing.
+//
+// finding_returned is the one worth an alert: a new finding is noise until
+// triaged, but something that was gone and is back is a regression.
+func (d *Differ) findingPresence(ctx context.Context, run domain.ScanRun) (int, error) {
+	changes, err := d.st.FindingsCoveredByRun(ctx, run.ID, run.ScopeID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, c := range changes {
+		if !c.HasPrevious {
+			continue // first time anything looked: nothing to compare against
+		}
+		detail := map[string]any{"kind": c.Kind, "severity": c.Severity, "title": c.Title}
+		switch {
+		case c.ObservedBefore && !c.ObservedNow:
+			if err := d.st.RecordChangeEvent(ctx, run.ID, nil, run.ScopeID, "finding_gone", "finding", c.ID,
+				detail, nil); err != nil {
+				return n, err
+			}
+			n++
+		case !c.ObservedBefore && c.ObservedNow:
+			if err := d.st.RecordChangeEvent(ctx, run.ID, nil, run.ScopeID, "finding_returned", "finding", c.ID,
+				nil, detail); err != nil {
+				return n, err
+			}
+			n++
+		}
+	}
 	return n, nil
 }
 

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { api, HostService } from "../api";
 import { Spinner } from "../components/ui";
 import { ScreenshotButton } from "../components/Screenshot";
+import { DotStrip, PresenceBadge } from "../components/DotStrip";
 
 /**
  * Everything known about one address, on its own URL so it can be opened in a
@@ -116,14 +117,18 @@ export default function Host() {
       ) : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Severity</th><th>Title</th><th>Kind</th><th>Status</th><th>Last seen</th></tr></thead>
+            <thead><tr>
+              <th>Severity</th><th>Title</th><th>Kind</th><th>Presence</th>
+              <th title="One dot per run that looked. Hover for the date.">History</th><th>Last seen</th>
+            </tr></thead>
             <tbody>
               {findings.map((f) => (
                 <tr key={f.id}>
                   <td><span className={"sev-" + f.severity}>{f.severity}</span></td>
                   <td className="wrap">{f.title}</td>
                   <td className="muted">{f.kind}</td>
-                  <td><span className="badge">{f.status.replace("_", " ")}</span></td>
+                  <td><PresenceBadge presence={f.presence} goneSince={f.gone_since} /></td>
+                  <td><DotStrip history={f.history ?? []} /></td>
                   <td className="muted">{new Date(f.last_seen).toLocaleDateString()}</td>
                 </tr>
               ))}

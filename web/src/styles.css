@@ -264,6 +264,22 @@ h2 { margin: 0 0 16px; } h3 { margin: 0; font-size: 15px; }
   gap: 14px; padding: 8px 12px; border-bottom: 1px solid var(--border);
 }
 .param-row:last-child { border-bottom: none; }
+
+/* Finding history: one dot per run, filled when that run saw the finding.
+   The tooltip is the date and time of that run. */
+.dotstrip { display: inline-flex; align-items: center; gap: 3px; position: relative; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; position: relative;
+       border: 1.5px solid var(--accent, #6aa3ff); cursor: default; }
+.dot-on  { background: var(--accent, #6aa3ff); }
+.dot-off { background: transparent; opacity: .55; }
+.dot:hover { transform: scale(1.35); }
+.dot:hover::after {
+  content: attr(data-tip); position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+  background: var(--bg-alt, #221f2b); color: var(--fg, #e8e6ef); border: 1px solid var(--border, #2b2735);
+  padding: 3px 7px; border-radius: 5px; font-size: 11px; white-space: nowrap; z-index: 20;
+  pointer-events: none;
+}
+.badge.b-gone { border-color: #b8834a; color: #e0a86a; }
 /* Mine / All companies, above the company list */
 .combo-scope-filter {
   display: flex; align-items: center; gap: 6px;
