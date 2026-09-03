@@ -14,6 +14,8 @@ rationale, `architecture.md` in the repository.
 - **[Port scanning](Port-Scanning)** — which scanner runs when, the exact nmap
   and naabu command lines, every setting you can change, and what the defaults
   cost you in noise and accuracy.
+- **Alerts** — per-company Slack or JSON webhooks, fed one digest per scan with the
+  changes each channel asked for; every delivery attempt is recorded.
 - **[Wordlists](Wordlists)** — the three kinds of list, how a run picks them,
   how they reach a worker, and which one decides how loud a scan is.
 

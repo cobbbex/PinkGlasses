@@ -10,6 +10,7 @@ import Fleet from "./pages/Fleet";
 import Wordlists from "./components/Wordlists";
 import Findings from "./pages/Findings";
 import Search from "./pages/Search";
+import Alerts from "./pages/Alerts";
 import Host from "./pages/Host";
 
 const NAV = [
@@ -17,6 +18,7 @@ const NAV = [
   { to: "/hosts", label: "Hosts", ic: "▣" },
   { to: "/search", label: "Search", ic: "⌕" },
   { to: "/findings", label: "Findings", ic: "!" },
+  { to: "/alerts", label: "Alerts", ic: "◎" },
   { to: "/runs", label: "Scan runs", ic: "▶" },
   { to: "/workers", label: "Workers", ic: "⬢" },
   { to: "/wordlists", label: "Wordlists", ic: "≡" },
@@ -144,6 +146,7 @@ export default function App() {
                 <Route path="/hosts" element={<Hosts scopeID={scopeID} />} />
                 <Route path="/search" element={<Search scopeID={scopeID} />} />
                 <Route path="/findings" element={<Findings scopeID={scopeID} />} />
+                <Route path="/alerts" element={<Alerts scopeID={scopeID} />} />
                 <Route path="/runs" element={<Runs scopeID={scopeID} />} />
                 <Route path="/workers" element={<Fleet />} />
                 <Route path="/wordlists" element={<Wordlists />} />

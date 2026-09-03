@@ -348,11 +348,16 @@ what had happened rather than reading what the code intended.
       hiding a path between scans: `●○●`, one gone event, one returned event, tooltips
       reading "Not found 8:05:17 PM" on the hollow dot. History starts at the migration —
       runs before it left no record and are excluded rather than read as "not found".
-- [ ] 18.2 **Tell someone when something changes.** The differ works — change events are
-      being recorded — and `internal/notify` has webhook and Slack senders that nothing
-      calls. Until they are connected this discovers and remembers, but does not monitor:
-      you have to think to go and look. Wire new findings and asset changes to a
-      configurable webhook, and make it possible to say which changes are worth a message.
+- [x] 18.2 Alerts. Per-company channels — Slack incoming webhook or any JSON URL — each
+      choosing which changes it hears about (finding returned, new finding, finding gone,
+      new port, new subdomain) and a minimum finding severity. One digest per run per
+      channel, regressions first, capped at 25 lines with a count of the rest. Every attempt
+      is recorded with its outcome, so a dead destination is a visible row rather than
+      silence; a "Send test" checks a destination before anything real changes. The senders
+      now treat non-2xx as failure — the old ones did not, so a 404 counted as delivered.
+      Verified end to end against the lab's own webhook receiver: hiding a path produced a
+      finding_gone digest, restoring it a finding_returned digest, in both JSON and Slack
+      text; a channel pointing at a 404 records "HTTP 404" instead of "sent".
 - [ ] 18.3 **Spool results a stopped worker is holding.** Results are lost when a worker
       dies mid-task; the agent logs "spooling would retry" beside a spool that does not
       exist. Persist unsent batches on the worker and flush them on reconnect.

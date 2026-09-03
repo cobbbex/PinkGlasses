@@ -15,10 +15,11 @@ import (
 	"github.com/benlik386/pinkglasses/internal/config"
 	"github.com/benlik386/pinkglasses/internal/diff"
 	"github.com/benlik386/pinkglasses/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/notify"
 	"github.com/benlik386/pinkglasses/internal/obj"
 	"github.com/benlik386/pinkglasses/internal/planner"
-	"github.com/benlik386/pinkglasses/internal/wordlists"
 	"github.com/benlik386/pinkglasses/internal/store"
+	"github.com/benlik386/pinkglasses/internal/wordlists"
 )
 
 const schedulerLockKey = 0x4153_4d31 // "ASM1"
@@ -49,6 +50,9 @@ func main() {
 
 	pl := planner.New(st)
 	df := diff.New(st)
+	// Digests go out after the differ has recorded what a run changed. The
+	// senders existed since the first build; nothing called them.
+	nt := notify.New(st, os.Getenv("ASM_PUBLIC_URL"))
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -66,7 +70,7 @@ func main() {
 			slog.Info("scheduler stopping")
 			return
 		case <-ticker.C:
-			tick(ctx, st, pl, df)
+			tick(ctx, st, pl, df, nt)
 			if time.Since(lastSweep) >= sweepEvery {
 				sweep(ctx, st, seeder)
 				lastSweep = time.Now()
@@ -75,7 +79,7 @@ func main() {
 	}
 }
 
-func tick(ctx context.Context, st *store.Store, pl *planner.Planner, df *diff.Differ) {
+func tick(ctx context.Context, st *store.Store, pl *planner.Planner, df *diff.Differ, nt *notify.Notifier) {
 	// 1. Reap expired leases so dead workers' tasks get reassigned.
 	if n, err := st.ReapExpiredLeases(ctx); err == nil && n > 0 {
 		slog.Info("reaped expired leases", "count", n)
@@ -98,6 +102,11 @@ func tick(ctx context.Context, st *store.Store, pl *planner.Planner, df *diff.Di
 			if done.Status == domain.RunCompleted {
 				if n, err := df.Diff(ctx, done); err == nil {
 					slog.Info("run completed", "run", run.ID, "changes", n)
+					if sent, err := nt.Notify(ctx, done); err != nil {
+						slog.Error("notify", "run", run.ID, "err", err)
+					} else if sent > 0 {
+						slog.Info("digests sent", "run", run.ID, "channels", sent)
+					}
 				}
 			}
 		}

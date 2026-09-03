@@ -121,6 +121,17 @@ export interface HostDetail {
   host: Host; names: HostName[]; services: HostService[]; findings: Finding[];
 }
 
+export interface NotificationChannel {
+  id: string; scope_id: string; name: string; kind: "webhook" | "slack";
+  /** masked — the path of a Slack webhook is the secret */
+  url: string; events: string[]; min_severity: string; enabled: boolean;
+  created_by: string; created_at: string;
+}
+export interface NotificationDelivery {
+  id: string; channel_id: string; channel: string; run_id?: string | null;
+  events: number; status: "sent" | "failed" | "skipped"; error?: string | null; sent_at: string;
+}
+
 export interface SearchResult {
   service_id: string; scope_id?: string; company?: string;
   ip: string; port: number; product?: string | null;
@@ -173,6 +184,18 @@ export const api = {
   findings: (s: string) =>
     req<Finding[] | null>(`/scopes/${s}/findings`)
       .then((x) => (x ?? []).map((f) => ({ ...f, history: f.history ?? [] }))),
+  notifications: (s: string) =>
+    req<{ channels: NotificationChannel[] | null; events: string[] | null }>(`/scopes/${s}/notifications`)
+      .then((r) => ({ channels: r.channels ?? [], events: r.events ?? [] })),
+  createNotification: (s: string, body: unknown) =>
+    req<NotificationChannel>(`/scopes/${s}/notifications`, { method: "POST", body: JSON.stringify(body) }),
+  setNotificationEnabled: (id: string, enabled: boolean) =>
+    req(`/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
+  deleteNotification: (id: string) => req(`/notifications/${id}`, { method: "DELETE" }),
+  testNotification: (id: string) =>
+    req<{ sent: boolean; error?: string }>(`/notifications/${id}/test`, { method: "POST" }),
+  notificationDeliveries: (s: string) =>
+    req<NotificationDelivery[] | null>(`/scopes/${s}/notifications/deliveries`).then((x) => x ?? []),
   patchFinding: (id: string, status: string) =>
     req(`/findings/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
   runs: (s: string) => req<Run[] | null>(`/scopes/${s}/runs`).then((x) => x ?? []),

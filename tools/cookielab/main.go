@@ -13,10 +13,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"sync"
+	"time"
 )
 
 // cookie is one Set-Cookie the lab serves, with the product it imitates.
@@ -53,6 +57,12 @@ func main() {
 		// SSRF. Either way a brute force reports hits that are not there, which
 		// makes the target useless for telling a real finding from noise.
 		switch r.URL.Path {
+		case "/hook":
+			// A webhook receiver, so notification delivery can be verified end
+			// to end without a Slack workspace: POST stores the payload, GET
+			// returns what has arrived.
+			hookHandler(w, r)
+			return
 		case "/plain":
 			// LAB_HIDE_PLAIN=1 makes this path vanish, so a finding can be made
 			// to disappear between two scans and come back on a third — which
@@ -85,6 +95,37 @@ func main() {
 
 	log.Printf("cookielab listening on %s, serving %d cookies", addr, len(cookies)+1)
 	log.Fatal(http.ListenAndServe(addr, handler))
+}
+
+// received keeps the last webhook payloads, newest last.
+var (
+	hookMu   sync.Mutex
+	received []map[string]any
+)
+
+func hookHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		var body map[string]any
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+			http.Error(w, "bad json", 400)
+			return
+		}
+		hookMu.Lock()
+		received = append(received, map[string]any{"at": time.Now().UTC().Format(time.RFC3339), "body": body})
+		if len(received) > 50 {
+			received = received[len(received)-50:]
+		}
+		hookMu.Unlock()
+		w.WriteHeader(204)
+	case http.MethodGet:
+		hookMu.Lock()
+		defer hookMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(received)
+	default:
+		http.Error(w, "method", 405)
+	}
 }
 
 func env(k, def string) string {

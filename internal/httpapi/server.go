@@ -81,6 +81,14 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/scopes/{scopeID}/search", s.search)
 		r.Get("/search", s.searchGlobal) // cross-company, Shodan-style
 		r.Get("/scopes/{scopeID}/findings", s.listFindings)
+
+		// notifications: where a company's change digests go
+		r.Get("/scopes/{scopeID}/notifications", s.listChannels)
+		r.Post("/scopes/{scopeID}/notifications", s.createChannel)
+		r.Get("/scopes/{scopeID}/notifications/deliveries", s.listDeliveries)
+		r.Patch("/notifications/{channelID}", s.patchChannel)
+		r.Delete("/notifications/{channelID}", s.deleteChannel)
+		r.Post("/notifications/{channelID}/test", s.testChannel)
 		r.Patch("/findings/{findingID}", s.patchFinding)
 
 		// fleet

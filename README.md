@@ -270,6 +270,22 @@ The differ records `finding_gone` and `finding_returned` alongside `new_finding`
 The one worth an alert is `finding_returned` — a new finding is noise until triaged,
 but something that was gone and is back is a regression.
 
+## Alerts
+
+**Alerts** is where a company's changes get sent. Add a channel — a Slack incoming
+webhook or any URL that accepts JSON — and tick which changes it should hear about:
+finding returned, new finding, finding gone, new open port, new subdomain, plus a
+minimum severity that applies to findings. When a scan finishes, one digest per
+channel goes out listing the changes it asked for, regressions first, capped so a
+first scan of a big domain is a count rather than four thousand lines.
+
+Every attempt is recorded under **Recent deliveries** with its outcome. A destination
+returning 404 for a month is a row that says so, not a silence you discover when
+someone asks why nobody heard about the open RDP port. **Send test** posts a sample
+digest so a destination can be checked before anything real changes.
+
+A Slack webhook URL is a bearer token; the API returns it masked and never logs it.
+
 ## Wordlists and resolvers
 
 **Wordlists** in the UI manages every list a scan needs: the subdomain wordlists
