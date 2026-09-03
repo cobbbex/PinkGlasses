@@ -13,8 +13,8 @@ import (
 
 	"github.com/benlik386/pinkglasses/internal/audit"
 	"github.com/benlik386/pinkglasses/internal/config"
-	"github.com/benlik386/pinkglasses/internal/obj"
 	"github.com/benlik386/pinkglasses/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/obj"
 	"github.com/benlik386/pinkglasses/internal/planner"
 	"github.com/benlik386/pinkglasses/internal/store"
 )
@@ -81,6 +81,12 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/scopes/{scopeID}/search", s.search)
 		r.Get("/search", s.searchGlobal) // cross-company, Shodan-style
 		r.Get("/scopes/{scopeID}/findings", s.listFindings)
+
+		// VPN configurations a scan can leave through. The config body is
+		// sealed at rest and is never returned by any of these.
+		r.Get("/scopes/{scopeID}/vpn-configs", s.listVPNConfigs)
+		r.Post("/scopes/{scopeID}/vpn-configs", s.createVPNConfig)
+		r.Delete("/vpn-configs/{vpnID}", s.deleteVPNConfig)
 
 		// notifications: where a company's change digests go
 		r.Get("/scopes/{scopeID}/notifications", s.listChannels)

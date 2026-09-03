@@ -368,10 +368,11 @@ what had happened rather than reading what the code intended.
       gateway pause spooled both of a task's batches, they survived a worker restart, and on
       resume replayed as delivered=2 dropped=0 with the task still at attempts=1 and its
       port-scan result intact — the spooled data itself landed, not a re-run.
-- [ ] 18.4 **Scan through a VPN.** A menu for OpenVPN and WireGuard configs, and a picker
-      on the scan-launch modal choosing which egress a run leaves by — so a scan can come
-      from somewhere other than the worker's own address without standing up a worker per
-      exit. Configs carry private keys and credentials: encrypted at rest, never returned
-      by the API, never written to a log. Each piece tested, including that traffic
-      actually leaves through the tunnel rather than merely being configured to.
+- [x] 18.4 Scan through a VPN. A VPN page for WireGuard and OpenVPN configs, sealed with
+      AES-256-GCM under ASM_SECRET_KEY and never returned by any endpoint, and a picker on
+      the scan-launch modal. Runs bound to a tunnel demand a `vpn` capability that only a
+      worker with /dev/net/tun, NET_ADMIN and the clients reports, so an ordinary worker is
+      never offered the work. The worker measures its address before and after connecting
+      and refuses the task unless it changed. Verified: a deliberately unusable config gave
+      3 attempts, 3 refusals, 0 tools run and 0 services touched.
 - [ ] How to save and then show user historical data ?

@@ -20,16 +20,16 @@ const (
 type Stage string
 
 const (
-	StagePassiveEnum   Stage = "passive_enum"   // subfinder + alterx
-	StageDNSBrute      Stage = "dns_brute"      // shuffledns, one task per wordlist
-	StageDNSResolve    Stage = "dns_resolve"    // dnsx (+ shuffledns on deep)
-	StageIPEnrich      Stage = "ip_enrich"      // asn/geo/ptr/cloud
-	StagePortScan      Stage = "port_scan"      // naabu
-	StageServiceProbe  Stage = "service_probe"  // nmap -sV + httpx + tls
-	StageTechDetect    Stage = "tech_detect"    // httpx -tech-detect + nuclei tech
-	StageScreenshot    Stage = "screenshot"     // httpx -screenshot
-	StageDirBrute      Stage = "dir_brute"      // katana -> ffuf/feroxbuster
-	StageVulnCheck     Stage = "vuln_check"     // nuclei
+	StagePassiveEnum  Stage = "passive_enum"  // subfinder + alterx
+	StageDNSBrute     Stage = "dns_brute"     // shuffledns, one task per wordlist
+	StageDNSResolve   Stage = "dns_resolve"   // dnsx (+ shuffledns on deep)
+	StageIPEnrich     Stage = "ip_enrich"     // asn/geo/ptr/cloud
+	StagePortScan     Stage = "port_scan"     // naabu
+	StageServiceProbe Stage = "service_probe" // nmap -sV + httpx + tls
+	StageTechDetect   Stage = "tech_detect"   // httpx -tech-detect + nuclei tech
+	StageScreenshot   Stage = "screenshot"    // httpx -screenshot
+	StageDirBrute     Stage = "dir_brute"     // katana -> ffuf/feroxbuster
+	StageVulnCheck    Stage = "vuln_check"    // nuclei
 )
 
 // AllStages lists the pipeline in canonical order.
@@ -43,8 +43,13 @@ var AllStages = []Stage{
 type Capability string
 
 const (
-	CapRawSocket     Capability = "raw_socket"     // naabu SYN scan (CAP_NET_RAW)
-	CapBrowser       Capability = "browser"        // headless chromium for screenshots
+	CapRawSocket Capability = "raw_socket" // naabu SYN scan (CAP_NET_RAW)
+	CapBrowser   Capability = "browser"    // headless chromium for screenshots
+	// CapVPN marks a worker that can actually build a tunnel: /dev/net/tun
+	// present, NET_ADMIN held, and wg-quick or openvpn installed. It is
+	// detected, never declared, so a container missing any of those
+	// advertises nothing and is simply never offered VPN work.
+	CapVPN           Capability = "vpn"
 	CapIPv6          Capability = "ipv6"           // routable v6 egress
 	CapUDP           Capability = "udp"            // outbound UDP permitted
 	CapHighBandwidth Capability = "high_bandwidth" // operator-declared
@@ -95,8 +100,8 @@ type EnrollResponse struct {
 
 // Envelope wraps every control-channel message with a type tag.
 type Envelope struct {
-	Type string          `json:"type"` // "job" | "cancel" | "heartbeat_ack" | "rotate_cred" | "config"
-	Job  *Job            `json:"job,omitempty"`
+	Type   string         `json:"type"` // "job" | "cancel" | "heartbeat_ack" | "rotate_cred" | "config"
+	Job    *Job           `json:"job,omitempty"`
 	Cancel *CancelMessage `json:"cancel,omitempty"`
 }
 
@@ -111,9 +116,9 @@ type CancelMessage struct {
 // leases. An abrupt disconnect carries no such promise and falls back to the
 // lease timeout.
 type Heartbeat struct {
-	WorkerID     string   `json:"worker_id"`
-	RunningTasks []string `json:"running_tasks"`
-	Stopping     bool     `json:"stopping,omitempty"`
+	WorkerID     string    `json:"worker_id"`
+	RunningTasks []string  `json:"running_tasks"`
+	Stopping     bool      `json:"stopping,omitempty"`
 	At           time.Time `json:"at"`
 }
 
@@ -143,19 +148,19 @@ type Target struct {
 	// hosts in batches so nmap can form a real host group and schedule across
 	// them, which is what makes its rate and host-group settings mean anything.
 	// The gateway expands this into one Target per address when it leases.
-	IPs []string `json:"ips,omitempty"`
-	IP     string `json:"ip,omitempty"`
-	CIDR   string `json:"cidr,omitempty"`
-	Port   int    `json:"port,omitempty"`
-	URL    string `json:"url,omitempty"`
+	IPs  []string `json:"ips,omitempty"`
+	IP   string   `json:"ip,omitempty"`
+	CIDR string   `json:"cidr,omitempty"`
+	Port int      `json:"port,omitempty"`
+	URL  string   `json:"url,omitempty"`
 }
 
 // Params are stage-specific knobs.
 type Params struct {
-	Ports       string `json:"ports,omitempty"`     // "top-1000" | "1-65535" | "80,443"
-	RatePPS     int    `json:"rate_pps,omitempty"`
-	TimeoutMS   int    `json:"timeout_ms,omitempty"`
-	Wordlist    string `json:"wordlist,omitempty"`  // dir_brute / dns brute
+	Ports     string `json:"ports,omitempty"` // "top-1000" | "1-65535" | "80,443"
+	RatePPS   int    `json:"rate_pps,omitempty"`
+	TimeoutMS int    `json:"timeout_ms,omitempty"`
+	Wordlist  string `json:"wordlist,omitempty"` // dir_brute / dns brute
 	// WordlistURL is a short-lived presigned download for the list this task
 	// must use, issued by the gateway at dispatch. WordlistSHA doubles as the
 	// worker's on-disk cache key, so a list is downloaded once per box.
@@ -168,11 +173,17 @@ type Params struct {
 	ResolversURL  string `json:"resolvers_url,omitempty"`
 	ResolversSHA  string `json:"resolvers_sha256,omitempty"`
 	ResolversName string `json:"resolvers_name,omitempty"`
-	Concurrency int    `json:"concurrency,omitempty"`
-	Deep        bool   `json:"deep,omitempty"`
+	Concurrency   int    `json:"concurrency,omitempty"`
+	Deep          bool   `json:"deep,omitempty"`
 	// Tool carries validated per-tool overrides (Phase 15). Keys and values are
 	// whitelisted server-side in internal/scanparams before ever reaching here.
 	Tool map[string]string `json:"tool,omitempty"`
+	// VPNConfigID names the tunnel this task must leave through. Only the id
+	// travels in the job; the worker fetches the body separately, so a
+	// configuration containing a private key is not sitting in every job
+	// envelope. A task carrying this is only ever dispatched to a worker with
+	// the vpn capability.
+	VPNConfigID string `json:"vpn_config_id,omitempty"`
 }
 
 // Constraints bound what the worker may touch and for how long.
@@ -224,16 +235,16 @@ type Artifact struct {
 type ObsType string
 
 const (
-	ObsSubdomain ObsType = "subdomain"
-	ObsDNSRecord ObsType = "dns_record"
-	ObsIP        ObsType = "ip"
-	ObsService   ObsType = "service"
-	ObsHTTP      ObsType = "http"
-	ObsTLS       ObsType = "tls"
-	ObsTech      ObsType = "tech"
+	ObsSubdomain  ObsType = "subdomain"
+	ObsDNSRecord  ObsType = "dns_record"
+	ObsIP         ObsType = "ip"
+	ObsService    ObsType = "service"
+	ObsHTTP       ObsType = "http"
+	ObsTLS        ObsType = "tls"
+	ObsTech       ObsType = "tech"
 	ObsScreenshot ObsType = "screenshot"
-	ObsPath      ObsType = "path"
-	ObsFinding   ObsType = "finding"
+	ObsPath       ObsType = "path"
+	ObsFinding    ObsType = "finding"
 )
 
 // Observation is a single fact reported by a worker. It is a fact, never a
@@ -275,10 +286,10 @@ type Observation struct {
 	Favicon string            `json:"favicon,omitempty"`
 
 	// tls
-	CertSHA256 string   `json:"cert_sha256,omitempty"`
-	SubjectCN  string   `json:"subject_cn,omitempty"`
-	Issuer     string   `json:"issuer,omitempty"`
-	SANs       []string `json:"sans,omitempty"`
+	CertSHA256 string     `json:"cert_sha256,omitempty"`
+	SubjectCN  string     `json:"subject_cn,omitempty"`
+	Issuer     string     `json:"issuer,omitempty"`
+	SANs       []string   `json:"sans,omitempty"`
 	NotAfter   *time.Time `json:"not_after,omitempty"`
 
 	// tech

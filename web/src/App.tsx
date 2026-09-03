@@ -11,6 +11,7 @@ import Wordlists from "./components/Wordlists";
 import Findings from "./pages/Findings";
 import Search from "./pages/Search";
 import Alerts from "./pages/Alerts";
+import VPN from "./pages/VPN";
 import Host from "./pages/Host";
 
 const NAV = [
@@ -22,6 +23,7 @@ const NAV = [
   { to: "/runs", label: "Scan runs", ic: "▶" },
   { to: "/workers", label: "Workers", ic: "⬢" },
   { to: "/wordlists", label: "Wordlists", ic: "≡" },
+  { to: "/vpn", label: "VPN", ic: "⇄" },
 ];
 
 const COLLAPSE_KEY = "asm.sidebar.collapsed";
@@ -150,6 +152,7 @@ export default function App() {
                 <Route path="/runs" element={<Runs scopeID={scopeID} />} />
                 <Route path="/workers" element={<Fleet />} />
                 <Route path="/wordlists" element={<Wordlists />} />
+                <Route path="/vpn" element={<VPN scopeID={scopeID} />} />
                 {/* old link kept working */}
                 <Route path="/fleet" element={<Navigate to="/workers" replace />} />
                 <Route path="*" element={<Navigate to="/" />} />

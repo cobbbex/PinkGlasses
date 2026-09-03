@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +53,9 @@ type Agent struct {
 	// spool holds result batches the gateway could not be reached for, replayed
 	// when the control channel comes back and on a timer meanwhile.
 	spool *spool
+
+	// tun is the VPN this worker is currently scanning through, if any.
+	tun tunnel
 
 	// writeMu serialises control-channel writes. gorilla/websocket permits one
 	// concurrent writer, and the heartbeat ticker and the shutdown announcement
@@ -305,7 +309,26 @@ func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
 	target := describeTarget(job)
 	started := time.Now()
 	slog.Info("task started",
-		"stage", job.Stage, "target", target, "task", job.TaskID, "run", job.RunID)
+		"stage", job.Stage, "target", target, "task", job.TaskID, "run", job.RunID,
+		"vpn", job.Params.VPNConfigID != "")
+
+	// A job bound to a tunnel does not run until the tunnel is up and has been
+	// shown to change this worker's address. Failing the task is the right
+	// outcome: scanning anyway would send the traffic from the address the
+	// tunnel existed to hide.
+	if id := job.Params.VPNConfigID; id != "" {
+		if err := a.ensureTunnel(ctx, id); err != nil {
+			slog.Error("refusing to scan: the tunnel is not carrying this traffic",
+				"stage", job.Stage, "task", job.TaskID, "config", id, "err", err)
+			a.postResult(ctx, job, scanproto.Result{
+				Schema: scanproto.ResultSchema, JobID: job.JobID, TaskID: job.TaskID,
+				LeaseToken: job.LeaseToken, Seq: 0, Final: true, Status: "error",
+				Worker: scanproto.WorkerRef{ID: a.workerID, Version: a.cfg.Version},
+				Errors: []string{"vpn: " + err.Error()},
+			})
+			return
+		}
+	}
 
 	obs, err := a.scanner.Run(ctx, job)
 	status := "ok"
@@ -346,6 +369,40 @@ func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
 		LeaseToken: job.LeaseToken, Seq: seq, Final: true, Status: status,
 		Worker: scanproto.WorkerRef{ID: a.workerID, Version: a.cfg.Version}, Errors: errs,
 	})
+}
+
+// ensureTunnel brings up the tunnel a job requires, fetching its configuration
+// from the gateway, and reports the resulting egress address so the UI can show
+// that the configuration works.
+func (a *Agent) ensureTunnel(ctx context.Context, configID string) error {
+	kind, body, err := a.fetchVPNConfig(ctx, configID)
+	if err != nil {
+		return fmt.Errorf("fetching the configuration: %w", err)
+	}
+	if err := a.tun.up(ctx, configID, kind, body); err != nil {
+		return err
+	}
+	a.reportEgress(ctx, configID, a.tun.currentEgress())
+	return nil
+}
+
+// reportEgress tells the gateway what address the tunnel exits from.
+func (a *Agent) reportEgress(ctx context.Context, configID, ip string) {
+	if ip == "" {
+		return
+	}
+	body, _ := json.Marshal(map[string]string{"id": configID, "ip": ip})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		a.cfg.GatewayURL+"/agent/v1/vpn-egress", bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Worker-Id", a.workerID)
+	req.Header.Set("X-Worker-Credential", a.cred)
+	if resp, err := a.client.Do(req); err == nil {
+		resp.Body.Close()
+	}
 }
 
 // postResult ships one batch of observations to the gateway, spooling it if
@@ -490,7 +547,44 @@ func DetectCapabilities() map[scanproto.Capability]bool {
 	if hasIPv6() {
 		caps[scanproto.CapIPv6] = true
 	}
+	// vpn: everything needed to raise a tunnel. All three or nothing — a
+	// container with the tools but no /dev/net/tun would accept VPN work and
+	// then fail to build the tunnel, which is the one outcome worth avoiding.
+	if canBuildTunnel() {
+		caps[scanproto.CapVPN] = true
+	}
 	return caps
+}
+
+// canBuildTunnel reports whether this box can bring a VPN up: the tun device,
+// the NET_ADMIN capability, and at least one of the two clients.
+func canBuildTunnel() bool {
+	if _, err := os.Stat("/dev/net/tun"); err != nil {
+		return false
+	}
+	if !hasNetAdmin() {
+		return false
+	}
+	return have("wg-quick") || have("openvpn")
+}
+
+// hasNetAdmin checks the effective capability set for CAP_NET_ADMIN (bit 12).
+func hasNetAdmin() bool {
+	b, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(line, "CapEff:") {
+			continue
+		}
+		v, err := strconv.ParseUint(strings.TrimSpace(strings.TrimPrefix(line, "CapEff:")), 16, 64)
+		if err != nil {
+			return false
+		}
+		return v&(1<<12) != 0
+	}
+	return false
 }
 
 // DetectTools reports the versions of installed scan tools for the fleet UI.

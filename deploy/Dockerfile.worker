@@ -64,7 +64,8 @@ RUN set -eux; \
 FROM alpine:3.20
 # nmap for service versions (§2), ffuf for directory brute (§5), chromium for
 # screenshots (§4), libpcap as naabu's runtime dependency for SYN scans.
-RUN apk add --no-cache ca-certificates nmap nmap-scripts ffuf chromium libpcap
+RUN apk add --no-cache ca-certificates nmap nmap-scripts ffuf chromium libpcap \
+    wireguard-tools openvpn iptables ip6tables
 
 # wordlists + resolvers used by shuffledns, gobuster dns and gobuster dir
 COPY --from=wordlists /wordlists/ /usr/share/asm/wordlists/

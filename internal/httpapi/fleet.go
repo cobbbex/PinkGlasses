@@ -27,10 +27,10 @@ func (s *Server) listWorkers(w http.ResponseWriter, r *http.Request) {
 // createEnrollmentToken mints a token and returns the command the user runs to
 // bring the worker up. Two flows share one mechanism (architecture.md §7.1):
 //
-//   local — a container beside the control plane. Multi-use bootstrap token,
-//           self-enrolls, auto-approved. Scans from your own egress address.
-//   vps   — a rented box. Single-use short-TTL token, installer script, and a
-//           human must approve it before it can lease any work.
+//	local — a container beside the control plane. Multi-use bootstrap token,
+//	        self-enrolls, auto-approved. Scans from your own egress address.
+//	vps   — a rented box. Single-use short-TTL token, installer script, and a
+//	        human must approve it before it can lease any work.
 func (s *Server) createEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Kind    string `json:"kind"` // "local" | "vps" (default)

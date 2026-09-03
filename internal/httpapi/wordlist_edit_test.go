@@ -22,9 +22,9 @@ func TestValidResolver(t *testing.T) {
 		"1.1.1.1:99999",
 		"1.1.1.1:0",
 		"1.1.1.1:http",
-		"example.com",       // hostnames are not resolvers here
-		"1.1.1.1/24",        // a prefix is not a resolver
-		"",                  // handled by the caller, but must not pass
+		"example.com", // hostnames are not resolvers here
+		"1.1.1.1/24",  // a prefix is not a resolver
+		"",            // handled by the caller, but must not pass
 	}
 	for _, v := range bad {
 		if err := validResolver(v); err == nil {

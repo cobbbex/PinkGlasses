@@ -67,12 +67,12 @@ func (s *Server) addTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Kind         string   `json:"kind"`
-		Value        string   `json:"value"`
-		Values       []string `json:"values"` // bulk import
-		Tags         []string `json:"tags"`
-		Mode         string   `json:"mode"`
-		Authorize    bool     `json:"authorize"`
+		Kind      string   `json:"kind"`
+		Value     string   `json:"value"`
+		Values    []string `json:"values"` // bulk import
+		Tags      []string `json:"tags"`
+		Mode      string   `json:"mode"`
+		Authorize bool     `json:"authorize"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")

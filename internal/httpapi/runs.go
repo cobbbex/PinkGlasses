@@ -25,6 +25,9 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		Params    map[string]string `json:"params"`     // ad-hoc overrides
 		// Lists of any kind. A kind not named here falls back to its defaults.
 		WordlistIDs []string `json:"wordlist_ids"`
+		// VPNConfigID routes this run's active stages through a tunnel, and
+		// restricts them to workers that can build one.
+		VPNConfigID string `json:"vpn_config_id"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
@@ -144,6 +147,23 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 	if err := s.st.SetRunWordlists(r.Context(), run.ID, wlIDs); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if in.VPNConfigID != "" {
+		vpnID, err := uuid.Parse(in.VPNConfigID)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "bad vpn config id")
+			return
+		}
+		vc, err := s.st.GetVPNConfig(r.Context(), vpnID)
+		if err != nil || vc.ScopeID != scopeID {
+			writeErr(w, http.StatusBadRequest, "unknown vpn config")
+			return
+		}
+		if err := s.st.SetRunVPN(r.Context(), run.ID, vpnID); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 
 	if err := s.st.SetRunParams(r.Context(), run.ID, profileID, effective); err != nil {

@@ -114,6 +114,11 @@ function LaunchModal({
   // Explicitly chosen lists. Empty is the normal case and means "whatever the
   // registry marks default", so a plain scan needs no wordlist knowledge.
   const [wordlistIDs, setWordlistIDs] = useState<string[]>([]);
+  // Which tunnel this run leaves through. Empty means the worker's own address.
+  const [vpnID, setVpnID] = useState("");
+  const { data: vpn } = useQuery({
+    queryKey: ["vpn", scopeID], queryFn: () => api.vpnConfigs(scopeID),
+  });
 
   async function start() {
     setBusy(true);
@@ -124,6 +129,7 @@ function LaunchModal({
         ...(presetID ? { profile_id: presetID } : {}),
         ...(Object.keys(params).length ? { params } : {}),
         ...(wordlistIDs.length ? { wordlist_ids: wordlistIDs } : {}),
+        ...(vpnID ? { vpn_config_id: vpnID } : {}),
       });
       toast("ok", `${profile} scan started`);
       onDone();
@@ -180,6 +186,26 @@ function LaunchModal({
           </span>
         </label>
       ))}
+
+      {(vpn?.configs.length ?? 0) > 0 && (
+        <div className="row" style={{ marginTop: 10 }}>
+          <label className="param-label" style={{ minWidth: 0 }}>Scan from</label>
+          <select value={vpnID} onChange={(e) => setVpnID(e.target.value)} style={{ minWidth: 220 }}>
+            <option value="">The worker's own address</option>
+            {vpn!.configs.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.kind}{c.endpoint ? ` · ${c.endpoint}` : ""})
+              </option>
+            ))}
+          </select>
+          {vpnID && (
+            <span className="hint muted">
+              Runs only on a worker that can build the tunnel, and only if its address
+              actually changes.
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="manual-bar">
         <button className="ghost sm" onClick={() => setManual((m) => !m)}>

@@ -56,6 +56,12 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 	}
 	auth := authIndex(scopeTargets)
 	passive := run.Profile == domain.ProfilePassive
+	// An IP or CIDR target is port scanned straight from here, without passing
+	// through scanNewAddresses, so the tunnel requirement has to be applied on
+	// this path too. It was not, and a run bound to a VPN sent its port scan
+	// from an ordinary worker's own address — the one outcome this feature
+	// exists to prevent.
+	vpnReq := p.vpnRequirement(ctx, run)
 
 	var specs []store.TaskSpec
 	for _, t := range targets {
@@ -104,7 +110,7 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 	if len(specs) == 0 {
 		return p.st.SetRunStatus(ctx, run.ID, domain.RunCompleted)
 	}
-	_, err := p.st.InsertTasks(ctx, run.ID, specs)
+	_, err := p.st.InsertTasks(ctx, run.ID, withVPN(specs, vpnReq))
 	return err
 }
 
@@ -192,6 +198,79 @@ const scanBatchSize = 64
 // Scanning incrementally starts as soon as the first names resolve, while
 // deduplicating against what is already queued keeps the property the barrier
 // existed for: a host that two sources both found is still scanned once.
+// sendsTrafficToTarget classifies every pipeline stage by whether it puts
+// packets on the wire towards the target being scanned.
+//
+// This is the single place that decides, because the requirement is applied
+// from it rather than remembered at each planning site. A new stage must be
+// added here or the test fails — which is what makes it impossible to add one
+// that quietly bypasses a tunnel.
+//
+// Discovery is deliberately false: it queries resolvers and passive sources,
+// not the target, so it neither needs the tunnel nor should be blocked when no
+// VPN-capable worker is free.
+var sendsTrafficToTarget = map[scanproto.Stage]bool{
+	scanproto.StagePassiveEnum:  false,
+	scanproto.StageDNSBrute:     false,
+	scanproto.StageDNSResolve:   false,
+	scanproto.StageIPEnrich:     false,
+	scanproto.StagePortScan:     true,
+	scanproto.StageServiceProbe: true,
+	scanproto.StageTechDetect:   true,
+	scanproto.StageScreenshot:   true,
+	scanproto.StageDirBrute:     true,
+	scanproto.StageVulnCheck:    true,
+}
+
+// withVPN adds the tunnel requirement to every spec whose stage sends traffic
+// to the target. Applied once per batch, immediately before insertion, so a
+// planning site cannot forget it.
+func withVPN(specs []store.TaskSpec, req []string) []store.TaskSpec {
+	if len(req) == 0 {
+		return specs
+	}
+	for i := range specs {
+		if !sendsTrafficToTarget[specs[i].Stage] {
+			continue
+		}
+		for _, r := range req {
+			if !containsStr(specs[i].Requires, r) {
+				specs[i].Requires = append(specs[i].Requires, r)
+			}
+		}
+	}
+	return specs
+}
+
+func containsStr(list []string, v string) bool {
+	for _, s := range list {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}
+
+// vpnRequirement returns the capability a run's traffic-sending tasks must
+// demand. A run bound to a tunnel may only be executed by a worker that can
+// build one: routing it to an ordinary worker would scan from the wrong
+// address, which is the precise thing choosing a VPN was meant to prevent.
+func (p *Planner) vpnRequirement(ctx context.Context, run domain.ScanRun) []string {
+	id, err := p.st.RunVPNConfigID(ctx, run.ID)
+	if err != nil {
+		// Saying "no tunnel" here would plan the run as though none was chosen
+		// and send its traffic out of the worker's own address. Loud, and no
+		// requirement is added, so the tasks simply do not get planned yet.
+		slog.Error("could not read the run's VPN configuration; not planning traffic tasks",
+			"run", run.ID, "err", err)
+		return []string{string(scanproto.CapVPN)}
+	}
+	if id == nil {
+		return nil
+	}
+	return []string{string(scanproto.CapVPN)}
+}
+
 func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) error {
 	// Union the addresses every finished discovery task has reported.
 	ipSet := map[string][]uuid.UUID{}
@@ -228,6 +307,7 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 	if err != nil {
 		return err
 	}
+	vpnReq := p.vpnRequirement(ctx, run)
 
 	already, err := p.st.ScannedAddresses(ctx, run.ID)
 	if err != nil {
@@ -313,7 +393,7 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 		return nil
 	}
 	slog.Info("queued port scans", "run", run.ID, "addresses", len(fresh), "tasks", len(specs))
-	_, err = p.st.InsertTasks(ctx, run.ID, specs)
+	_, err = p.st.InsertTasks(ctx, run.ID, withVPN(specs, vpnReq))
 	return err
 }
 
@@ -331,6 +411,8 @@ func (p *Planner) probeNewServices(ctx context.Context, run domain.ScanRun) erro
 	if err != nil {
 		return err
 	}
+
+	vpnReq := p.vpnRequirement(ctx, run)
 
 	var specs []store.TaskSpec
 	for _, t := range tasks {
@@ -356,7 +438,7 @@ func (p *Planner) probeNewServices(ctx context.Context, run domain.ScanRun) erro
 		return nil
 	}
 	slog.Info("queued service probes", "run", run.ID, "endpoints", len(specs))
-	_, err = p.st.InsertTasks(ctx, run.ID, specs)
+	_, err = p.st.InsertTasks(ctx, run.ID, withVPN(specs, vpnReq))
 	return err
 }
 
@@ -389,6 +471,8 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 		}
 	}
 
+	vpnReq := p.vpnRequirement(ctx, run)
+
 	var specs []store.TaskSpec
 	for _, t := range tasks {
 		sum := decode(t.Result)
@@ -414,7 +498,7 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 	if len(specs) == 0 {
 		return nil
 	}
-	_, err = p.st.InsertTasks(ctx, run.ID, specs)
+	_, err = p.st.InsertTasks(ctx, run.ID, withVPN(specs, vpnReq))
 	return err
 }
 

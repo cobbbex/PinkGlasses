@@ -37,6 +37,8 @@ services:
     build: .
     entrypoint: ["/usr/local/bin/api"]
     environment:
+      # Seals VPN configurations at rest. Without it they cannot be stored.
+      ASM_SECRET_KEY: "${ASM_SECRET_KEY:-}"
       # Lab only: lets the planner scan private addresses (tools/cookielab).
       ASM_ALLOW_PRIVATE_TARGETS: "${ASM_ALLOW_PRIVATE_TARGETS:-false}"
       ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
@@ -58,6 +60,8 @@ services:
     build: .
     entrypoint: ["/usr/local/bin/gateway"]
     environment:
+      # Seals VPN configurations at rest. Without it they cannot be stored.
+      ASM_SECRET_KEY: "${ASM_SECRET_KEY:-}"
       ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
       ASM_GATEWAY_ADDR: ":8090"
       ASM_PUBLIC_GATEWAY_URL: "http://gateway:8090"
@@ -161,6 +165,32 @@ services:
       - wordlistcache:/var/cache/asm/wordlists
       # results the gateway could not be reached for, replayed when it is back —
       # on a volume so a worker restart does not take them with it
+      - workerspool:/var/cache/asm/spool
+    depends_on: [gateway]
+
+  # A worker that can scan through a VPN. Same image as `worker`, but with the
+  # privileges a tunnel needs: NET_ADMIN to create an interface and set routes,
+  # and /dev/net/tun for the device itself.
+  #
+  # It is a separate service on purpose. NET_ADMIN lets a container rewrite its
+  # networking, so granting it to every worker would widen what a worker
+  # compromise is worth on scans that never touch a VPN. Runs bound to a tunnel
+  # demand the `vpn` capability, which only this container reports, so they can
+  # only ever be leased here.
+  #
+  #   docker compose --profile vpn up -d worker-vpn
+  worker-vpn:
+    profiles: ["vpn"]
+    build: {context: ., dockerfile: deploy/Dockerfile.worker}
+    cap_add: ["NET_RAW", "NET_ADMIN"]
+    devices: ["/dev/net/tun"]
+    environment:
+      ASM_GATEWAY_URL: "http://gateway:8090"
+      ASM_ENROLL_TOKEN: "${ASM_LOCAL_BOOTSTRAP_TOKEN:-change-me-local-bootstrap}"
+      ASM_WORKER_MAX_CONCURRENCY: "4"
+      ASM_LOG_LEVEL: "${ASM_LOG_LEVEL:-info}"
+    volumes:
+      - wordlistcache:/var/cache/asm/wordlists
       - workerspool:/var/cache/asm/spool
     depends_on: [gateway]
 

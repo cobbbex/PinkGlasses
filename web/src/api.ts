@@ -121,6 +121,12 @@ export interface HostDetail {
   host: Host; names: HostName[]; services: HostService[]; findings: Finding[];
 }
 
+export interface VPNConfig {
+  id: string; scope_id: string; name: string; kind: "wireguard" | "openvpn";
+  endpoint?: string | null; last_egress_ip?: string | null; last_checked_at?: string | null;
+  created_by: string; created_at: string;
+}
+
 export interface NotificationChannel {
   id: string; scope_id: string; name: string; kind: "webhook" | "slack";
   /** masked — the path of a Slack webhook is the secret */
@@ -184,6 +190,14 @@ export const api = {
   findings: (s: string) =>
     req<Finding[] | null>(`/scopes/${s}/findings`)
       .then((x) => (x ?? []).map((f) => ({ ...f, history: f.history ?? [] }))),
+  // Configs are write-only: the body is sealed server-side and no endpoint
+  // ever returns it.
+  vpnConfigs: (s: string) =>
+    req<{ configs: VPNConfig[] | null; secrets_ready: boolean; secrets_reason: string }>(
+      `/scopes/${s}/vpn-configs`).then((r) => ({ ...r, configs: r.configs ?? [] })),
+  createVPNConfig: (s: string, body: { name: string; config: string }) =>
+    req<VPNConfig>(`/scopes/${s}/vpn-configs`, { method: "POST", body: JSON.stringify(body) }),
+  deleteVPNConfig: (id: string) => req(`/vpn-configs/${id}`, { method: "DELETE" }),
   notifications: (s: string) =>
     req<{ channels: NotificationChannel[] | null; events: string[] | null }>(`/scopes/${s}/notifications`)
       .then((r) => ({ channels: r.channels ?? [], events: r.events ?? [] })),
