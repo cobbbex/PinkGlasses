@@ -33,6 +33,7 @@ var fields = map[string]field{
 	"product": {col: "so.product"},
 	"version": {col: "so.version"},
 	"tech":    {special: "tech"},
+	"cookie":  {special: "cookie"},
 	"status":  {special: "http_status", numeric: true},
 	"title":   {special: "http_title"},
 	"cert.expires": {special: "cert_expires", numeric: true},
@@ -254,6 +255,18 @@ func compileField(c *compiler, f field, op, val string) string {
 	switch f.special {
 	case "tech":
 		return "EXISTS (SELECT 1 FROM technology t WHERE t.service_id=sv.id AND t.name ILIKE " + c.bind("%"+val+"%") + ")"
+	case "cookie":
+		// Cookie names fingerprint a product where the banner does not:
+		// cookie:webvpn* finds Cisco ASA WebVPN across the whole inventory.
+		// Wildcards behave as everywhere else; without one the match is exact
+		// but case-insensitive, since a name is a short token.
+		pat := val
+		if strings.ContainsAny(val, "*") {
+			pat = strings.ReplaceAll(val, "*", "%")
+		}
+		return "EXISTS (SELECT 1 FROM jsonb_array_elements_text(" +
+			"CASE WHEN jsonb_typeof(so.http->'cookies') = 'array' THEN so.http->'cookies' ELSE '[]'::jsonb END" +
+			") AS ck WHERE ck ILIKE " + c.bind(pat) + ")"
 	case "http_status":
 		return "(so.http->>'status')::int " + sqlOp + " " + c.bind(mustInt(val))
 	case "http_title":

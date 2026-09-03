@@ -113,6 +113,13 @@ The exact flags, every tunable and what the defaults cost in noise are in the
 | Tool | Role | Source |
 |---|---|---|
 | **httpx** | Probes every open port for HTTP/HTTPS, then per live endpoint returns: status, title, response headers, **`-tech-detect`** (Wappalyzer engine → product **and version** where exposed), TLS/cert summary, favicon hash, redirect chain, CDN/WAF via **cdncheck**. This single tool produces most of the Shodan-style service detail. | PD |
+
+**Cookie names are recorded alongside the headers**, and only the names. A product often
+sets a cookie whose name is unique to it — `webvpn`, `webvpnlogin` and `webvpnLang` for
+Cisco ASA WebVPN, `BIGipServer<pool>` for an F5, `NSC_*` for Citrix — so the name
+identifies the appliance where the banner and title give nothing away. They are searchable
+across the whole inventory with `cookie:webvpn*`. A cookie's **value** is a session token
+and is never stored.
 | **nuclei** | Runs the **technology-detection and version-fingerprint template set** for products httpx can't version from headers alone (specific CMS versions, framework fingerprints). Pin the template revision. | PD |
 
 **Order:** httpx first (it decides which host:port pairs are actually web services), then

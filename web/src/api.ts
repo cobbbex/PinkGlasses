@@ -96,7 +96,9 @@ export interface HostService extends Service {
   has_screenshot?: boolean;
   banner?: string | null; product?: string | null; version?: string | null;
   http?: { title?: string; status?: number; favicon?: string;
-           headers?: Record<string, string> } | null;
+           headers?: Record<string, string>;
+           /** Cookie names only — never values. A fingerprint, not a session. */
+           cookies?: string[] } | null;
   tls?: Record<string, any> | null;
   observed_at?: string | null;
   technologies: HostTech[];

@@ -185,6 +185,22 @@ function ServiceCard({ sv }: { sv: HostService }) {
         </div>
       )}
 
+      {(http?.cookies?.length ?? 0) > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div className="muted" style={{ fontSize: 12 }}>
+            Cookies set{" "}
+            <span style={{ fontSize: 11 }}>
+              (names only — search for one with <code>cookie:</code>)
+            </span>
+          </div>
+          <div className="row" style={{ marginTop: 4, gap: 6 }}>
+            {http!.cookies!.map((c) => (
+              <span key={c} className="pill mono" title={`cookie:${c}`}>{c}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {sv.technologies.length > 0 && (
         <div className="row" style={{ marginTop: 8, gap: 6 }}>
           {sv.technologies.map((t) => (

@@ -958,8 +958,14 @@ A Shodan-like query bar, implemented as a **parser to SQL**, not a second datast
 port:443 product:nginx country:DE
 domain:*.corp.example.com AND port:22
 tech:"WordPress" AND cert.expires<30d
+cookie:webvpn* AND port:443
 new:7d AND severity>=high
 ```
+
+`cookie:` searches the **names** of cookies a service set. Names are a strong
+fingerprint for appliances whose banners say little: `webvpn*` is Cisco ASA WebVPN,
+`BIGipServer*` an F5 pool, `NSC_*` a Citrix gateway. Only names are stored — a cookie's
+value is a session token, worthless as a fingerprint and not something to keep.
 
 Hand-written lexer + Pratt parser in `internal/search` → typed AST → parameterized SQL over
 the current-state tables. Only whitelisted fields map; never build SQL from raw strings.

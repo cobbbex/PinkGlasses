@@ -287,6 +287,11 @@ type Observation struct {
 	TechCPE        string `json:"tech_cpe,omitempty"`
 	TechConfidence int    `json:"tech_confidence,omitempty"`
 
+	// Cookie NAMES set by the service, never their values: a name like
+	// "webvpn" or "BIGipServer..." identifies the product behind the port,
+	// while the value is a session token that must not be stored.
+	Cookies []string `json:"cookies,omitempty"`
+
 	// screenshot / path
 	ScreenshotKey string `json:"screenshot_key,omitempty"`
 	Path          string `json:"path,omitempty"`

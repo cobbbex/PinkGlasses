@@ -6,6 +6,9 @@ const EXAMPLES = [
   'port:443 product:nginx',
   'port:22 country:DE',
   'tech:"WordPress"',
+  // Cookie names fingerprint appliances their banners keep quiet about:
+  // webvpn* is Cisco ASA WebVPN, BIGipServer* an F5 pool, NSC_* Citrix.
+  'cookie:webvpn*',
   'cert.expires<30d',
   'new:7d',
 ];

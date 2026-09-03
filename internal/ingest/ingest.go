@@ -144,6 +144,11 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 			so.Product = o.Product
 			so.Version = o.Version
 			so.HTTP = map[string]any{"status": o.Status, "title": o.Title, "headers": o.Headers, "favicon": o.Favicon}
+			// Only set when there is something, so a later observation without
+			// cookies does not overwrite the names an earlier one recorded.
+			if len(o.Cookies) > 0 {
+				so.HTTP["cookies"] = o.Cookies
+			}
 			if err := in.st.UpsertServiceObservation(ctx, svcID, runID, workerID, so); err != nil {
 				return sum, err
 			}

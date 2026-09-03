@@ -35,7 +35,7 @@ subdomains ─┬─────────────────┐
 | DNS bruteforce | shuffledns + massdns | skipped |
 | Resolution & enrichment | dnsx, Team Cymru | stdlib resolver |
 | Ports & services | **nmap -sV** alone at top-100; naabu → nmap when wider | Go connect scan |
-| Tech & versions | httpx `-tech-detect`, nuclei | header/body fingerprint |
+| Tech & versions | httpx `-tech-detect`, nuclei, cookie names | header/body fingerprint |
 | Screenshots | httpx `-screenshot` | needs the `browser` capability |
 | Directory brute | katana, urlfinder → gobuster/ffuf | built-in common-path probe |
 

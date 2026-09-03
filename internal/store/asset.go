@@ -135,6 +135,19 @@ func (s *Store) UpsertServiceObservation(ctx context.Context, serviceID, runID u
 		              || jsonb_build_object('headers',
 		                   COALESCE(service_observation.http->'headers','{}'::jsonb)
 		                   || COALESCE(EXCLUDED.http->'headers','{}'::jsonb))
+		              -- Cookie names are unioned, not replaced: the probe and the
+		              -- tech-detect pass may each see a different set, and a
+		              -- fingerprint missing because the other stage wrote last
+		              -- would be invisible.
+		              || CASE
+		                   WHEN COALESCE(service_observation.http->'cookies', EXCLUDED.http->'cookies') IS NULL
+		                     THEN '{}'::jsonb
+		                   ELSE jsonb_build_object('cookies', (
+		                     SELECT COALESCE(jsonb_agg(DISTINCT c ORDER BY c), '[]'::jsonb)
+		                     FROM jsonb_array_elements_text(
+		                       COALESCE(service_observation.http->'cookies','[]'::jsonb)
+		                       || COALESCE(EXCLUDED.http->'cookies','[]'::jsonb)) AS c))
+		                 END
 		       END,
 		  tls=COALESCE(NULLIF(EXCLUDED.tls,'null'::jsonb), service_observation.tls),
 		  screenshot_key=COALESCE(NULLIF(EXCLUDED.screenshot_key,''), service_observation.screenshot_key),

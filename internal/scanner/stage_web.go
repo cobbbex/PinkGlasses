@@ -70,6 +70,7 @@ func (s *Scanner) serviceProbe(ctx context.Context, job scanproto.Job) ([]scanpr
 			Type: scanproto.ObsHTTP, IP: ip, Port: port,
 			Status: resp.StatusCode, Title: extractTitle(body), Headers: headers,
 			Favicon: "", Product: resp.Header.Get("Server"),
+			Cookies: cookieNamesFromResponse(resp),
 		})
 		// TLS certificate capture on https.
 		if scheme == "https" && resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
@@ -124,6 +125,9 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 			"-timeout", pr.intStr("httpx_timeout_s", "10"),
 			"-threads", pr.intStr("httpx_threads", "50"),
 			"-retries", pr.intStr("httpx_retries", "1"),
+			// The response headers are what carry Set-Cookie; without this httpx
+			// reports only the fields it has parsed itself.
+			"-irh",
 			// httpx randomises the User-Agent by default, which would override
 			// the one configured for this scan.
 			"-random-agent=false",
@@ -156,6 +160,7 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 					"Location":       str(r, "location"),
 				}),
 				Favicon: str(r, "favicon"),
+				Cookies: cookieNamesFromHeader(headerField(r, "set_cookie")),
 				// Parsed, not the raw header: product must hold a product name.
 				// Storing "Apache/2.4.7 (Ubuntu)" here left the version beside
 				// it duplicated in the UI, and made the field useless to search.
@@ -204,6 +209,10 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 		name, version := splitProductVersion(x)
 		obs = append(obs, scanproto.Observation{Type: scanproto.ObsTech, IP: ip, Port: port,
 			TechName: name, TechVersion: version, TechConfidence: 60})
+	}
+	if names := cookieNamesFromResponse(resp); len(names) > 0 {
+		obs = append(obs, scanproto.Observation{Type: scanproto.ObsHTTP, IP: ip, Port: port,
+			Status: resp.StatusCode, Cookies: names})
 	}
 	return obs, nil
 }
