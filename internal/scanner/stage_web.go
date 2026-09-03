@@ -64,6 +64,12 @@ func (s *Scanner) serviceProbe(ctx context.Context, job scanproto.Job) ([]scanpr
 
 		headers := map[string]string{}
 		for k := range resp.Header {
+			// Set-Cookie carries session tokens. The names are the fingerprint
+			// and are recorded separately; the values must not be stored, so
+			// the header is dropped rather than kept verbatim.
+			if http.CanonicalHeaderKey(k) == "Set-Cookie" {
+				continue
+			}
 			headers[k] = resp.Header.Get(k)
 		}
 		obs = append(obs, scanproto.Observation{

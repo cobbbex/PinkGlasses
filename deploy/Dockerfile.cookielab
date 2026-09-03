@@ -1,0 +1,12 @@
+# A test target that sets appliance-style cookies, for exercising cookie
+# fingerprinting and the `cookie:` search without scanning a third party.
+FROM golang:1.23-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY tools/cookielab ./tools/cookielab
+RUN CGO_ENABLED=0 go build -o /cookielab ./tools/cookielab
+
+FROM alpine:3.20
+COPY --from=build /cookielab /usr/local/bin/cookielab
+EXPOSE 80
+ENTRYPOINT ["/usr/local/bin/cookielab"]

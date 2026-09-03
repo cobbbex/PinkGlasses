@@ -388,7 +388,15 @@ This tool sends packets to real infrastructure. Read `architecture.md` §10 firs
 - A target is **passive-only** unless it carries an explicit **active** authorization record.
 - CDN / shared-hosting IPs are excluded from port scanning by default.
 - RFC1918 / loopback targets are always rejected — this tool scans the external
-  perimeter only, which is also what closes the scanner-as-SSRF hole.
+  perimeter only, which is also what closes the scanner-as-SSRF hole. The check runs
+  twice: once on the target itself, and once on every address discovery resolves, since
+  a name under an authorized target can still point at 127.0.0.1 or a cloud metadata
+  address. `ASM_ALLOW_PRIVATE_TARGETS=true` lifts it for a local test target such as
+  `tools/cookielab`, and must not be set on anything reachable by anyone else.
+- **Cookie names are recorded; cookie values are not.** A name like `webvpn` or
+  `BIGipServer...` identifies the appliance behind a port and is searchable with
+  `cookie:webvpn*`; the value is a session token, so `Set-Cookie` is dropped from the
+  stored headers rather than kept.
 - Enrolled workers are **semi-trusted**: they only ever see their current job's targets, and
   the gateway rejects (and quarantines a worker for) any observation outside that set.
 - Your VPS provider may suspend accounts over unsolicited scanning — set per-worker rate caps

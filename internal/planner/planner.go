@@ -78,7 +78,7 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 			// This is an EXTERNAL attack-surface monitor: internal ranges are
 			// out of scope for every worker, local ones included. Skipping them
 			// here also closes the scanner-as-SSRF hole (architecture.md §10.1).
-			if isPrivateTarget(t.Value) {
+			if isPrivateTarget(t.Value) && !scopeguard.AllowPrivate {
 				reason := "internal_range_out_of_scope"
 				_ = p.st.SetRunTargetStatus(ctx, t.ID, domain.TargetSkipped, &reason)
 				continue
@@ -233,8 +233,26 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 	if err != nil {
 		return err
 	}
+
+	// Authorization says whose infrastructure this is; the scope guard says
+	// whether the address may be scanned at all. Both are needed: a name under
+	// an authorized target can still resolve into a private range, and scanning
+	// that would make this tool an SSRF primitive against its own host — the
+	// exact hole architecture.md §10.1 claims to close. The guard existed and
+	// was never consulted here.
+	scopeTargets, err := p.st.ListTargets(ctx, run.ScopeID, "")
+	if err != nil {
+		return err
+	}
+	guard := scopeguard.New(scopeTargets)
+	shared, err := p.st.SharedAddresses(ctx, run.ScopeID)
+	if err != nil {
+		return err
+	}
+
 	fresh := make([]string, 0, len(ipSet))
 	skipped := 0
+	refused := map[string]int{}
 	for ip, origins := range ipSet {
 		if already[ip] {
 			continue
@@ -250,11 +268,19 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 			skipped++
 			continue
 		}
+		if d := guard.CheckIP(ip, shared[ip]); !d.Allowed {
+			refused[d.Reason]++
+			continue
+		}
 		fresh = append(fresh, ip)
 	}
 	if skipped > 0 {
 		slog.Info("not port scanning addresses from unauthorized targets",
 			"run", run.ID, "addresses", skipped)
+	}
+	for reason, n := range refused {
+		slog.Info("addresses refused by the scope guard",
+			"run", run.ID, "reason", reason, "addresses", n)
 	}
 	if len(fresh) == 0 {
 		return nil

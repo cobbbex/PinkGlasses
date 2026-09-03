@@ -37,6 +37,8 @@ services:
     build: .
     entrypoint: ["/usr/local/bin/api"]
     environment:
+      # Lab only: lets the planner scan private addresses (tools/cookielab).
+      ASM_ALLOW_PRIVATE_TARGETS: "${ASM_ALLOW_PRIVATE_TARGETS:-false}"
       ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
       ASM_API_ADDR: ":8080"
       # wordlist and resolver uploads are streamed into object storage
@@ -71,6 +73,9 @@ services:
     build: .
     entrypoint: ["/usr/local/bin/scheduler"]
     environment:
+      # Lab only: lets the planner scan private addresses, which is how the
+      # cookielab target above is reachable. Off unless you set it.
+      ASM_ALLOW_PRIVATE_TARGETS: "${ASM_ALLOW_PRIVATE_TARGETS:-false}"
       ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
       # the seeder uploads the built-in wordlists into object storage
       ASM_S3_ENDPOINT: "http://minio:9000"
@@ -155,6 +160,18 @@ services:
       # list is not re-fetched every time the container is recreated
       - wordlistcache:/var/cache/asm/wordlists
     depends_on: [gateway]
+
+  # A local target that sets appliance-style cookies, for testing the cookie
+  # fingerprinting and `cookie:` search. Behind a profile so it never runs in a
+  # normal deployment:
+  #   docker compose --profile lab up -d cookielab
+  # Scanning it also needs ASM_ALLOW_PRIVATE_TARGETS=true on the scheduler,
+  # since it lives on a private address.
+  cookielab:
+    profiles: ["lab"]
+    build: {context: ., dockerfile: deploy/Dockerfile.cookielab}
+    environment:
+      PORT: "80"
 
 # Volume names are pinned to what they were before the project was renamed.
 # Compose derives volume names from the project, so without this the rename

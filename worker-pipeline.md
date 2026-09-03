@@ -119,7 +119,16 @@ sets a cookie whose name is unique to it — `webvpn`, `webvpnlogin` and `webvpn
 Cisco ASA WebVPN, `BIGipServer<pool>` for an F5, `NSC_*` for Citrix — so the name
 identifies the appliance where the banner and title give nothing away. They are searchable
 across the whole inventory with `cookie:webvpn*`. A cookie's **value** is a session token
-and is never stored.
+and is never stored — `Set-Cookie` is dropped from the recorded headers, not kept verbatim.
+
+`tools/cookielab` is a one-page target that sets these cookies, so the capture and the
+search can be exercised without pointing the scanner at somebody else's appliance:
+
+```bash
+docker compose --profile lab up -d cookielab
+ASM_ALLOW_PRIVATE_TARGETS=true docker compose up -d api scheduler
+# add its container IP as an authorized ip target, scan, then: cookie:webvpn*
+```
 | **nuclei** | Runs the **technology-detection and version-fingerprint template set** for products httpx can't version from headers alone (specific CMS versions, framework fingerprints). Pin the template revision. | PD |
 
 **Order:** httpx first (it decides which host:port pairs are actually web services), then

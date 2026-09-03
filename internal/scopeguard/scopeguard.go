@@ -5,6 +5,7 @@ package scopeguard
 import (
 	"net"
 	"net/netip"
+	"os"
 
 	"github.com/benlik386/pinkglasses/internal/domain"
 )
@@ -54,6 +55,16 @@ func New(targets []domain.ScopeTarget) *Guard {
 	return g
 }
 
+// AllowPrivate opens the private ranges to active scanning.
+//
+// Off unless ASM_ALLOW_PRIVATE_TARGETS is set, and it exists for one reason:
+// scanning a target you are running locally, such as the cookie lab in
+// tools/cookielab. Turning it on removes the check that stops a name resolving
+// to 127.0.0.1 or 169.254.169.254 from turning this scanner into an SSRF
+// primitive against its own host, so it has no business being set on anything
+// reachable by someone else.
+var AllowPrivate = os.Getenv("ASM_ALLOW_PRIVATE_TARGETS") == "true"
+
 // CheckIP decides whether an IP may be actively scanned. `shared` marks
 // CDN/shared-hosting addresses discovered during enrichment.
 func (g *Guard) CheckIP(ip string, shared bool) Decision {
@@ -61,9 +72,11 @@ func (g *Guard) CheckIP(ip string, shared bool) Decision {
 	if err != nil {
 		return Decision{false, "invalid"}
 	}
-	for _, p := range privateBlocks {
-		if p.Contains(addr) {
-			return Decision{false, "private"}
+	if !AllowPrivate {
+		for _, p := range privateBlocks {
+			if p.Contains(addr) {
+				return Decision{false, "private"}
+			}
 		}
 	}
 	// exclusions win, applied last

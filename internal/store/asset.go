@@ -554,3 +554,24 @@ func (s *Store) HostDetail(ctx context.Context, ipID uuid.UUID) (HostDetailResul
 	}
 	return res, findRows.Err()
 }
+
+// SharedAddresses returns the addresses in a scope marked as shared
+// infrastructure — CDN or common hosting — keyed by address. The scope guard
+// refuses to port scan these: what is behind them is somebody else's box.
+func (s *Store) SharedAddresses(ctx context.Context, scopeID uuid.UUID) (map[string]bool, error) {
+	rows, err := s.Pool.Query(ctx,
+		`SELECT host(addr) FROM ip_address WHERE scope_id=$1 AND is_shared`, scopeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			return nil, err
+		}
+		out[ip] = true
+	}
+	return out, rows.Err()
+}

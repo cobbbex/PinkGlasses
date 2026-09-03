@@ -97,3 +97,40 @@ func TestHeaderField(t *testing.T) {
 		t.Errorf("missing header should be empty, got %q", got)
 	}
 }
+
+// The header map must never carry Set-Cookie: its value is a session token.
+// The names are recorded separately, which is the whole point — a fingerprint
+// without a credential.
+func TestSetCookieIsNotStoredInHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Set-Cookie", "webvpn=super-secret-session; Path=/")
+		w.Header().Set("Server", "CookieLab/1.0")
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	headers := map[string]string{}
+	for k := range resp.Header {
+		if http.CanonicalHeaderKey(k) == "Set-Cookie" {
+			continue
+		}
+		headers[k] = resp.Header.Get(k)
+	}
+	for k, v := range headers {
+		if strings.Contains(strings.ToLower(k), "cookie") || strings.Contains(v, "super-secret-session") {
+			t.Errorf("a cookie value survived in the headers: %s=%s", k, v)
+		}
+	}
+	if headers["Server"] != "CookieLab/1.0" {
+		t.Errorf("other headers must still be kept, got %v", headers)
+	}
+	if names := cookieNamesFromResponse(resp); len(names) != 1 || names[0] != "webvpn" {
+		t.Errorf("the name should still be recorded, got %v", names)
+	}
+}
