@@ -264,6 +264,12 @@ h2 { margin: 0 0 16px; } h3 { margin: 0; font-size: 15px; }
   gap: 14px; padding: 8px 12px; border-bottom: 1px solid var(--border);
 }
 .param-row:last-child { border-bottom: none; }
+/* Mine / All companies, above the company list */
+.combo-scope-filter {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-bottom: 1px solid var(--border, #2b2735);
+}
+.combo-scope-filter button { padding: 2px 9px; font-size: 12px; }
 /* A tool switched off: its own row stays legible, the knobs below it read as
    inert rather than disappearing, so it is obvious why they stopped mattering. */
 .param-row.tool-off { opacity: .95; }

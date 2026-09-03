@@ -2,7 +2,11 @@
 // (banners, HTTP titles, TLS subjects) are rendered as text by React by
 // default — never with dangerouslySetInnerHTML (architecture.md §10.2).
 
-export interface Scope { id: string; name: string; created_at: string }
+export interface Scope {
+  id: string; name: string; created_at: string;
+  /** Who created it. Free text until real accounts exist; "local" by default. */
+  created_by?: string;
+}
 export interface Summary { domains: number; ips: number; services: number; open_findings: number }
 export interface Target {
   id: string; scope_id: string; kind: string; value: string; tags: string[];
@@ -124,7 +128,10 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  scopes: () => req<Scope[] | null>("/scopes").then((x) => x ?? []),
+  // mine=true narrows the list to companies this caller created. It is a view,
+  // not a permission: without verified identity anyone can ask for all of them.
+  scopes: (mine = false) =>
+    req<Scope[] | null>("/scopes" + (mine ? "?mine=true" : "")).then((x) => x ?? []),
   createScope: (name: string) => req<Scope>("/scopes", { method: "POST", body: JSON.stringify({ name }) }),
   summary: (s: string) => req<Summary>(`/scopes/${s}/summary`),
   targets: (s: string) => req<Target[] | null>(`/scopes/${s}/targets`).then((x) => x ?? []),

@@ -7,13 +7,18 @@ import { Scope } from "../api";
  * search box makes the list navigable by typing.
  */
 export default function ScopePicker({
-  scopes, value, onChange, onNew, collapsed = false,
+  scopes, value, onChange, onNew, collapsed = false, mine, onMineChange, hiddenCount = 0,
 }: {
   scopes: Scope[];
   value: string;
   onChange: (id: string) => void;
   onNew: () => void;
   collapsed?: boolean;
+  /** Showing only the companies this user created. */
+  mine: boolean;
+  onMineChange: (mine: boolean) => void;
+  /** How many companies the "mine" filter is holding back. */
+  hiddenCount?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -108,6 +113,24 @@ export default function ScopePicker({
             onChange={(e) => setQ(e.target.value)}
           />
 
+          <div className="combo-scope-filter">
+            <button
+              type="button"
+              className={mine ? "" : "ghost"}
+              onClick={() => onMineChange(true)}
+            >Mine</button>
+            <button
+              type="button"
+              className={mine ? "ghost" : ""}
+              onClick={() => onMineChange(false)}
+            >All companies</button>
+            {mine && hiddenCount > 0 && (
+              <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}>
+                {hiddenCount} hidden
+              </span>
+            )}
+          </div>
+
           <div className="combo-list">
             {matches.map((s, i) => (
               <button
@@ -126,7 +149,11 @@ export default function ScopePicker({
 
             {matches.length === 0 && (
               <div className="combo-none">
-                No company matches “{q}”.
+                {q
+                  ? <>No company matches “{q}”.</>
+                  : mine
+                    ? <>You have not created any companies yet.{hiddenCount > 0 && <> Switch to <strong>All companies</strong> to see the {hiddenCount} created by someone else.</>}</>
+                    : <>No companies yet.</>}
               </div>
             )}
           </div>

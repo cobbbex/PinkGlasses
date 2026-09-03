@@ -9,17 +9,27 @@ import (
 )
 
 // CreateScope inserts a scope.
-func (s *Store) CreateScope(ctx context.Context, name string) (domain.Scope, error) {
+func (s *Store) CreateScope(ctx context.Context, name, createdBy string) (domain.Scope, error) {
+	if createdBy == "" {
+		createdBy = "local"
+	}
 	var sc domain.Scope
 	err := s.Pool.QueryRow(ctx,
-		`INSERT INTO scope (name) VALUES ($1) RETURNING id, name, created_at`, name,
-	).Scan(&sc.ID, &sc.Name, &sc.CreatedAt)
+		`INSERT INTO scope (name, created_by) VALUES ($1,$2)
+		 RETURNING id, name, created_by, created_at`, name, createdBy,
+	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt)
 	return sc, err
 }
 
-// ListScopes returns all scopes.
-func (s *Store) ListScopes(ctx context.Context) ([]domain.Scope, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT id, name, created_at FROM scope ORDER BY created_at`)
+// ListScopes returns scopes, optionally only those created by one actor.
+//
+// An empty owner means every company. The filter is on a free-text actor rather
+// than a user id because there is no users table yet (Phase 17); the shape is
+// what matters, so the UI does not change when identity becomes verified.
+func (s *Store) ListScopes(ctx context.Context, owner string) ([]domain.Scope, error) {
+	rows, err := s.Pool.Query(ctx,
+		`SELECT id, name, created_by, created_at FROM scope
+		 WHERE ($1 = '' OR created_by = $1) ORDER BY created_at`, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +37,7 @@ func (s *Store) ListScopes(ctx context.Context) ([]domain.Scope, error) {
 	var out []domain.Scope
 	for rows.Next() {
 		var sc domain.Scope
-		if err := rows.Scan(&sc.ID, &sc.Name, &sc.CreatedAt); err != nil {
+		if err := rows.Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, sc)

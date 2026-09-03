@@ -23,11 +23,18 @@ const NAV = [
 ];
 
 const COLLAPSE_KEY = "asm.sidebar.collapsed";
+const MINE_KEY = "asm.scopes.mine";
 
 export default function App() {
   const toast = useToast();
   const [scopes, setScopes] = useState<Scope[]>([]);
+  const [allScopes, setAllScopes] = useState<Scope[]>([]);
   const [scopeID, setScopeID] = useState("");
+  // Whether the company list is narrowed to the ones this user created. A view
+  // preference, so it lives in the browser rather than on the server.
+  const [mine, setMine] = useState(() => {
+    try { return localStorage.getItem(MINE_KEY) === "1"; } catch { return false; }
+  });
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [collapsed, setCollapsed] = useState(() => {
@@ -43,15 +50,29 @@ export default function App() {
   }
 
   useEffect(() => {
-    api.scopes()
-      .then((s) => { setScopes(s); if (s.length) setScopeID((cur) => cur || s[0].id); })
+    // Both lists: the filtered one drives the picker, the full one tells the
+    // user how many companies the filter is holding back.
+    Promise.all([api.scopes(mine), mine ? api.scopes(false) : Promise.resolve(null)])
+      .then(([list, all]) => {
+        setScopes(list);
+        setAllScopes(all ?? list);
+        // Keep a selection that is still visible; otherwise fall back to the
+        // first, so filtering never leaves the app pointed at nothing.
+        setScopeID((cur) => (cur && list.some((s) => s.id === cur) ? cur : (list[0]?.id ?? "")));
+      })
       .catch(() => toast("err", "Could not load scopes — is the API running?"));
-  }, []);
+  }, [mine]);
+
+  function changeMine(next: boolean) {
+    setMine(next);
+    try { localStorage.setItem(MINE_KEY, next ? "1" : "0"); } catch { /* private mode */ }
+  }
 
   async function create() {
     try {
       const sc = await api.createScope(name);
       setScopes((p) => [...p, sc]);
+      setAllScopes((p) => [...p, sc]);
       setScopeID(sc.id);
       setOpen(false);
       setName("");
@@ -87,6 +108,9 @@ export default function App() {
           onChange={setScopeID}
           onNew={() => setOpen(true)}
           collapsed={collapsed}
+          mine={mine}
+          onMineChange={changeMine}
+          hiddenCount={Math.max(0, allScopes.length - scopes.length)}
         />
 
         <nav className="nav">

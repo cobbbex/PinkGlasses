@@ -241,6 +241,11 @@ shared, and it needs no company selected to open.
 Services with a screenshot offer a **Screenshot** button — on the host page per service,
 and in the Hosts list per row — which opens the captured page image.
 
+**Mine / All companies.** The company picker can narrow the list to the companies
+you created. "You" is whatever `X-Forwarded-User` says, or `local` — so this tidies
+a shared list, it does not protect anything. Real accounts are Phase 17; until then
+anyone who can reach the API can list every company by not asking for the filter.
+
 ## Wordlists and resolvers
 
 **Wordlists** in the UI manages every list a scan needs: the subdomain wordlists

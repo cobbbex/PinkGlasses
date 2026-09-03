@@ -91,8 +91,11 @@ const (
 
 // Scope is an authorization boundary and the root of an asset graph.
 type Scope struct {
-	ID        uuid.UUID `json:"id"`
-	Name      string    `json:"name"`
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+	// CreatedBy is the actor that created the company. Free text until Phase 17
+	// replaces it with a real user; today it is X-Forwarded-User or "local".
+	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

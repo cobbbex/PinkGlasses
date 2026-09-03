@@ -18,7 +18,7 @@ func (s *Server) createScope(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name required")
 		return
 	}
-	sc, err := s.st.CreateScope(r.Context(), in.Name)
+	sc, err := s.st.CreateScope(r.Context(), in.Name, actor(r))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -27,8 +27,18 @@ func (s *Server) createScope(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, sc)
 }
 
+// listScopes returns every company, or only the caller's own with ?mine=true.
+//
+// "Own" means created by the same actor, which today is whatever
+// X-Forwarded-User says or "local" — so this narrows a shared list, it does not
+// protect anything. Until Phase 17 verifies identity, a caller can see any
+// company by simply not asking for the filter.
 func (s *Server) listScopes(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListScopes(r.Context())
+	owner := ""
+	if r.URL.Query().Get("mine") == "true" {
+		owner = actor(r)
+	}
+	list, err := s.st.ListScopes(r.Context(), owner)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

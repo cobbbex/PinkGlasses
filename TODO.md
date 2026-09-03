@@ -294,7 +294,34 @@ presets, with the `Tools.md` values as the shipped defaults.
       own address from whichever stage happened to fall back. Verified end to end through
       socks5 184.178.172.17:4145: the whole web half of the pipeline ran through it and
       still found 12 paths.
+- [x] 16.11 Show only the companies I created, or all of them: a Mine / All toggle in the
+      company picker, remembered per browser, with a count of what the filter is holding
+      back. Scopes carry `created_by`, backfilled for existing rows from the audit log
+      rather than defaulted. It is a view, not a permission — the owner is whoever the
+      request claims to be — and it only becomes meaningful once 17.0 verifies that.
 - [x] 16.10 Scan-type descriptions in the launch window rewritten against what the profiles
       actually do. The old text claimed Standard scanned the top 1000 ports (it is 100) and
       implied Deep added DNS and directory brute forcing (both already run on Standard —
       Deep only widens the port scan and switches nmap to `-A`).
+
+## Phase 17 — Authorization
+
+There is no authentication in this build. `actor()` reads `X-Forwarded-User` and otherwise
+calls everyone `local`, on the assumption stated in `architecture.md` §10.2: the app sits
+behind an identity-aware proxy and is never exposed directly. Everything below exists
+because that assumption is doing a lot of work, and anything that depends on *who* is
+asking — ownership, per-user views, audit that means something — is only as good as it.
+
+- [ ] 17.0 **Authentication.** Sessions with a real login, or trusted-header auth with the
+      proxy's identity verified rather than believed. `X-Forwarded-User` is a request header:
+      anything that can reach the API can claim to be anyone, which is why the API must not
+      be reachable without the proxy in front.
+- [ ] 17.1 **Users and ownership.** A users table, and scope ownership pointing at it rather
+      than at a free-text actor string. Backfill from `scope.created_by`.
+- [ ] 17.2 **Authorization proper.** Who may read a scope, start a run against it, enrol a
+      worker, or export data. A scan is an action with consequences for someone else's
+      infrastructure, so "who started this run" needs to be a fact, not a header.
+- [ ] 17.3 **Audit that identifies a person.** The audit log already records an actor; it
+      should record a user id, and the fleet and run views should show it.
+- [ ] 17.4 **API tokens** for automation, scoped and revocable, so scripting the API does not
+      mean sharing a human's session.
