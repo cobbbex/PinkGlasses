@@ -361,6 +361,18 @@ func (a *Agent) postResult(ctx context.Context, job scanproto.Job, res scanproto
 	if url == "" {
 		url = a.cfg.GatewayURL + "/agent/v1/results"
 	}
+	// A task's batches must land in order, and the last one closes the task. If
+	// an earlier batch of this task is still spooled, this one joins it rather
+	// than overtaking it — otherwise the final batch completes the task while
+	// its observations are still on disk, and they can never be replayed.
+	if a.spool.hasPending(res.TaskID) {
+		if err := a.spool.put(url, res); err == nil {
+			slog.Warn("earlier batch of this task is still spooled; queued behind it",
+				"stage", job.Stage, "task", res.TaskID, "seq", res.Seq,
+				"observations", len(res.Observations))
+			return
+		}
+	}
 	switch o, why := a.post(ctx, url, res); o {
 	case delivered:
 	case refused:

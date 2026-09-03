@@ -82,6 +82,26 @@ func (s *spool) put(url string, res scanproto.Result) error {
 	return os.Rename(tmp, filepath.Join(s.dir, name))
 }
 
+// hasPending reports whether any batch of this task is already spooled.
+//
+// Order within a task is not optional: the final batch closes the task and
+// releases its lease, so sending it while earlier batches are still spooled
+// makes those batches unreplayable — the gateway refuses results for a task
+// that is no longer leased, and the observations are lost with no re-run to
+// recover them, because the task completed successfully.
+func (s *spool) hasPending(taskID string) bool {
+	if !s.enabled() || taskID == "" {
+		return false
+	}
+	needle := "-" + taskID + "-"
+	for _, n := range s.pending() {
+		if strings.Contains(n, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // pending lists spooled batches oldest first.
 func (s *spool) pending() []string {
 	if !s.enabled() {

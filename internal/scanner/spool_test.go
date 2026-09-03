@@ -78,3 +78,32 @@ func TestSpoolDisabledWithoutDir(t *testing.T) {
 		t.Error("put on a disabled spool should fail loudly")
 	}
 }
+
+// A task's batches must not overtake each other. The final batch closes the
+// task, so if it is sent while earlier batches are spooled those batches become
+// unreplayable — the gateway refuses results for a completed task, and the
+// observations are lost with no re-run to recover them.
+func TestSpoolHasPendingKeepsTaskBatchesTogether(t *testing.T) {
+	s := newSpool(t.TempDir())
+	if s.hasPending("task-a") {
+		t.Error("empty spool should have nothing pending")
+	}
+	if err := s.put("u", res("task-a", 0)); err != nil {
+		t.Fatal(err)
+	}
+	if !s.hasPending("task-a") {
+		t.Error("a spooled batch should mark its task pending")
+	}
+	if s.hasPending("task-b") {
+		t.Error("another task must not be considered pending")
+	}
+	if s.hasPending("") {
+		t.Error("an empty task id should never report pending")
+	}
+	s.replay(context.Background(), func(context.Context, string, scanproto.Result) (outcome, string) {
+		return delivered, ""
+	})
+	if s.hasPending("task-a") {
+		t.Error("after delivery the task should no longer be pending")
+	}
+}

@@ -365,8 +365,9 @@ what had happened rather than reading what the code intended.
       survives a worker restart. Its one limit is the lease TTL: a gateway gone longer than
       two minutes has had the task re-queued, so the replayed batch is refused as stale and
       dropped — the results are not lost, they came from the re-run. Verified live: a
-      gateway pause spooled two batches, they survived a worker restart, and on resume were
-      replayed; the run completed with the port-scan result intact.
+      gateway pause spooled both of a task's batches, they survived a worker restart, and on
+      resume replayed as delivered=2 dropped=0 with the task still at attempts=1 and its
+      port-scan result intact — the spooled data itself landed, not a re-run.
 - [ ] 18.4 **Scan through a VPN.** A menu for OpenVPN and WireGuard configs, and a picker
       on the scan-launch modal choosing which egress a run leaves by — so a scan can come
       from somewhere other than the worker's own address without standing up a worker per
