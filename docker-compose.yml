@@ -159,6 +159,9 @@ services:
       # keeps downloaded wordlists across restarts, so a multi-hundred-megabyte
       # list is not re-fetched every time the container is recreated
       - wordlistcache:/var/cache/asm/wordlists
+      # results the gateway could not be reached for, replayed when it is back —
+      # on a volume so a worker restart does not take them with it
+      - workerspool:/var/cache/asm/spool
     depends_on: [gateway]
 
   # A local target that sets appliance-style cookies, for testing the cookie
@@ -180,6 +183,7 @@ services:
 # would silently start against empty volumes and leave the existing database,
 # artifacts and wordlist cache orphaned.
 volumes:
+  workerspool:
   wordlistcache:
     name: scan_tool_wordlistcache
   pgdata:

@@ -49,6 +49,10 @@ type Agent struct {
 	mu      sync.Mutex
 	running map[string]bool
 
+	// spool holds result batches the gateway could not be reached for, replayed
+	// when the control channel comes back and on a timer meanwhile.
+	spool *spool
+
 	// writeMu serialises control-channel writes. gorilla/websocket permits one
 	// concurrent writer, and the heartbeat ticker and the shutdown announcement
 	// can otherwise reach the socket at the same moment.
@@ -99,6 +103,10 @@ func NewAgent(cfg AgentConfig) *Agent {
 		running: map[string]bool{},
 	}
 	a.scanner.Upload = a.uploadArtifact
+	a.spool = newSpool(envOr("ASM_SPOOL_DIR", "/var/cache/asm/spool"))
+	if n := len(a.spool.pending()); n > 0 {
+		slog.Info("results spooled by a previous run are waiting", "batches", n)
+	}
 	return a
 }
 
@@ -234,6 +242,11 @@ func (a *Agent) connect(ctx context.Context) error {
 	defer cancel()
 	go a.heartbeat(hbCtx, conn)
 
+	// The gateway is reachable again, so anything spooled while it was not can
+	// go now — and again every minute, in case results arrive faster than the
+	// channel notices an outage ending.
+	go a.flushSpool(hbCtx)
+
 	// On a clean shutdown, tell the gateway before the socket closes: it then
 	// re-queues whatever this worker held instead of the run stalling until each
 	// lease times out, and the fleet list stops showing us as active.
@@ -335,40 +348,79 @@ func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
 	})
 }
 
-// postResult ships one batch of observations to the gateway.
+// postResult ships one batch of observations to the gateway, spooling it if
+// the gateway cannot be reached.
 //
-// The response status is checked and reported. It was previously ignored, so a
-// batch the gateway refused — a stale lease, an ingest failure, a confinement
-// violation — was dropped without a trace: the stage logged the observations it
-// had made, the task still finished "ok", and nothing ever reached the
-// database. A whole stage's output can go missing that way.
+// The response status is checked and classified. It was once ignored, so a
+// batch the gateway refused was dropped without a trace: the stage logged the
+// observations it had made, the task still finished "ok", and nothing reached
+// the database. A refusal (4xx) is still final and logged as such; a transport
+// error or 5xx now goes to the spool instead of being lost.
 func (a *Agent) postResult(ctx context.Context, job scanproto.Job, res scanproto.Result) {
 	url := job.Ingest.URL
 	if url == "" {
 		url = a.cfg.GatewayURL + "/agent/v1/results"
 	}
+	switch o, why := a.post(ctx, url, res); o {
+	case delivered:
+	case refused:
+		slog.Error("gateway refused results — observations discarded",
+			"stage", job.Stage, "task", job.TaskID,
+			"observations", len(res.Observations), "reason", why)
+	case unreachable:
+		if err := a.spool.put(url, res); err != nil {
+			slog.Error("gateway unreachable and spool unavailable — observations lost",
+				"stage", job.Stage, "task", job.TaskID,
+				"observations", len(res.Observations), "post", why, "spool", err)
+			return
+		}
+		slog.Warn("gateway unreachable; results spooled for replay",
+			"stage", job.Stage, "task", job.TaskID, "seq", res.Seq,
+			"observations", len(res.Observations), "reason", why)
+	}
+}
+
+// post performs one delivery attempt and classifies the result.
+func (a *Agent) post(ctx context.Context, url string, res scanproto.Result) (outcome, string) {
 	body, _ := json.Marshal(res)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return refused, err.Error()
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Worker-Id", a.workerID)
 	req.Header.Set("X-Worker-Credential", a.cred)
 	resp, err := a.client.Do(req)
 	if err != nil {
-		slog.Warn("post result failed (spooling would retry)",
-			"stage", job.Stage, "task", job.TaskID,
-			"observations", len(res.Observations), "err", err)
-		return
+		return unreachable, err.Error()
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
+	switch {
+	case resp.StatusCode/100 == 2:
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return delivered, ""
+	case resp.StatusCode/100 == 5:
 		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		slog.Error("gateway refused results — observations discarded",
-			"stage", job.Stage, "task", job.TaskID, "status", resp.StatusCode,
-			"observations", len(res.Observations),
-			"reason", strings.TrimSpace(string(reason)))
-		return
+		return unreachable, fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(reason)))
+	default:
+		reason, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return refused, fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(reason)))
 	}
-	_, _ = io.Copy(io.Discard, resp.Body)
+}
+
+// flushSpool replays spooled batches now and then once a minute until ctx ends.
+func (a *Agent) flushSpool(ctx context.Context) {
+	a.spool.replay(ctx, a.post)
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.spool.replay(ctx, a.post)
+		}
+	}
 }
 
 func (a *Agent) mark(taskID string, running bool) {

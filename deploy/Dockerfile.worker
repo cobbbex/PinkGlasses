@@ -71,7 +71,7 @@ COPY --from=wordlists /wordlists/ /usr/share/asm/wordlists/
 # Large wordlists (the assetnote DNS lists) are not baked in: the control plane
 # stores them in object storage and each worker downloads them once into this
 # cache, keyed by content hash.
-RUN mkdir -p /var/cache/asm/wordlists
+RUN mkdir -p /var/cache/asm/wordlists /var/cache/asm/spool
 ENV ASM_WORDLIST_CACHE=/var/cache/asm/wordlists \
     ASM_WORDLIST_DNS=/usr/share/asm/wordlists/dns-subdomains.txt \
     ASM_WORDLIST_DIR=/usr/share/asm/wordlists/dir-common.txt \

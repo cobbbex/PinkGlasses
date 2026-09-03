@@ -358,9 +358,15 @@ what had happened rather than reading what the code intended.
       Verified end to end against the lab's own webhook receiver: hiding a path produced a
       finding_gone digest, restoring it a finding_returned digest, in both JSON and Slack
       text; a channel pointing at a 404 records "HTTP 404" instead of "sent".
-- [ ] 18.3 **Spool results a stopped worker is holding.** Results are lost when a worker
-      dies mid-task; the agent logs "spooling would retry" beside a spool that does not
-      exist. Persist unsent batches on the worker and flush them on reconnect.
+- [x] 18.3 Result spool. Batches the gateway cannot be reached for are written to a
+      volume-backed spool and replayed when the control channel comes back and once a
+      minute meanwhile, in the order produced. Only transient failures spool — a 4xx is the
+      gateway saying no and is dropped, a transport error or 5xx is retried. The spool
+      survives a worker restart. Its one limit is the lease TTL: a gateway gone longer than
+      two minutes has had the task re-queued, so the replayed batch is refused as stale and
+      dropped — the results are not lost, they came from the re-run. Verified live: a
+      gateway pause spooled two batches, they survived a worker restart, and on resume were
+      replayed; the run completed with the port-scan result intact.
 - [ ] 18.4 **Scan through a VPN.** A menu for OpenVPN and WireGuard configs, and a picker
       on the scan-launch modal choosing which egress a run leaves by — so a scan can come
       from somewhere other than the worker's own address without standing up a worker per
