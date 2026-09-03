@@ -325,3 +325,31 @@ asking — ownership, per-user views, audit that means something — is only as 
       should record a user id, and the fleet and run views should show it.
 - [ ] 17.4 **API tokens** for automation, scoped and revocable, so scripting the API does not
       mean sharing a human's session.
+
+## Phase 18 — Finish what is wired but not running, then choose your egress
+
+The first three exist as code that nothing calls. That has been this project's most
+expensive failure mode all along: a stage that is written, documented as working, and
+never actually reached. Each of these was found the same way — by asking the database
+what had happened rather than reading what the code intended.
+
+- [x] 18.1 Made `vuln_check` run. The planner never created the task, so nuclei had never
+      executed once despite the stage being declared, the worker handling it and the binary
+      being installed. It is enqueued per live web service now, honouring `nuclei_enabled`
+      at planning time so switching it off means no task rather than a task that leases a
+      worker to do nothing. Verified against the cookie lab: the task runs, and turning the
+      switch off plans none.
+- [ ] 18.2 **Tell someone when something changes.** The differ works — change events are
+      being recorded — and `internal/notify` has webhook and Slack senders that nothing
+      calls. Until they are connected this discovers and remembers, but does not monitor:
+      you have to think to go and look. Wire new findings and asset changes to a
+      configurable webhook, and make it possible to say which changes are worth a message.
+- [ ] 18.3 **Spool results a stopped worker is holding.** Results are lost when a worker
+      dies mid-task; the agent logs "spooling would retry" beside a spool that does not
+      exist. Persist unsent batches on the worker and flush them on reconnect.
+- [ ] 18.4 **Scan through a VPN.** A menu for OpenVPN and WireGuard configs, and a picker
+      on the scan-launch modal choosing which egress a run leaves by — so a scan can come
+      from somewhere other than the worker's own address without standing up a worker per
+      exit. Configs carry private keys and credentials: encrypted at rest, never returned
+      by the API, never written to a log. Each piece tested, including that traffic
+      actually leaves through the tunnel rather than merely being configured to.

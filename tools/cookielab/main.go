@@ -42,7 +42,26 @@ var cookies = []cookie{
 func main() {
 	addr := ":" + env("PORT", "80")
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Two paths exist; everything else is 404, and it has to be exactly 404.
+		//
+		// This deliberately does not use http.ServeMux. A mux matching "/"
+		// answers 200 to every path, which made this target report a critical
+		// "Cisco ASA directory traversal" for a Go program with no files — and
+		// a mux also *cleans* paths, answering 301 to entries like
+		// "render/https://www.google.com" that SecLists includes to probe for
+		// SSRF. Either way a brute force reports hits that are not there, which
+		// makes the target useless for telling a real finding from noise.
+		switch r.URL.Path {
+		case "/plain":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprint(w, "<!doctype html><title>No cookies here</title><h1>No cookies here</h1>")
+			return
+		case "/":
+		default:
+			http.NotFound(w, r)
+			return
+		}
 		for _, c := range cookies {
 			http.SetCookie(w, &http.Cookie{
 				Name: c.name, Value: c.value, Path: "/",
@@ -57,15 +76,8 @@ func main() {
 		fmt.Fprint(w, page())
 	})
 
-	// A second path with no cookies at all, to check that a service without
-	// them is not reported as having some.
-	http.HandleFunc("/plain", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, "<!doctype html><title>No cookies here</title><h1>No cookies here</h1>")
-	})
-
 	log.Printf("cookielab listening on %s, serving %d cookies", addr, len(cookies)+1)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	log.Fatal(http.ListenAndServe(addr, handler))
 }
 
 func env(k, def string) string {

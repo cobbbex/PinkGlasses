@@ -221,7 +221,7 @@ entire output to that gap more than once — so the column that matters is the l
 | Screenshots | httpx `-screenshot` → object storage | PNG stored and viewable in the UI |
 | Crawl | katana, urlfinder | seeds real paths before the brute |
 | Dir brute | gobuster (registry wordlist) / ffuf | gobuster hits recorded as findings |
-| Vulnerabilities | nuclei | stage reachable |
+| Vulnerabilities | nuclei | findings recorded (the stage was never planned until 18.1) |
 
 All tool flags are overridable per run through validated scan parameters
 (`internal/scanparams`), never passed to `exec` as raw user input.

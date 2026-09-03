@@ -360,7 +360,13 @@ func (p *Planner) probeNewServices(ctx context.Context, run domain.ScanRun) erro
 	return err
 }
 
-// maybePostProbe enqueues tech_detect, screenshot and dir_brute for web services.
+// maybePostProbe enqueues tech_detect, screenshot, dir_brute and vuln_check for
+// web services.
+//
+// vuln_check was missing here, which is why nuclei had never run: the stage was
+// declared, the worker could execute it and the binary was installed, but no
+// task was ever created for it. Nothing reported that, because a stage that is
+// never planned looks exactly like a stage with nothing to do.
 func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error {
 	if exists, _ := p.st.StageExists(ctx, run.ID, scanproto.StageTechDetect); exists {
 		return nil
@@ -373,6 +379,16 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 	if err != nil {
 		return err
 	}
+	// nuclei is the loudest thing in the pipeline after directory brute force,
+	// so its switch is honoured at planning time: turning it off should mean no
+	// task exists, not a task that leases a worker and returns nothing.
+	runVuln := true
+	if params, err := p.st.GetRunParams(ctx, run.ID); err == nil {
+		if v, ok := params["nuclei_enabled"]; ok && v == "false" {
+			runVuln = false
+		}
+	}
+
 	var specs []store.TaskSpec
 	for _, t := range tasks {
 		sum := decode(t.Result)
@@ -390,6 +406,9 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 				spec(scanproto.StageScreenshot, tgt, 310, origin0(origins), string(scanproto.CapBrowser)),
 				spec(scanproto.StageDirBrute, tgt, 320, origin0(origins)),
 			)
+			if runVuln {
+				specs = append(specs, spec(scanproto.StageVulnCheck, tgt, 330, origin0(origins)))
+			}
 		}
 	}
 	if len(specs) == 0 {
