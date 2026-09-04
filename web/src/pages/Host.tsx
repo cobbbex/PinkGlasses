@@ -143,7 +143,7 @@ export default function Host() {
 /**
  * One open port. Banners, HTTP titles and headers are attacker-controlled, so
  * every one of them is rendered as text by React — never as markup
- * (architecture.md §10.2).
+ * (architecture.md §10.3).
  */
 function ServiceCard({ sv }: { sv: HostService }) {
   const http = sv.http ?? null;

@@ -312,19 +312,47 @@ behind an identity-aware proxy and is never exposed directly. Everything below e
 because that assumption is doing a lot of work, and anything that depends on *who* is
 asking — ownership, per-user views, audit that means something — is only as good as it.
 
-- [ ] 17.0 **Authentication.** Sessions with a real login, or trusted-header auth with the
+- [x] 17.0 **Authentication.** Sessions with a real login, or trusted-header auth with the
       proxy's identity verified rather than believed. `X-Forwarded-User` is a request header:
       anything that can reach the API can claim to be anyone, which is why the API must not
       be reachable without the proxy in front.
-- [ ] 17.1 **Users and ownership.** A users table, and scope ownership pointing at it rather
+- [x] 17.1 **Users and ownership.** A users table, and scope ownership pointing at it rather
       than at a free-text actor string. Backfill from `scope.created_by`.
-- [ ] 17.2 **Authorization proper.** Who may read a scope, start a run against it, enrol a
+- [x] 17.2 **Authorization proper.** Who may read a scope, start a run against it, enrol a
       worker, or export data. A scan is an action with consequences for someone else's
       infrastructure, so "who started this run" needs to be a fact, not a header.
-- [ ] 17.3 **Audit that identifies a person.** The audit log already records an actor; it
+- [x] 17.3 **Audit that identifies a person.** The audit log already records an actor; it
       should record a user id, and the fleet and run views should show it.
-- [ ] 17.4 **API tokens** for automation, scoped and revocable, so scripting the API does not
+- [x] 17.4 **API tokens** for automation, scoped and revocable, so scripting the API does not
       mean sharing a human's session.
+
+Tested against the running stack on 2026-09-04: all 58 routes answer 401
+unauthenticated, and so does `X-Forwarded-User: admin` on its own. A viewer
+reads and is refused every write (403); an operator creates scopes but is
+refused users, VPN configs and worker enrollment; an admin gets through. An
+admin's viewer-scoped token reads but cannot reach `/users`, and a viewer is
+refused an admin token outright. Disabling an account took a live session from
+200 to 401 on the next request. Sign-in attempt 10 returned 429; an unknown
+username and a wrong password gave the same message in the same time (31-41 ms).
+The audit log resolves through a foreign key. A real scan started by the
+operator ran to completion, and the SPA was driven in headless Chromium: login
+screen when signed out, no Accounts entry in an operator's nav, present in an
+admin's.
+
+Built as: `app_user`, `user_session`, `api_token` (migration 00021); `internal/auth`
+for argon2id and role ordering; `internal/httpapi/auth.go` for the middleware.
+The whole of `/api/v1` sits inside `requireAuth` with three stated exceptions,
+and `TestEveryRouteRequiresAuth` walks the live router to keep it that way — a
+new handler outside the group fails the test rather than quietly becoming
+public. Sessions are server-side rows, so disabling an account or changing a
+role takes effect on the next request. Documented in architecture.md §10.2 and
+the README.
+
+Deliberately not done, and worth stating: there is no per-scope isolation —
+every signed-in user sees every company. `scope.owner_id` exists so that can be
+tightened without another migration. No MFA and no OIDC; the session layer is
+shaped so an external provider can be added without reworking ownership, audit
+or tokens.
 
 ## Phase 18 — Finish what is wired but not running, then choose your egress
 
@@ -376,6 +404,13 @@ what had happened rather than reading what the code intended.
       and refuses the task unless it changed. Verified: a deliberately unusable config gave
       3 attempts, 3 refusals, 0 tools run and 0 services touched.
 - [ ] How to save and then show user historical data ?
+- [ ] **A worker whose row is reaped never re-enrols.** Seen 2026-09-04: the gateway
+      restarted, the worker reconnected and re-enrolled, then its heartbeat stopped
+      reaching the database; `ReapStaleLocalWorkers` deleted the row after 10 minutes and
+      the worker sat there with "control channel up" believing it was fine. The whole
+      fleet was gone and scans queued forever with nothing to run them; `docker compose
+      restart worker` fixed it. The worker should treat "the control plane does not know
+      me" as a reason to re-enrol, the way it already treats a rejected credential.
 
 ## Phase 19 — Ephemeral scan fleets, and a VPN gateway per run
 
@@ -426,3 +461,10 @@ entrypoint. The planner, the dispatcher and the worker all read one fact —
 `store.RunHasFleet` — to decide who owns the tunnel, because deciding it
 separately is what broke the first version. Documented in architecture.md §7.6,
 the README, and `wiki/VPN-Scanning.md`.
+
+## UI tuninnig
+Write here new UI features.
+
+- [ ] Add to detailed host view host cookies names. If we can search by cookies so why don`t show this information in host detailed view.
+- [ ] How to save host ip history and how and where to view it ?
+- [ ] How to save and how to view services and port history ?

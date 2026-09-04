@@ -116,7 +116,7 @@ func (s *Server) uploadWordlist(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "wordlist.upload", id.String(),
+	s.auditReq(r, "wordlist.upload", id.String(),
 		map[string]any{"name": name, "lines": lines, "bytes": size})
 
 	wl, _ := s.st.GetWordlist(r.Context(), id)
@@ -140,7 +140,7 @@ func (s *Server) patchWordlist(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "wordlist.default", id.String(),
+	s.auditReq(r, "wordlist.default", id.String(),
 		map[string]any{"is_default": *in.IsDefault})
 	writeJSON(w, http.StatusOK, map[string]bool{"is_default": *in.IsDefault})
 }
@@ -160,6 +160,6 @@ func (s *Server) deleteWordlist(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "built-in wordlists cannot be deleted")
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "wordlist.delete", id.String(), nil)
+	s.auditReq(r, "wordlist.delete", id.String(), nil)
 	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
 }

@@ -113,7 +113,7 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "notification.create", c.ID.String(),
+	s.auditReq(r, "notification.create", c.ID.String(),
 		map[string]any{"name": c.Name, "kind": c.Kind, "host": u.Host})
 	writeJSON(w, http.StatusCreated, present(c))
 }
@@ -153,7 +153,7 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "channel not found")
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "notification.delete", id.String(), nil)
+	s.auditReq(r, "notification.delete", id.String(), nil)
 	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
 }
 

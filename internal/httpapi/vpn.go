@@ -101,7 +101,7 @@ func (s *Server) createVPNConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The endpoint is metadata; the config body never reaches the audit log.
-	s.audit.Log(r.Context(), actor(r), "vpn.create", saved.ID.String(),
+	s.auditReq(r, "vpn.create", saved.ID.String(),
 		map[string]any{"name": saved.Name, "kind": saved.Kind, "endpoint": endpoint})
 	writeJSON(w, http.StatusCreated, saved)
 }
@@ -121,6 +121,6 @@ func (s *Server) deleteVPNConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "vpn.delete", id.String(), nil)
+	s.auditReq(r, "vpn.delete", id.String(), nil)
 	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
 }

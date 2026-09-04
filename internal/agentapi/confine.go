@@ -9,7 +9,7 @@ import (
 // confineViolation reports whether any observation falls outside the task's
 // assigned target set. A worker reporting assets it was never given is a strong
 // signal of compromise or a bug, and the gateway rejects the whole batch and
-// quarantines the worker (architecture.md §10.3).
+// quarantines the worker (architecture.md §10.4).
 func confineViolation(taskTargetRaw []byte, obs []scanproto.Observation) (bool, string) {
 	var tgt scanproto.Target
 	_ = json.Unmarshal(taskTargetRaw, &tgt)

@@ -54,7 +54,7 @@ func (s *Server) createEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 		if count < 1 {
 			count = 2
 		}
-		s.audit.Log(r.Context(), actor(r), "worker.scale_local", "", map[string]any{"count": count})
+		s.auditReq(r, "worker.scale_local", "", map[string]any{"count": count})
 		writeJSON(w, http.StatusCreated, map[string]any{
 			"kind":            kind,
 			"install_command": "docker compose up -d --scale worker=" + itoa(count),
@@ -96,7 +96,7 @@ func (s *Server) createEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "worker.enroll_token", "", map[string]any{"ttl": ttl.String(), "kind": kind})
+	s.auditReq(r, "worker.enroll_token", "", map[string]any{"ttl": ttl.String(), "kind": kind})
 
 	gwURL := os.Getenv("ASM_PUBLIC_GATEWAY_URL")
 	if gwURL == "" {
@@ -159,7 +159,7 @@ func (s *Server) workerAction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "worker."+action, id.String(), nil)
+	s.auditReq(r, "worker."+action, id.String(), nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": string(status)})
 }
 
@@ -192,7 +192,7 @@ func (s *Server) deleteWorker(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "worker.delete", id.String(),
+	s.auditReq(r, "worker.delete", id.String(),
 		map[string]any{"name": worker.Name, "kind": worker.Kind})
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }

@@ -194,7 +194,7 @@ difference matters:
 Quarantine is also applied **automatically**: if a worker reports observations for assets
 outside the target it was assigned, the gateway quarantines it on the spot. Workers parse
 hostile content from the internet, so one turning malicious must not be able to poison the
-inventory with fabricated assets (`architecture.md` §10.3).
+inventory with fabricated assets (`architecture.md` §10.4).
 
 | | drain | quarantine |
 |---|---|---|
@@ -212,6 +212,79 @@ inventory with fabricated assets (`architecture.md` §10.3).
 
 The install token is single-use and expires in 1 hour; the worker's long-lived credential is
 minted on enrollment and never leaves the box. See `scripts/install.sh`.
+
+## Accounts and access
+
+On first visit the app asks you to **create the first administrator**. Do it
+immediately: until an account exists there is nothing to authenticate against,
+and the API answers anyone who can reach it. After that, every endpoint requires
+a signed-in session or an API token.
+
+### Roles
+
+Three, and each adds to the one below it:
+
+| Role | Can |
+|---|---|
+| **viewer** | Read everything — inventory, findings, runs, search. Change nothing. |
+| **operator** | Also add companies and targets, edit wordlists and alerts, and **start scans**. |
+| **admin** | Also manage accounts and API tokens, enrol and scale workers, and add VPN configurations. |
+
+Starting a scan is what separates viewer from operator, because a scan sends
+packets at somebody's infrastructure. Adding a VPN configuration or enrolling a
+worker is admin, because both hand out credentials.
+
+Manage accounts under **Accounts** in the sidebar (administrators only). Disabling
+an account is reversible and keeps its history; removing one is not. Either takes
+effect immediately — changing a role, disabling an account or setting a new
+password signs that person out everywhere on their next request.
+
+The last enabled administrator cannot be demoted, disabled or deleted. Promote
+someone else first; otherwise the only way back in is `psql`.
+
+### API tokens
+
+For scripts and CI, so automating something does not mean sharing a password.
+Create one under **Accounts → API tokens**, then:
+
+```bash
+curl -H "Authorization: Bearer pgt_…" http://localhost:8080/api/v1/scopes
+```
+
+The secret is shown **once**, at creation — only a hash is stored, so it cannot
+be retrieved later. Lose it and you revoke it and make another. A token may be
+narrower than the person who created it, never wider: an admin can mint a
+read-only token for a dashboard, and a viewer cannot mint an admin token.
+Revoking one, or disabling its owner, stops it working immediately.
+
+### Passwords
+
+Minimum 12 characters, and that is the only rule — length is worth more than
+punctuation, and composition rules mostly produce `Password1!`. They are stored
+as argon2id.
+
+Sign-in is rate limited to 10 attempts per 15 minutes, counted per username *and*
+per source address. An unknown username takes the same time and gives the same
+answer as a wrong password, so the login form does not tell you who has an
+account.
+
+### Putting an identity proxy in front
+
+If you already run oauth2-proxy, Authelia or Cloudflare Access, the app can take
+its word for who you are — but only if the proxy proves it is the proxy:
+
+```bash
+ASM_TRUSTED_PROXY_SECRET=$(openssl rand -base64 32)   # on the api
+```
+
+Then have the proxy send `X-Forwarded-User: <username>` **and**
+`X-Proxy-Secret: <that value>`. The account still has to exist here, with a role;
+the proxy says *who*, PinkGlasses says *what they may do*. Create the account
+under Accounts with no password — it will only ever sign in through the proxy.
+
+Leave the variable unset and header authentication is off. `X-Forwarded-User` on
+its own is refused and logged, because it is just a request header: before this
+existed, anything that could reach the API could set it and be anyone.
 
 ## Scanning through a VPN
 

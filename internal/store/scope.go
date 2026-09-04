@@ -9,16 +9,31 @@ import (
 )
 
 // CreateScope inserts a scope.
-func (s *Store) CreateScope(ctx context.Context, name, createdBy string) (domain.Scope, error) {
+func (s *Store) CreateScope(ctx context.Context, name, createdBy string, ownerID *uuid.UUID) (domain.Scope, error) {
 	if createdBy == "" {
 		createdBy = "local"
 	}
 	var sc domain.Scope
 	err := s.Pool.QueryRow(ctx,
-		`INSERT INTO scope (name, created_by) VALUES ($1,$2)
-		 RETURNING id, name, created_by, created_at`, name, createdBy,
+		`INSERT INTO scope (name, created_by, owner_id) VALUES ($1,$2,$3)
+		 RETURNING id, name, created_by, created_at`, name, createdBy, ownerID,
 	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt)
 	return sc, err
+}
+
+// AdoptOwnerlessScopes gives every unowned scope to a user, and is called once,
+// when the first administrator is created.
+//
+// Everything made before there were accounts records created_by 'local', which
+// names nobody. Rather than leave those scopes permanently unattributed, the
+// person who sets the install up inherits them — they are, by construction, the
+// only person who has been using it.
+func (s *Store) AdoptOwnerlessScopes(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	ct, err := s.Pool.Exec(ctx, `UPDATE scope SET owner_id=$1 WHERE owner_id IS NULL`, ownerID)
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
 }
 
 // ListScopes returns scopes, optionally only those created by one actor.

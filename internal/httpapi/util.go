@@ -1,18 +1,24 @@
 package httpapi
 
 import (
+	"github.com/benlik386/pinkglasses/internal/auth"
 	"net"
 	"net/http"
 	"strings"
 )
 
-// actor returns an identifier for the requester (auth is out of scope for this
-// build; a real deployment sits behind an identity-aware proxy — §10.2).
+// actor returns the name of the requester, for the `created_by` columns.
+//
+// It used to read X-Forwarded-User straight off the request and otherwise call
+// everyone "local", which meant every one of those columns recorded whatever
+// the caller claimed. It now reports the authenticated identity, established by
+// requireAuth before any handler runs. The fallback is unreachable through the
+// router and exists so a handler called from a test does not panic.
 func actor(r *http.Request) string {
-	if u := r.Header.Get("X-Forwarded-User"); u != "" {
-		return u
+	if id, ok := auth.FromContext(r.Context()); ok {
+		return id.Username
 	}
-	return "local"
+	return "unauthenticated"
 }
 
 // guessKind infers a scope target's kind from its value.

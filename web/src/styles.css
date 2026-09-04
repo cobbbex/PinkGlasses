@@ -300,3 +300,10 @@ h2 { margin: 0 0 16px; } h3 { margin: 0; font-size: 15px; }
 
 /* the scan modal grows when the settings panel is open */
 .modal.wide { max-width: 720px; }
+
+/* Who you are signed in as, pinned to the foot of the sidebar. */
+.account-menu {
+  margin-top: auto;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.2));
+}

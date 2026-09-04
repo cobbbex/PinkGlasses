@@ -18,12 +18,12 @@ func (s *Server) createScope(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name required")
 		return
 	}
-	sc, err := s.st.CreateScope(r.Context(), in.Name, actor(r))
+	sc, err := s.st.CreateScope(r.Context(), in.Name, actor(r), userIDOf(r))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "scope.create", sc.ID.String(), map[string]any{"name": sc.Name})
+	s.auditReq(r, "scope.create", sc.ID.String(), map[string]any{"name": sc.Name})
 	writeJSON(w, http.StatusCreated, sc)
 }
 
@@ -115,7 +115,7 @@ func (s *Server) addTarget(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, saved)
 	}
-	s.audit.Log(r.Context(), actor(r), "target.add", scopeID.String(), map[string]any{"count": len(out)})
+	s.auditReq(r, "target.add", scopeID.String(), map[string]any{"count": len(out)})
 	writeJSON(w, http.StatusCreated, out)
 }
 

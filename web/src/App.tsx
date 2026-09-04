@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
-import { api, Scope } from "./api";
+import { api, atLeast, AuthStatus, Scope, UNAUTHENTICATED, User } from "./api";
 import { Modal, useToast } from "./components/ui";
 import ScopePicker from "./components/ScopePicker";
 import Dashboard from "./pages/Dashboard";
@@ -13,6 +13,8 @@ import Search from "./pages/Search";
 import Alerts from "./pages/Alerts";
 import VPN from "./pages/VPN";
 import Host from "./pages/Host";
+import Auth from "./pages/Auth";
+import Users from "./pages/Users";
 
 const NAV = [
   { to: "/", label: "Dashboard", ic: "◆" },
@@ -24,12 +26,59 @@ const NAV = [
   { to: "/workers", label: "Workers", ic: "⬢" },
   { to: "/wordlists", label: "Wordlists", ic: "≡" },
   { to: "/vpn", label: "VPN", ic: "⇄" },
+  { to: "/accounts", label: "Accounts", ic: "☺", admin: true },
 ];
 
 const COLLAPSE_KEY = "asm.sidebar.collapsed";
 const MINE_KEY = "asm.scopes.mine";
 
+/**
+ * The authentication gate.
+ *
+ * Nothing renders until the API says who is asking. This is deliberately a hard
+ * gate rather than a redirect: the app has no useful state for an anonymous
+ * visitor, and every request it would make answers 401 anyway.
+ */
 export default function App() {
+  const [status, setStatus] = useState<AuthStatus | null>(null);
+  const [me, setMe] = useState<User | null>(null);
+
+  async function refreshAuth() {
+    try {
+      const st = await api.authStatus();
+      setStatus(st);
+      if (st.user) {
+        setMe((await api.me()).user);
+      } else {
+        setMe(null);
+      }
+    } catch {
+      setStatus({ setup_required: false });
+      setMe(null);
+    }
+  }
+
+  useEffect(() => { refreshAuth(); }, []);
+
+  // A session can end while a tab sits idle — it expired, the account was
+  // disabled, or a role changed. The first sign is a 401 on an ordinary
+  // request, so the client raises this and we come back here.
+  useEffect(() => {
+    const onLost = () => { setMe(null); refreshAuth(); };
+    window.addEventListener(UNAUTHENTICATED, onLost);
+    return () => window.removeEventListener(UNAUTHENTICATED, onLost);
+  }, []);
+
+  if (!status) {
+    return <div className="empty" style={{ marginTop: 80 }}>Loading…</div>;
+  }
+  if (!me) {
+    return <Auth status={status} onSignedIn={refreshAuth} />;
+  }
+  return <Shell me={me} onSignedOut={refreshAuth} />;
+}
+
+function Shell({ me, onSignedOut }: { me: User; onSignedOut: () => void }) {
   const toast = useToast();
   const [scopes, setScopes] = useState<Scope[]>([]);
   const [allScopes, setAllScopes] = useState<Scope[]>([]);
@@ -118,13 +167,15 @@ export default function App() {
         />
 
         <nav className="nav">
-          {NAV.map((n) => (
+          {NAV.filter((n) => !n.admin || atLeast(me.role, "admin")).map((n) => (
             <NavLink key={n.to} to={n.to} end={n.to === "/"} title={n.label}>
               <span className="ic">{n.ic}</span>
               {!collapsed && <span className="nav-label">{n.label}</span>}
             </NavLink>
           ))}
         </nav>
+
+        <AccountMenu me={me} collapsed={collapsed} onSignedOut={onSignedOut} />
       </aside>
 
       <main className="main">
@@ -138,7 +189,9 @@ export default function App() {
               <div className="empty">
                 <p>No company yet. Each company is a separate scope — its own targets,
                   inventory and scanning authorization.</p>
-                <button onClick={() => setOpen(true)}>Add your first company</button>
+                {atLeast(me.role, "operator")
+                  ? <button onClick={() => setOpen(true)}>Add your first company</button>
+                  : <p className="muted">Adding one needs the operator role. Ask an administrator.</p>}
               </div>
             ) : (
               <Routes>
@@ -153,6 +206,11 @@ export default function App() {
                 <Route path="/workers" element={<Fleet />} />
                 <Route path="/wordlists" element={<Wordlists />} />
                 <Route path="/vpn" element={<VPN scopeID={scopeID} />} />
+                <Route path="/accounts" element={
+                  atLeast(me.role, "admin")
+                    ? <Users me={me} />
+                    : <div className="empty">Managing accounts needs the admin role.</div>
+                } />
                 {/* old link kept working */}
                 <Route path="/fleet" element={<Navigate to="/workers" replace />} />
                 <Route path="*" element={<Navigate to="/" />} />
@@ -178,6 +236,92 @@ export default function App() {
             Everything discovered is grouped under this company, and scanning
             authorization is granted per company.
           </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/**
+ * Who you are signed in as, at the foot of the sidebar, with the two things
+ * you might want to do about it.
+ */
+function AccountMenu({ me, collapsed, onSignedOut }: {
+  me: User; collapsed: boolean; onSignedOut: () => void;
+}) {
+  const toast = useToast();
+  const [pwOpen, setPwOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function signOut() {
+    try { await api.logout(); } catch { /* the cookie is going either way */ }
+    onSignedOut();
+  }
+
+  async function changePassword() {
+    setBusy(true);
+    try {
+      await api.changePassword(current, next);
+      toast("ok", "Password changed. Other sessions were signed out.");
+      setPwOpen(false); setCurrent(""); setNext(""); setConfirm("");
+    } catch (e) {
+      toast("err", String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const ready = next.length >= 12 && next === confirm && current.length > 0;
+
+  return (
+    <div className="account-menu">
+      {collapsed ? (
+        <button className="ghost sm" title={`${me.username} (${me.role}) — sign out`}
+          onClick={signOut} style={{ width: "100%" }}>⏻</button>
+      ) : (
+        <>
+          <div style={{ fontSize: 12.5, fontWeight: 600, wordBreak: "break-all" }}>
+            {me.display_name || me.username}
+          </div>
+          <div className="muted" style={{ fontSize: 11.5, marginBottom: 6 }}>
+            {me.username} · {me.role}
+          </div>
+          <div className="row" style={{ margin: 0, gap: 6 }}>
+            {me.has_password &&
+              <button className="ghost sm" onClick={() => setPwOpen(true)}>password</button>}
+            <button className="ghost sm" onClick={signOut}>sign out</button>
+          </div>
+        </>
+      )}
+
+      <Modal
+        title="Change your password" open={pwOpen} onClose={() => setPwOpen(false)}
+        footer={<>
+          <button className="ghost" onClick={() => setPwOpen(false)}>Cancel</button>
+          <button onClick={changePassword} disabled={busy || !ready}>
+            {busy ? "Changing…" : "Change password"}
+          </button>
+        </>}
+      >
+        <label className="param-label">Current password</label>
+        <input type="password" value={current} autoComplete="current-password"
+          onChange={(e) => setCurrent(e.target.value)}
+          style={{ width: "100%", boxSizing: "border-box", marginBottom: 10 }} />
+        <label className="param-label">New password</label>
+        <input type="password" value={next} autoComplete="new-password"
+          onChange={(e) => setNext(e.target.value)}
+          style={{ width: "100%", boxSizing: "border-box", marginBottom: 10 }} />
+        <label className="param-label">Confirm new password</label>
+        <input type="password" value={confirm} autoComplete="new-password"
+          onChange={(e) => setConfirm(e.target.value)}
+          style={{ width: "100%", boxSizing: "border-box", marginBottom: 6 }} />
+        <div className="muted" style={{ fontSize: 12 }}>
+          At least 12 characters. Your current password is required even though you
+          are signed in — a borrowed browser should not be enough to take the
+          account over. Every other session is signed out.
         </div>
       </Modal>
     </div>

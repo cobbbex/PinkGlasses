@@ -120,7 +120,7 @@ func (s *Server) putWordlistContent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "wordlist.edit", id.String(),
+	s.auditReq(r, "wordlist.edit", id.String(),
 		map[string]any{"name": wl.Name, "lines": len(entries)})
 
 	updated, _ := s.st.GetWordlist(r.Context(), id)

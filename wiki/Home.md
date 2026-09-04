@@ -11,6 +11,9 @@ rationale, `architecture.md` in the repository.
 
 ## Pages
 
+- **[Accounts and access](Accounts-and-Access)** — the three roles and where the
+  boundaries fall, why sessions are server-side, how API tokens are scoped, and
+  how to put an identity provider in front.
 - **[Port scanning](Port-Scanning)** — which scanner runs when, the exact nmap
   and naabu command lines, every setting you can change, and what the defaults
   cost you in noise and accuracy.
@@ -51,7 +54,15 @@ with the reason. That class of silent breakage — the stage runs, the results
 evaporate — has cost real debugging time here, and each of those three checks
 was added after it had already happened.
 
-## Authorization
+## Who can do what
+
+Every endpoint needs a signed-in session or an API token; three ordered roles
+decide the rest. Starting a scan needs **operator**, because it sends packets at
+somebody else's infrastructure; managing accounts, workers and VPN
+configurations needs **admin**, because each hands out a credential. See
+[Accounts and access](Accounts-and-Access).
+
+## Target authorization
 
 A target is **passive-only** unless it carries an explicit active
 authorization. Only addresses belonging to an authorized target are port

@@ -136,7 +136,7 @@ because it faces semi-trusted machines on the public internet:
 - Terminates worker WebSocket control channels; tracks liveness and load per worker.
 - Leases scan tasks to workers matching capability + pool constraints (§8.1).
 - Accepts batched result ingest; validates that every observation is inside the job's
-  assigned target set (§10.3).
+  assigned target set (§10.4).
 - Issues presigned object-storage URLs so raw tool output and screenshots go straight to
   MinIO/S3 without transiting the gateway.
 - Handles enrollment: token redemption, worker registration, credential issuance.
@@ -1028,7 +1028,7 @@ it loses only push-cancel latency.
 
 Note `targets` is a list: batching many hosts into one job keeps lease churn low on big runs.
 `allow`/`deny` are shipped **with the job** so the worker enforces the scope guard locally
-even if it has been fed a bad target (§10.3).
+even if it has been fed a bad target (§10.4).
 
 ### 8.4 Result envelope (worker output)
 
@@ -1120,12 +1120,100 @@ checks because targets are expanded by three different components.
 6. **Append-only audit log:** who added a target, enrolled a worker, triggered a run,
    exported data.
 
-### 10.2 The application is a high-value target
+### 10.2 Authentication and roles
+
+Everything in this section used to rest on one sentence: *the app sits behind an
+identity-aware proxy and is never exposed directly*. It does not rest on it any
+more, because that assumption was doing far too much work.
+
+**What the old build actually did.** `actor()` read `X-Forwarded-User` from the
+request and otherwise called everyone `local`. `X-Forwarded-User` is a request
+header — anything that could open a TCP connection to the API could set it and
+be anybody. There was no login, no session, and no check of any kind on any
+endpoint; `curl http://host:8080/api/v1/scopes` returned the whole inventory.
+Five `created_by` columns and the audit log recorded that claim as though it
+were a fact.
+
+**Three ways in**, checked in this order:
+
+| | Used by | Verified how |
+|---|---|---|
+| Session cookie | the SPA | server-side row, `HttpOnly`, `SameSite=Lax`, `Secure` under TLS |
+| API token | scripts, CI | `pgt_` + 32 random bytes, sha256 stored, never the secret |
+| Trusted proxy header | an identity-aware proxy in front | `X-Forwarded-User` **only** when the request also carries `ASM_TRUSTED_PROXY_SECRET` |
+
+The third is the old path made honest. The header alone proves nothing, so it is
+ignored — and logged — unless the caller also presents a secret only the proxy
+knows. Leave `ASM_TRUSTED_PROXY_SECRET` unset and header authentication is off
+entirely, which is the right default.
+
+**Sessions are server-side rows, not self-contained tokens.** A stateless token
+keeps working until it expires, which means disabling an account or demoting
+somebody does nothing until then. Here, changing a role, disabling an account or
+setting a new password deletes that user's sessions, so the change takes effect
+on their next request.
+
+**Three roles, ordered.** Each level adds to the one below:
+
+| Role | Adds |
+|---|---|
+| `viewer` | reads everything; changes nothing |
+| `operator` | scopes, targets, wordlists, notification channels — **and starting runs** |
+| `admin` | accounts, API tokens, workers, enrollment, VPN configurations |
+
+Starting a run is the boundary between reading and acting, because it sends
+packets at somebody else's infrastructure. Managing VPN configurations and
+enrolling workers are admin because both hand out credentials — one for a
+network that is not ours, one for the control plane itself.
+
+Roles are applied per route group in `Routes()`, and the whole of `/api/v1` sits
+inside `requireAuth` with three exceptions: `auth/status`, `auth/setup` and
+`auth/login`. `TestEveryRouteRequiresAuth` walks the live router and fails if any
+route answers something other than 401 unauthenticated. That test is the point:
+authentication does not come back off by somebody deleting it, it comes back off
+by somebody adding a handler outside the group and nobody noticing.
+
+**First run.** An install with no accounts reports `setup_required`, and
+`auth/setup` creates the first administrator — conditionally on the table still
+being empty, in the insert itself, so two simultaneous requests cannot both
+succeed. Until that is done the API is open, which is stated on the setup screen.
+The first administrator inherits every scope created before there were accounts:
+those record `created_by = 'local'`, which names nobody.
+
+**Passwords** are argon2id (64 MiB, t=3, p=4) with the parameters encoded in each
+hash, so the cost can be raised later without invalidating existing ones. The
+only rule is a 12-character minimum: composition rules push people toward
+predictable substitutions and buy an attacker little. Sign-in is rate limited per
+username *and* per source address — limiting one alone is walked around by
+varying the other — and an unknown username is verified against a dummy hash so
+that neither the wording nor the timing of the answer says whether an account
+exists.
+
+**Tokens may be narrower than their owner, never wider.** An admin can mint a
+viewer token for a CI job; a viewer cannot mint an admin token. Revocation,
+expiry and the owner's disabled flag are all checked at lookup, so a token stops
+working the moment any of them changes.
+
+**The last administrator cannot be removed.** Demoting, disabling or deleting the
+only enabled admin is refused, because the recovery path otherwise runs through
+`psql`.
+
+**What this is not.** There is no per-scope isolation: every signed-in user sees
+every company. That is a deliberate choice for a small team working one attack
+surface together, and `scope.owner_id` exists so it can be tightened later
+without another migration. There is no MFA and no OIDC yet; the user/session
+layer is structured so an external provider can be added without reworking
+ownership, audit or tokens.
+
+### 10.3 The application is a high-value target
 
 A complete map of your external attack surface is exactly what an attacker wants.
 
-- Never expose the UI to the internet; VPN or identity-aware proxy, OIDC + MFA. The
-  **gateway** is the only public component, on its own hostname, with its own rate limits.
+- The app authenticates people itself (§10.2): local accounts, server-side sessions and
+  three ordered roles. A proxy in front is still worth having — it is defence in depth, and
+  the way to add OIDC or MFA today — but the app no longer *depends* on one being there.
+- Still: do not expose the UI to the internet without a reason. The **gateway** is the only
+  component meant to be public, on its own hostname, with its own rate limits.
 - **Banners, HTTP titles, headers and TLS subjects are attacker-controlled strings.**
   Render as text, never HTML; strict CSP with no `unsafe-inline`; screenshots served from a
   separate origin with `Content-Disposition` and a sandboxed viewer. XSS via a malicious
@@ -1135,7 +1223,7 @@ A complete map of your external attack surface is exactly what an attacker wants
   stored as argon2id hashes, per-worker, revocable.
 - Encrypted backups of Postgres and object storage, with a tested restore runbook.
 
-### 10.3 Workers are semi-trusted
+### 10.4 Workers are semi-trusted
 
 A VPS the user rented is not part of your security perimeter. It may be compromised through
 the very content it is scanning. Therefore:

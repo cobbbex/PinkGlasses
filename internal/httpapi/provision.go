@@ -121,7 +121,7 @@ func (s *Server) scaleLocalWorkers(w http.ResponseWriter, r *http.Request) {
 		orphans = 0 // non-fatal: the stale sweep will catch them
 	}
 
-	s.audit.Log(r.Context(), actor(r), "worker.scale_local", "",
+	s.auditReq(r, "worker.scale_local", "",
 		map[string]any{"count": in.Count, "created": out.Created, "removed": out.Removed})
 
 	writeJSON(w, http.StatusOK, map[string]any{

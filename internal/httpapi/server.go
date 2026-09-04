@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/benlik386/pinkglasses/internal/audit"
+	"github.com/benlik386/pinkglasses/internal/auth"
 	"github.com/benlik386/pinkglasses/internal/config"
 	"github.com/benlik386/pinkglasses/internal/domain"
 	"github.com/benlik386/pinkglasses/internal/obj"
@@ -26,6 +27,7 @@ type Server struct {
 	audit   *audit.Logger
 	hub     *SSEHub
 	obj     *obj.Store // wordlist uploads land here, not in the database
+	logins  *loginLimiter
 }
 
 // New builds the API server.
@@ -36,6 +38,7 @@ func New(st *store.Store) *Server {
 		audit:   audit.New(st),
 		hub:     NewSSEHub(),
 		obj:     obj.New(config.LoadAPI().S3),
+		logins:  newLoginLimiter(),
 	}
 }
 
@@ -50,68 +53,113 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 
 	r.Route("/api/v1", func(r chi.Router) {
-		// scopes & targets
-		r.Post("/scopes", s.createScope)
-		r.Get("/scopes", s.listScopes)
-		r.Get("/scopes/{scopeID}/summary", s.scopeSummary)
-		r.Post("/scopes/{scopeID}/targets", s.addTarget)
-		r.Get("/scopes/{scopeID}/targets", s.listTargets)
+		// The only unauthenticated endpoints. `status` says whether the install
+		// needs its first administrator; `setup` creates that one account and
+		// refuses once any account exists; `login` is the front door.
+		r.Get("/auth/status", s.authStatus)
+		r.Post("/auth/setup", s.setup)
+		r.Post("/auth/login", s.login)
 
-		// runs (multi-target)
-		r.Get("/scan-params", s.listScanParamSpecs)
-		r.Get("/scopes/{scopeID}/scan-profiles", s.listScanProfiles)
-		r.Post("/scopes/{scopeID}/scan-profiles", s.saveScanProfile)
-		r.Post("/scopes/{scopeID}/runs", s.createRun)
-		r.Get("/scopes/{scopeID}/runs", s.listRuns)
-		r.Get("/runs/{runID}", s.getRun)
-		r.Get("/runs/{runID}/targets", s.runTargets)
-		r.Get("/runs/{runID}/events", s.runEvents)
-		r.Get("/runs/{runID}/activity", s.runActivity)
-		r.Get("/runs/{runID}/diff", s.runDiff)
-		r.Post("/runs/{runID}/cancel", s.cancelRun)
+		// Everything past here needs an identity. The whole surface is wrapped
+		// at once rather than endpoint by endpoint, so an endpoint somebody
+		// forgets to guard is unreachable rather than public.
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireAuth)
 
-		// assets
-		r.Get("/scopes/{scopeID}/domains", s.listDomains)
-		r.Get("/scopes/{scopeID}/graph", s.domainGraph)
-		r.Get("/scopes/{scopeID}/hosts", s.listHosts)
-		r.Get("/scopes/{scopeID}/hostrows", s.listHostRows)
-		r.Get("/hosts/{ipID}", s.hostDetail)
-		r.Get("/hosts/{ipID}/services", s.hostServices)
-		r.Get("/services/{serviceID}/screenshot", s.serviceScreenshot)
-		r.Get("/scopes/{scopeID}/search", s.search)
-		r.Get("/search", s.searchGlobal) // cross-company, Shodan-style
-		r.Get("/scopes/{scopeID}/findings", s.listFindings)
+			r.Post("/auth/logout", s.logout)
+			r.Get("/auth/me", s.me)
+			r.Post("/auth/password", s.changePassword)
 
-		// VPN configurations a scan can leave through. The config body is
-		// sealed at rest and is never returned by any of these.
-		r.Get("/scopes/{scopeID}/vpn-configs", s.listVPNConfigs)
-		r.Post("/scopes/{scopeID}/vpn-configs", s.createVPNConfig)
-		r.Delete("/vpn-configs/{vpnID}", s.deleteVPNConfig)
+			// --- viewer: read everything, change nothing ---
+			r.Group(func(r chi.Router) {
+				r.Use(require(auth.RoleViewer))
 
-		// notifications: where a company's change digests go
-		r.Get("/scopes/{scopeID}/notifications", s.listChannels)
-		r.Post("/scopes/{scopeID}/notifications", s.createChannel)
-		r.Get("/scopes/{scopeID}/notifications/deliveries", s.listDeliveries)
-		r.Patch("/notifications/{channelID}", s.patchChannel)
-		r.Delete("/notifications/{channelID}", s.deleteChannel)
-		r.Post("/notifications/{channelID}/test", s.testChannel)
-		r.Patch("/findings/{findingID}", s.patchFinding)
+				r.Get("/scopes", s.listScopes)
+				r.Get("/scopes/{scopeID}/summary", s.scopeSummary)
+				r.Get("/scopes/{scopeID}/targets", s.listTargets)
 
-		// fleet
-		// wordlists
-		r.Get("/wordlists", s.listWordlists)
-		r.Post("/wordlists", s.uploadWordlist)
-		r.Patch("/wordlists/{wordlistID}", s.patchWordlist)
-		r.Get("/wordlists/{wordlistID}/content", s.getWordlistContent)
-		r.Put("/wordlists/{wordlistID}/content", s.putWordlistContent)
-		r.Delete("/wordlists/{wordlistID}", s.deleteWordlist)
+				r.Get("/scan-params", s.listScanParamSpecs)
+				r.Get("/scopes/{scopeID}/scan-profiles", s.listScanProfiles)
+				r.Get("/scopes/{scopeID}/runs", s.listRuns)
+				r.Get("/runs/{runID}", s.getRun)
+				r.Get("/runs/{runID}/targets", s.runTargets)
+				r.Get("/runs/{runID}/events", s.runEvents)
+				r.Get("/runs/{runID}/activity", s.runActivity)
+				r.Get("/runs/{runID}/diff", s.runDiff)
 
-		r.Get("/workers", s.listWorkers)
-		r.Post("/workers/enrollment-tokens", s.createEnrollmentToken)
-		r.Get("/workers/provision", s.getProvisionStatus)
-		r.Post("/workers/provision", s.scaleLocalWorkers)
-		r.Post("/workers/{workerID}/{action}", s.workerAction)
-		r.Delete("/workers/{workerID}", s.deleteWorker)
+				r.Get("/scopes/{scopeID}/domains", s.listDomains)
+				r.Get("/scopes/{scopeID}/graph", s.domainGraph)
+				r.Get("/scopes/{scopeID}/hosts", s.listHosts)
+				r.Get("/scopes/{scopeID}/hostrows", s.listHostRows)
+				r.Get("/hosts/{ipID}", s.hostDetail)
+				r.Get("/hosts/{ipID}/services", s.hostServices)
+				r.Get("/services/{serviceID}/screenshot", s.serviceScreenshot)
+				r.Get("/scopes/{scopeID}/search", s.search)
+				r.Get("/search", s.searchGlobal)
+				r.Get("/scopes/{scopeID}/findings", s.listFindings)
+
+				r.Get("/scopes/{scopeID}/notifications", s.listChannels)
+				r.Get("/scopes/{scopeID}/notifications/deliveries", s.listDeliveries)
+				r.Get("/wordlists", s.listWordlists)
+				r.Get("/wordlists/{wordlistID}/content", s.getWordlistContent)
+				r.Get("/workers", s.listWorkers)
+
+				// A tunnel's name and last egress, never its body. Reading
+				// which exits exist is not the same as being able to use one.
+				r.Get("/scopes/{scopeID}/vpn-configs", s.listVPNConfigs)
+
+				// Your own tokens; an administrator sees everyone's.
+				r.Get("/tokens", s.listTokens)
+				r.Post("/tokens", s.createToken)
+				r.Delete("/tokens/{tokenID}", s.revokeToken)
+			})
+
+			// --- operator: everything about finding things ---
+			r.Group(func(r chi.Router) {
+				r.Use(require(auth.RoleOperator))
+
+				r.Post("/scopes", s.createScope)
+				r.Post("/scopes/{scopeID}/targets", s.addTarget)
+				r.Post("/scopes/{scopeID}/scan-profiles", s.saveScanProfile)
+				// Starting a run sends packets at somebody's infrastructure,
+				// which is why it is the boundary between reading and acting.
+				r.Post("/scopes/{scopeID}/runs", s.createRun)
+				r.Post("/runs/{runID}/cancel", s.cancelRun)
+
+				r.Post("/scopes/{scopeID}/notifications", s.createChannel)
+				r.Patch("/notifications/{channelID}", s.patchChannel)
+				r.Delete("/notifications/{channelID}", s.deleteChannel)
+				r.Post("/notifications/{channelID}/test", s.testChannel)
+				r.Patch("/findings/{findingID}", s.patchFinding)
+
+				r.Post("/wordlists", s.uploadWordlist)
+				r.Patch("/wordlists/{wordlistID}", s.patchWordlist)
+				r.Put("/wordlists/{wordlistID}/content", s.putWordlistContent)
+				r.Delete("/wordlists/{wordlistID}", s.deleteWordlist)
+			})
+
+			// --- admin: everything that changes what the system can do ---
+			r.Group(func(r chi.Router) {
+				r.Use(require(auth.RoleAdmin))
+
+				r.Get("/users", s.listUsers)
+				r.Post("/users", s.createUser)
+				r.Patch("/users/{userID}", s.patchUser)
+				r.Delete("/users/{userID}", s.deleteUser)
+
+				// Credentials for somebody else's network.
+				r.Post("/scopes/{scopeID}/vpn-configs", s.createVPNConfig)
+				r.Delete("/vpn-configs/{vpnID}", s.deleteVPNConfig)
+
+				// Enrolling a worker hands out a credential; scaling them
+				// creates containers on the host.
+				r.Post("/workers/enrollment-tokens", s.createEnrollmentToken)
+				r.Get("/workers/provision", s.getProvisionStatus)
+				r.Post("/workers/provision", s.scaleLocalWorkers)
+				r.Post("/workers/{workerID}/{action}", s.workerAction)
+				r.Delete("/workers/{workerID}", s.deleteWorker)
+			})
+		})
 	})
 	return r
 }
@@ -121,7 +169,7 @@ func (s *Server) Routes() http.Handler {
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Attacker-controlled banners/titles are rendered as text by the SPA;
-		// these headers harden the app shell itself (architecture.md §10.2).
+		// these headers harden the app shell itself (architecture.md §10.3).
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")

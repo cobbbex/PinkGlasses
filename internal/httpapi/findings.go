@@ -45,6 +45,6 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "finding.status", id.String(), map[string]any{"status": in.Status})
+	s.auditReq(r, "finding.status", id.String(), map[string]any{"status": in.Status})
 	writeJSON(w, http.StatusOK, map[string]string{"status": in.Status})
 }

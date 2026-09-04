@@ -205,7 +205,7 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit.Log(r.Context(), actor(r), "run.create", run.ID.String(),
+	s.auditReq(r, "run.create", run.ID.String(),
 		map[string]any{"profile": profile, "targets": len(saved)})
 	writeJSON(w, http.StatusCreated, run)
 }
@@ -356,6 +356,6 @@ func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.st.SetRunStatus(r.Context(), id, domain.RunCancelled)
-	s.audit.Log(r.Context(), actor(r), "run.cancel", id.String(), nil)
+	s.auditReq(r, "run.cancel", id.String(), nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }

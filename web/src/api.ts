@@ -1,11 +1,29 @@
 // Typed client for the ASM REST API. Untrusted, attacker-controlled strings
 // (banners, HTTP titles, TLS subjects) are rendered as text by React by
-// default — never with dangerouslySetInnerHTML (architecture.md §10.2).
+// default — never with dangerouslySetInnerHTML (architecture.md §10.3).
 
 export interface Scope {
   id: string; name: string; created_at: string;
   /** Who created it. Free text until real accounts exist; "local" by default. */
   created_by?: string;
+}
+/** What a signed-in person may do. Ordered: admin > operator > viewer. */
+export type Role = "admin" | "operator" | "viewer";
+export interface User {
+  id: string; username: string; display_name: string; role: Role;
+  disabled: boolean; created_at: string; last_login_at?: string | null;
+  has_password: boolean;
+}
+export interface AuthStatus {
+  /** True on a fresh install: there are no accounts yet. */
+  setup_required: boolean;
+  user?: { id: string; username: string; role: Role; via: string };
+}
+/** A credential for automation. The secret is returned once, at creation. */
+export interface ApiToken {
+  id: string; prefix: string; name: string; user_id: string; username: string;
+  role: Role; created_at: string; expires_at?: string | null;
+  revoked_at?: string | null; last_used_at?: string | null;
 }
 export interface Summary { domains: number; ips: number; services: number; open_findings: number }
 export interface Target {
@@ -156,17 +174,73 @@ export interface SearchResult {
   version?: string | null; title?: string | null; domain?: string | null;
 }
 
+/**
+ * Fired when the API says we are not signed in, so the shell can return to the
+ * login screen from wherever the user happened to be. A session can end while a
+ * tab sits idle — it expired, an administrator disabled the account, or a role
+ * changed — and the first sign of that is a 401 on an ordinary request.
+ */
+export const UNAUTHENTICATED = "pg:unauthenticated";
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch("/api/v1" + path, {
     ...init,
+    // The session cookie is HttpOnly, so it is never touched by this code;
+    // same-origin requests carry it automatically.
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
-  if (!res.ok) throw new Error((await res.text()) || res.statusText);
+  if (res.status === 401 && !path.startsWith("/auth/")) {
+    window.dispatchEvent(new CustomEvent(UNAUTHENTICATED));
+  }
+  if (!res.ok) {
+    const body = (await res.text()).trim();
+    // The API answers errors as {"error": "..."}; show that sentence rather
+    // than the JSON around it.
+    let msg = body || res.statusText;
+    try {
+      const j = JSON.parse(body);
+      if (j && typeof j.error === "string") msg = j.error;
+    } catch { /* not json; use the text */ }
+    throw new Error(msg);
+  }
   const text = await res.text();
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
+/** Role ranking, mirroring internal/auth.Role.AtLeast. */
+const RANK: Record<string, number> = { viewer: 1, operator: 2, admin: 3 };
+export function atLeast(have: Role | undefined, min: Role): boolean {
+  return (RANK[have ?? ""] ?? 0) >= RANK[min];
+}
+
 export const api = {
+  // --- authentication ---
+  authStatus: () => req<AuthStatus>("/auth/status"),
+  setup: (body: { username: string; display_name: string; password: string }) =>
+    req<{ user: User }>("/auth/setup", { method: "POST", body: JSON.stringify(body) }),
+  login: (username: string, password: string) =>
+    req<{ user: User }>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  logout: () => req<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+  me: () => req<{ user: User; via: string }>("/auth/me"),
+  changePassword: (current_password: string, new_password: string) =>
+    req<{ user: User }>("/auth/password", {
+      method: "POST", body: JSON.stringify({ current_password, new_password }),
+    }),
+
+  // --- users (admin) ---
+  users: () => req<User[] | null>("/users").then((x) => x ?? []),
+  createUser: (body: unknown) => req<User>("/users", { method: "POST", body: JSON.stringify(body) }),
+  patchUser: (id: string, body: unknown) =>
+    req<User>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteUser: (id: string) => req<{ deleted: boolean }>(`/users/${id}`, { method: "DELETE" }),
+
+  // --- API tokens ---
+  tokens: () => req<ApiToken[] | null>("/tokens").then((x) => x ?? []),
+  createToken: (body: { name: string; role: Role; ttl_days?: number }) =>
+    req<{ token: ApiToken; secret: string }>("/tokens", { method: "POST", body: JSON.stringify(body) }),
+  revokeToken: (id: string) => req<{ revoked: boolean }>(`/tokens/${id}`, { method: "DELETE" }),
+
   // mine=true narrows the list to companies this caller created. It is a view,
   // not a permission: without verified identity anyone can ask for all of them.
   scopes: (mine = false) =>

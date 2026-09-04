@@ -143,6 +143,12 @@ func sweep(ctx context.Context, st *store.Store, seeder *wordlists.Seeder) {
 	if n, err := st.ReapStaleLocalWorkers(ctx, 10*time.Minute); err == nil && n > 0 {
 		slog.Info("reaped stale local workers", "count", n)
 	}
+	// Sessions that have aged out. Lookup already refuses an expired session,
+	// so this is housekeeping rather than enforcement — but a table that only
+	// ever grows is its own problem.
+	if n, err := st.ReapExpiredSessions(ctx); err == nil && n > 0 {
+		slog.Info("reaped expired sessions", "count", n)
+	}
 	// Cert-expiry finding sweep would run here (ExpiringCerts).
 	_, _ = st.ExpiringCerts(ctx, 14*24*time.Hour)
 }
