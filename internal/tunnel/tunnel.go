@@ -1,8 +1,14 @@
-package scanner
+// Package tunnel brings up a VPN and refuses to pretend it worked.
+//
+// The one rule this package exists to enforce: traffic must be shown to leave
+// by a different address than it did before, or the tunnel is not considered
+// up. A tunnel that failed to establish, or established without changing the
+// route, would send a scan out of the address the tunnel was chosen to avoid —
+// so an unverifiable tunnel is a failure, never a fallback.
+package tunnel
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,7 +21,7 @@ import (
 	"time"
 )
 
-// A tunnel is a VPN this worker is scanning through.
+// Tunnel is a VPN this process is routing through.
 //
 // The rule this file exists to enforce: a scan bound to a VPN must not run if
 // the VPN is not carrying it. A tunnel that failed to come up, or came up
@@ -23,7 +29,7 @@ import (
 // target — the precise thing choosing a VPN was meant to prevent. So the
 // address is measured before and after, and the tunnel is only considered up if
 // it changed.
-type tunnel struct {
+type Tunnel struct {
 	mu       sync.Mutex
 	configID string
 	iface    string
@@ -62,9 +68,9 @@ var egressCheckURLs = []string{
 	"https://icanhazip.com",
 }
 
-// observedEgressIP reports the address this box appears to come from, or "" if
+// ObservedEgressIP reports the address this box appears to come from, or "" if
 // nothing answered.
-func observedEgressIP(ctx context.Context) string {
+func ObservedEgressIP(ctx context.Context) string {
 	c := &http.Client{Timeout: 12 * time.Second}
 	for _, u := range egressCheckURLs {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -86,7 +92,7 @@ func observedEgressIP(ctx context.Context) string {
 
 // up brings the tunnel described by cfg online and verifies the egress address
 // changed. It is idempotent for the same config id.
-func (t *tunnel) up(ctx context.Context, configID, kind, body string) error {
+func (t *Tunnel) Up(ctx context.Context, configID, kind, body string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.configID == configID && t.iface != "" {
@@ -100,7 +106,7 @@ func (t *tunnel) up(ctx context.Context, configID, kind, body string) error {
 	// against. Without it there is nothing to compare, so the tunnel cannot be
 	// verified — and an unverifiable tunnel must not carry a scan. Refusing
 	// here is the difference between a VPN and a hope.
-	base := observedEgressIP(ctx)
+	base := ObservedEgressIP(ctx)
 	if base == "" {
 		return fmt.Errorf("cannot determine this worker's address, so a tunnel cannot be verified; refusing to scan")
 	}
@@ -174,7 +180,7 @@ func (t *tunnel) up(ctx context.Context, configID, kind, body string) error {
 			return ctx.Err()
 		case <-time.After(3 * time.Second):
 		}
-		got := observedEgressIP(ctx)
+		got := ObservedEgressIP(ctx)
 		if got == "" || got == base {
 			continue // nothing answered yet, or traffic is still taking the old path
 		}
@@ -195,13 +201,13 @@ func (t *tunnel) up(ctx context.Context, configID, kind, body string) error {
 }
 
 // down tears the tunnel down and removes the config from disk.
-func (t *tunnel) down() {
+func (t *Tunnel) Down() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.downLocked()
 }
 
-func (t *tunnel) downLocked() {
+func (t *Tunnel) downLocked() {
 	if t.iface == "" {
 		t.cleanupLocked()
 		return
@@ -227,7 +233,7 @@ func (t *tunnel) downLocked() {
 }
 
 // cleanupLocked removes the temporary directory holding the config.
-func (t *tunnel) cleanupLocked() {
+func (t *Tunnel) cleanupLocked() {
 	if t.dir != "" {
 		_ = os.RemoveAll(t.dir)
 		t.dir = ""
@@ -236,7 +242,7 @@ func (t *tunnel) cleanupLocked() {
 
 // resetLocked forgets everything about a tunnel that is not up, so a failed
 // attempt can never be mistaken for a live one.
-func (t *tunnel) resetLocked() {
+func (t *Tunnel) resetLocked() {
 	t.iface, t.kind, t.configID, t.egressIP, t.baseIP, t.cmd = "", "", "", "", "", nil
 	t.restore = nil
 	if t.logFile != nil {
@@ -248,7 +254,7 @@ func (t *tunnel) resetLocked() {
 }
 
 // currentEgress reports the address the tunnel is exiting from, or "".
-func (t *tunnel) currentEgress() string {
+func (t *Tunnel) Egress() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.egressIP
@@ -259,34 +265,4 @@ func runTunnelCmd(ctx context.Context, timeout time.Duration, name string, args 
 	defer cancel()
 	out, err := exec.CommandContext(cctx, name, args...).CombinedOutput()
 	return strings.TrimSpace(string(out)), err
-}
-
-// fetchVPNConfig asks the gateway for the config body of the tunnel this job
-// requires. The body is never written to a log and lives only in the temporary
-// directory the tunnel owns.
-func (a *Agent) fetchVPNConfig(ctx context.Context, configID string) (kind, body string, err error) {
-	url := fmt.Sprintf("%s/agent/v1/vpn-config?id=%s", a.cfg.GatewayURL, configID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", "", err
-	}
-	req.Header.Set("X-Worker-Id", a.workerID)
-	req.Header.Set("X-Worker-Credential", a.cred)
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return "", "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
-		return "", "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
-	}
-	var out struct{ Kind, Config string }
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return "", "", err
-	}
-	if out.Config == "" {
-		return "", "", fmt.Errorf("the gateway returned an empty configuration")
-	}
-	return out.Kind, out.Config, nil
 }

@@ -244,6 +244,18 @@ func (p *Planner) vpnRequirement(ctx context.Context, run domain.ScanRun) []stri
 	if id == nil {
 		return nil
 	}
+	// A run with its own containers carries the tunnel in its gateway, and its
+	// workers reach it by sharing that gateway's network namespace rather than
+	// by building anything. Demanding `vpn` of them would route the run's work
+	// to a capability none of its workers report, and the pool the tasks are
+	// already bound to means no other worker can take them either — so the run
+	// would simply never move.
+	if fleet, err := p.st.RunHasFleet(ctx, run.ID); err != nil {
+		slog.Error("could not tell whether this run has its own workers; "+
+			"keeping the tunnel requirement", "run", run.ID, "err", err)
+	} else if fleet {
+		return nil
+	}
 	return []string{string(scanproto.CapVPN)}
 }
 

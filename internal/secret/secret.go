@@ -23,7 +23,7 @@ import (
 // ErrNoKey is returned when ASM_SECRET_KEY is unset or too weak to use.
 var ErrNoKey = errors.New(
 	"ASM_SECRET_KEY is not set: generate one with `openssl rand -base64 32` and " +
-		"set it on the api and gateway before storing secrets")
+		"set it on the api, gateway and scheduler before storing secrets")
 
 var (
 	once   sync.Once

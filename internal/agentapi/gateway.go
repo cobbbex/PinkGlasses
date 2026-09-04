@@ -312,6 +312,18 @@ func (g *Gateway) attachVPN(ctx context.Context, job *scanproto.Job) {
 	if id == nil {
 		return
 	}
+	// A run with its own containers is already inside the tunnel: its gateway
+	// raised it before any worker started, and the workers share that
+	// namespace. Handing one the config would send it off to build a tunnel it
+	// has neither the capability nor the device for, and fail the task.
+	if fleet, ferr := g.st.RunHasFleet(ctx, runID); ferr != nil {
+		slog.Error("could not tell whether this run has its own workers; "+
+			"attaching the tunnel", "run", job.RunID, "err", ferr)
+	} else if fleet {
+		slog.Info("dispatching inside the run's own VPN gateway",
+			"run", job.RunID, "stage", job.Stage)
+		return
+	}
 	job.Params.VPNConfigID = id.String()
 	slog.Info("dispatching through tunnel", "run", job.RunID, "stage", job.Stage, "config", id.String())
 }

@@ -335,6 +335,13 @@ function WorkerTable({
                 <tr key={w.id}>
                   <td>
                     {w.name}
+                    {w.run_scoped && (
+                      <span
+                        className="pill"
+                        style={{ marginLeft: 6, fontSize: 10.5 }}
+                        title="This worker belongs to one scan. It takes that scan's tasks only, and is destroyed when the scan ends."
+                      >one scan</span>
+                    )}
                     <div className="muted" style={{ fontSize: 11.5 }}>{w.kind} · {w.agent_version || "—"}</div>
                   </td>
                   <td><Badge status={w.status} /></td>

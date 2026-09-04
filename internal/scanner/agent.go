@@ -20,6 +20,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/benlik386/pinkglasses/internal/scanproto"
+	"github.com/benlik386/pinkglasses/internal/tunnel"
 )
 
 // AgentConfig configures the worker runtime.
@@ -55,7 +56,9 @@ type Agent struct {
 	spool *spool
 
 	// tun is the VPN this worker is currently scanning through, if any.
-	tun tunnel
+	// A worker in a run fleet never uses this: its egress comes from the
+	// gateway container whose network namespace it shares.
+	tun tunnel.Tunnel
 
 	// writeMu serialises control-channel writes. gorilla/websocket permits one
 	// concurrent writer, and the heartbeat ticker and the shutdown announcement
@@ -320,11 +323,17 @@ func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
 		// No tunnel for this job. If one is still up from an earlier run, take
 		// it down first: a scan that asked for nothing must leave from this
 		// worker's own address, not from whichever exit the last run chose.
-		if a.tun.currentEgress() != "" {
+		if a.tun.Egress() != "" {
 			slog.Info("this task uses no tunnel; taking the previous one down",
 				"stage", job.Stage, "task", job.TaskID)
-			a.tun.down()
+			a.tun.Down()
 		}
+	} else if os.Getenv("PG_EGRESS_FIXED") == "1" {
+		// This worker shares a VPN gateway's network namespace: the tunnel was
+		// raised, and its address change verified, before this container was
+		// started. There is nothing to build and no route here to change.
+		slog.Info("scanning inside this run's VPN gateway; no tunnel to build here",
+			"stage", job.Stage, "task", job.TaskID, "config", id)
 	} else {
 		if err := a.ensureTunnel(ctx, id); err != nil {
 			slog.Error("refusing to scan: the tunnel is not carrying this traffic",
@@ -388,10 +397,10 @@ func (a *Agent) ensureTunnel(ctx context.Context, configID string) error {
 	if err != nil {
 		return fmt.Errorf("fetching the configuration: %w", err)
 	}
-	if err := a.tun.up(ctx, configID, kind, body); err != nil {
+	if err := a.tun.Up(ctx, configID, kind, body); err != nil {
 		return err
 	}
-	a.reportEgress(ctx, configID, a.tun.currentEgress())
+	a.reportEgress(ctx, configID, a.tun.Egress())
 	return nil
 }
 

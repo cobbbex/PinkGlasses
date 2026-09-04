@@ -81,6 +81,13 @@ services:
       # cookielab target above is reachable. Off unless you set it.
       ASM_ALLOW_PRIVATE_TARGETS: "${ASM_ALLOW_PRIVATE_TARGETS:-false}"
       ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
+      # A run can bring up its own workers, behind a VPN gateway of its own.
+      # The scheduler builds and destroys them through the provisioner, and
+      # needs the sealing key to open the VPN config it hands the gateway.
+      ASM_PROVISIONER_URL: "http://provisioner:8091"
+      ASM_PROVISIONER_TOKEN: "${ASM_PROVISIONER_TOKEN:-change-me-provisioner}"
+      ASM_MAX_RUN_FLEETS: "${ASM_MAX_RUN_FLEETS:-3}"
+      ASM_SECRET_KEY: "${ASM_SECRET_KEY:-}"
       # the seeder uploads the built-in wordlists into object storage
       ASM_S3_ENDPOINT: "http://minio:9000"
       ASM_S3_BUCKET: "${ASM_S3_BUCKET:-asm-artifacts}"
@@ -168,15 +175,19 @@ services:
       - workerspool:/var/cache/asm/spool
     depends_on: [gateway]
 
-  # A worker that can scan through a VPN. Same image as `worker`, but with the
-  # privileges a tunnel needs: NET_ADMIN to create an interface and set routes,
-  # and /dev/net/tun for the device itself.
+  # A worker that raises its own tunnel: same image as `worker`, plus the
+  # privileges one needs (NET_ADMIN for the interface and routes, /dev/net/tun
+  # for the device).
   #
-  # It is a separate service on purpose. NET_ADMIN lets a container rewrite its
-  # networking, so granting it to every worker would widen what a worker
-  # compromise is worth on scans that never touch a VPN. Runs bound to a tunnel
-  # demand the `vpn` capability, which only this container reports, so they can
-  # only ever be leased here.
+  # NOT needed on this compose file, and off by default. A run that scans
+  # through a VPN gets its own gateway container instead, which holds the tunnel
+  # while the run's workers share its network namespace and hold nothing —
+  # architecture.md §7.6. Keeping NET_ADMIN out of the container that parses
+  # nmap, chromium and nuclei output is the whole point of that shape.
+  #
+  # This service is the fallback for a control plane with no provisioner, where
+  # nothing can build a gateway. There a run bound to a tunnel demands the `vpn`
+  # capability, which only this container reports, so it is leased only here.
   #
   #   docker compose --profile vpn up -d worker-vpn
   worker-vpn:

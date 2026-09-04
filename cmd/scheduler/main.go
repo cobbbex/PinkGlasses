@@ -15,6 +15,7 @@ import (
 	"github.com/benlik386/pinkglasses/internal/config"
 	"github.com/benlik386/pinkglasses/internal/diff"
 	"github.com/benlik386/pinkglasses/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/fleet"
 	"github.com/benlik386/pinkglasses/internal/notify"
 	"github.com/benlik386/pinkglasses/internal/obj"
 	"github.com/benlik386/pinkglasses/internal/planner"
@@ -53,6 +54,15 @@ func main() {
 	// Digests go out after the differ has recorded what a run changed. The
 	// senders existed since the first build; nothing called them.
 	nt := notify.New(st, os.Getenv("ASM_PUBLIC_URL"))
+	// Runs that bring up their own workers. The scheduler owns this rather than
+	// the api because it has to outlive the request that asked for it: the
+	// containers must come down when the run ends, whatever happened in between.
+	fl := fleet.New(st, cfg.ProvisionerURL, cfg.ProvisionerToken, cfg.MaxRunFleets)
+	if fl.Enabled() {
+		slog.Info("run fleets enabled", "max_concurrent", cfg.MaxRunFleets)
+		// Containers whose run ended while this was not running.
+		go fl.SweepOrphans(ctx)
+	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -71,8 +81,12 @@ func main() {
 			return
 		case <-ticker.C:
 			tick(ctx, st, pl, df, nt)
+			// After tick, so a run that just finished has its containers
+			// removed on this pass rather than the next one.
+			fl.Tick(ctx)
 			if time.Since(lastSweep) >= sweepEvery {
 				sweep(ctx, st, seeder)
+				fl.SweepOrphans(ctx)
 				lastSweep = time.Now()
 			}
 		}

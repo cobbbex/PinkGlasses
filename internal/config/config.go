@@ -31,6 +31,14 @@ type Gateway struct {
 type Scheduler struct {
 	DatabaseURL string
 	Tick        time.Duration
+	// The provisioner is how a run gets containers of its own. Left empty the
+	// scheduler manages no fleets, which is correct on a control plane that
+	// runs no provisioner: runs that ask for their own workers are then failed
+	// with a reason rather than waiting for a builder that will never come.
+	ProvisionerURL   string
+	ProvisionerToken string
+	// MaxRunFleets caps how many runs may hold containers at once.
+	MaxRunFleets int
 }
 
 // Worker holds configuration for a scan box.
@@ -72,11 +80,11 @@ func LoadAPI() API {
 // LoadGateway builds Gateway config from the environment.
 func LoadGateway() Gateway {
 	return Gateway{
-		DatabaseURL:      env("ASM_DATABASE_URL", "postgres://asm:asm@localhost:5432/asm?sslmode=disable"),
-		Addr:             env("ASM_GATEWAY_ADDR", ":8090"),
-		PublicGatewayURL: env("ASM_PUBLIC_GATEWAY_URL", "http://localhost:8090"),
-		S3:               s3FromEnv(),
-		LeaseTTL:         envDuration("ASM_LEASE_TTL", 2*time.Minute),
+		DatabaseURL:         env("ASM_DATABASE_URL", "postgres://asm:asm@localhost:5432/asm?sslmode=disable"),
+		Addr:                env("ASM_GATEWAY_ADDR", ":8090"),
+		PublicGatewayURL:    env("ASM_PUBLIC_GATEWAY_URL", "http://localhost:8090"),
+		S3:                  s3FromEnv(),
+		LeaseTTL:            envDuration("ASM_LEASE_TTL", 2*time.Minute),
 		LocalBootstrapToken: env("ASM_LOCAL_BOOTSTRAP_TOKEN", ""),
 	}
 }
@@ -84,8 +92,11 @@ func LoadGateway() Gateway {
 // LoadScheduler builds Scheduler config from the environment.
 func LoadScheduler() Scheduler {
 	return Scheduler{
-		DatabaseURL: env("ASM_DATABASE_URL", "postgres://asm:asm@localhost:5432/asm?sslmode=disable"),
-		Tick:        envDuration("ASM_SCHED_TICK", 15*time.Second),
+		DatabaseURL:      env("ASM_DATABASE_URL", "postgres://asm:asm@localhost:5432/asm?sslmode=disable"),
+		Tick:             envDuration("ASM_SCHED_TICK", 15*time.Second),
+		ProvisionerURL:   env("ASM_PROVISIONER_URL", ""),
+		ProvisionerToken: env("ASM_PROVISIONER_TOKEN", ""),
+		MaxRunFleets:     envInt("ASM_MAX_RUN_FLEETS", 3),
 	}
 }
 

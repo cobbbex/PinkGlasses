@@ -42,6 +42,10 @@ RUN go mod download
 COPY . .
 ARG VERSION=0.1.0
 RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/worker ./cmd/worker
+# The VPN gateway runs from the same image: one image to build and pull, and
+# the gateway shares the tunnel code the worker already carries. Which of the
+# two a container is comes from its entrypoint, not from a separate build.
+RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/vpngw ./cmd/vpngw
 
 # --- final runtime ---
 # --- wordlists and resolvers (Tools.md) ---
@@ -64,8 +68,13 @@ RUN set -eux; \
 FROM alpine:3.20
 # nmap for service versions (§2), ffuf for directory brute (§5), chromium for
 # screenshots (§4), libpcap as naabu's runtime dependency for SYN scans.
+#
+# iproute2 is named explicitly rather than left to wireguard-tools to pull in:
+# the tunnel is built with `ip link add ... type wireguard` directly, and
+# busybox's `ip` does not know that link type. Without it a VPN gateway starts,
+# fails to create the interface, and reports it as an unroutable tunnel.
 RUN apk add --no-cache ca-certificates nmap nmap-scripts ffuf chromium libpcap \
-    wireguard-tools openvpn iptables ip6tables
+    wireguard-tools openvpn iptables ip6tables iproute2
 
 # wordlists + resolvers used by shuffledns, gobuster dns and gobuster dir
 COPY --from=wordlists /wordlists/ /usr/share/asm/wordlists/
@@ -93,6 +102,7 @@ COPY --from=massdns /massdns /usr/local/bin/massdns
 
 # our binary
 COPY --from=build /out/worker /usr/local/bin/worker
+COPY --from=build /out/vpngw  /usr/local/bin/vpngw
 
 # Per-container credential (no shared volume, so replicas never clobber
 # each other). Lost on recreate, which is fine: the worker re-enrolls.

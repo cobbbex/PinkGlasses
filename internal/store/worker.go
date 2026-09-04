@@ -126,8 +126,11 @@ func (s *Store) TouchWorker(ctx context.Context, id uuid.UUID, egressIP string) 
 // ListWorkers returns all workers for the fleet page.
 func (s *Store) ListWorkers(ctx context.Context) ([]domain.Worker, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, pool_id, name, kind, status, capabilities, tools, agent_version, host(egress_ip), country, max_concurrency, running_tasks, last_seen_at, enrolled_at
-		FROM worker ORDER BY enrolled_at DESC`)
+		SELECT w.id, w.pool_id, w.name, w.kind, w.status, w.capabilities, w.tools, w.agent_version,
+		       host(w.egress_ip), w.country, w.max_concurrency, w.running_tasks, w.last_seen_at, w.enrolled_at,
+		       coalesce(p.run_scoped, false)
+		FROM worker w LEFT JOIN worker_pool p ON p.id = w.pool_id
+		ORDER BY w.enrolled_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +140,8 @@ func (s *Store) ListWorkers(ctx context.Context) ([]domain.Worker, error) {
 		var w domain.Worker
 		var toolsRaw []byte
 		if err := rows.Scan(&w.ID, &w.PoolID, &w.Name, &w.Kind, &w.Status, &w.Capabilities, &toolsRaw,
-			&w.AgentVersion, &w.EgressIP, &w.Country, &w.MaxConcurrency, &w.RunningTasks, &w.LastSeenAt, &w.EnrolledAt); err != nil {
+			&w.AgentVersion, &w.EgressIP, &w.Country, &w.MaxConcurrency, &w.RunningTasks,
+			&w.LastSeenAt, &w.EnrolledAt, &w.RunScoped); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(toolsRaw, &w.Tools)

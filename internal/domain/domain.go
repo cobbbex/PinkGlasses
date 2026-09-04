@@ -160,6 +160,10 @@ type Worker struct {
 	RunningTasks   int               `json:"running_tasks"`
 	LastSeenAt     *time.Time        `json:"last_seen_at,omitempty"`
 	EnrolledAt     time.Time         `json:"enrolled_at"`
+	// RunScoped marks a worker one scan brought up for itself and will destroy
+	// when it finishes (architecture.md §7.6). Worth showing: these appear and
+	// vanish on their own, and they will not take anyone else's work.
+	RunScoped bool `json:"run_scoped"`
 }
 
 // Domain is a discovered (sub)domain.

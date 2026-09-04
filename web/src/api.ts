@@ -43,6 +43,18 @@ export interface Worker {
   tools: Record<string, string>; agent_version: string; egress_ip?: string | null;
   country?: string | null; max_concurrency: number; running_tasks: number;
   last_seen_at?: string | null;
+  /** Brought up by one scan for itself, and destroyed when that scan ends. */
+  run_scoped?: boolean;
+}
+/**
+ * The containers a run brought up for itself: its own workers, and a VPN
+ * gateway when it scans through a tunnel. `error` is the only record of why a
+ * run whose fleet failed to come up did — scan_run has no error column.
+ */
+export interface RunFleet {
+  run_id: string; workers: number; status: "requested" | "up" | "failed" | "torn_down";
+  vpn_config_id?: string | null; error?: string | null; egress_ip?: string | null;
+  created_at: string; ready_at?: string | null;
 }
 /** One run's verdict on a finding: it looked, and did or did not see it. */
 export interface FindingRun {
@@ -220,7 +232,8 @@ export const api = {
     req<{ id: string }>(`/scopes/${s}/scan-profiles`, { method: "POST", body: JSON.stringify(body) }),
   createRun: (s: string, body: unknown) =>
     req<Run>(`/scopes/${s}/runs`, { method: "POST", body: JSON.stringify(body) }),
-  run: (id: string) => req<{ run: Run; progress: any }>(`/runs/${id}`),
+  run: (id: string) =>
+    req<{ run: Run; progress: any; fleet?: RunFleet }>(`/runs/${id}`),
   // The server answers [] for an empty list, but the panels here read .length
   // off every one of these, so a null from an older build white-screens the run
   // view rather than degrading. Coerce on the way in.

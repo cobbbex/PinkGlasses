@@ -25,9 +25,13 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		Params    map[string]string `json:"params"`     // ad-hoc overrides
 		// Lists of any kind. A kind not named here falls back to its defaults.
 		WordlistIDs []string `json:"wordlist_ids"`
-		// VPNConfigID routes this run's active stages through a tunnel, and
-		// restricts them to workers that can build one.
+		// VPNConfigID routes this run's traffic through a tunnel.
 		VPNConfigID string `json:"vpn_config_id"`
+		// OwnWorkers asks for containers brought up for this run alone and
+		// destroyed with it. Implied by choosing a VPN: the tunnel lives in a
+		// gateway container the run's workers share a namespace with.
+		OwnWorkers  bool `json:"own_workers"`
+		WorkerCount int  `json:"worker_count"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
@@ -149,19 +153,44 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var vpnID *uuid.UUID
 	if in.VPNConfigID != "" {
-		vpnID, err := uuid.Parse(in.VPNConfigID)
+		parsed, err := uuid.Parse(in.VPNConfigID)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "bad vpn config id")
 			return
 		}
-		vc, err := s.st.GetVPNConfig(r.Context(), vpnID)
+		vpnID = &parsed
+		vc, err := s.st.GetVPNConfig(r.Context(), *vpnID)
 		if err != nil || vc.ScopeID != scopeID {
 			writeErr(w, http.StatusBadRequest, "unknown vpn config")
 			return
 		}
-		if err := s.st.SetRunVPN(r.Context(), run.ID, vpnID); err != nil {
+		if err := s.st.SetRunVPN(r.Context(), run.ID, *vpnID); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	// A run with its own fleet gets a pool nothing else can lease from, and an
+	// enrollment token bound to it. That is all the routing needs: the lease
+	// query already refuses to give a pooled worker another run's tasks.
+	//
+	// A tunnel implies a fleet, because the tunnel lives in a gateway container
+	// the run's own workers share a namespace with — except where there is no
+	// provisioner to build one. There the older path still works: the run's
+	// traffic tasks demand the `vpn` capability and are leased by a worker
+	// privileged to raise the tunnel itself (architecture.md §7.6).
+	prov := newProvisionClient().enabled()
+	if in.OwnWorkers && !prov {
+		writeErr(w, http.StatusBadRequest,
+			"this run asked for workers of its own, but no provisioner is configured "+
+				"to create them: set ASM_PROVISIONER_URL and ASM_PROVISIONER_TOKEN")
+		return
+	}
+	if in.OwnWorkers || (in.VPNConfigID != "" && prov) {
+		if err := s.requestRunFleet(r.Context(), run, in.WorkerCount, vpnID); err != nil {
+			writeErr(w, http.StatusInternalServerError, "could not request workers for this run: "+err.Error())
 			return
 		}
 	}
@@ -207,7 +236,15 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prog, _ := s.st.RunProgress(r.Context(), id)
-	writeJSON(w, http.StatusOK, map[string]any{"run": run, "progress": prog})
+	out := map[string]any{"run": run, "progress": prog}
+	// A run with its own containers carries its explanation here and nowhere
+	// else: scan_run has no error column, so a fleet that failed to come up is
+	// the only record of why the run did. The enrollment token is not part of
+	// the JSON (see store.RunFleet).
+	if f, ok, err := s.st.GetRunFleet(r.Context(), id); err == nil && ok {
+		out["fleet"] = f
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) runTargets(w http.ResponseWriter, r *http.Request) {

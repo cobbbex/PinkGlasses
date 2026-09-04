@@ -1,4 +1,4 @@
-package scanner
+package tunnel
 
 import (
 	"context"
@@ -122,7 +122,7 @@ func carriesDefault(allowed []string) bool {
 
 // wgUp builds the interface. It returns the routing it changed so wgDown can
 // put it back.
-func (t *tunnel) wgUp(ctx context.Context, iface, body, dir string) (restore func(context.Context), err error) {
+func (t *Tunnel) wgUp(ctx context.Context, iface, body, dir string) (restore func(context.Context), err error) {
 	cfg, err := parseWG(body)
 	if err != nil {
 		return nil, fmt.Errorf("configuration: %w", err)

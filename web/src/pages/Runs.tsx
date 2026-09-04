@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, Run, RunTarget, RunActivity } from "../api";
+import { api, Run, RunTarget, RunActivity, RunFleet } from "../api";
 import { Badge, useToast, Modal } from "../components/ui";
 import ScanSettings from "../components/ScanSettings";
 
@@ -116,6 +116,13 @@ function LaunchModal({
   const [wordlistIDs, setWordlistIDs] = useState<string[]>([]);
   // Which tunnel this run leaves through. Empty means the worker's own address.
   const [vpnID, setVpnID] = useState("");
+  // Whether the run brings up workers of its own for the duration. Choosing a
+  // tunnel implies it: the tunnel lives in a gateway container the run's own
+  // workers share a network namespace with, so there is nothing to share it
+  // with unless the run has workers of its own.
+  const [ownWorkers, setOwnWorkers] = useState(false);
+  const [workerCount, setWorkerCount] = useState(2);
+  const fleet = ownWorkers || !!vpnID;
   const { data: vpn } = useQuery({
     queryKey: ["vpn", scopeID], queryFn: () => api.vpnConfigs(scopeID),
   });
@@ -130,6 +137,7 @@ function LaunchModal({
         ...(Object.keys(params).length ? { params } : {}),
         ...(wordlistIDs.length ? { wordlist_ids: wordlistIDs } : {}),
         ...(vpnID ? { vpn_config_id: vpnID } : {}),
+        ...(fleet ? { own_workers: true, worker_count: workerCount } : {}),
       });
       toast("ok", `${profile} scan started`);
       onDone();
@@ -145,6 +153,15 @@ function LaunchModal({
     setManual(false);
     onClose();
   }
+
+  // Standing workers cannot pick up a fleet run's tasks, so the modal says what
+  // will actually run the scan rather than leaving it to be discovered.
+  const fleetNote = vpnID
+    ? `This run brings up a VPN gateway and ${workerCount} worker${workerCount === 1 ? "" : "s"} of its own, ` +
+      "and destroys them when it finishes. The gateway holds the tunnel; the workers share its network, " +
+      "so everything the scan sends leaves through the VPN. No other worker takes work from this run."
+    : `This run brings up ${workerCount} worker${workerCount === 1 ? "" : "s"} of its own and destroys them ` +
+      "when it finishes. They take work from this run only, so a long scan cannot occupy the standing fleet.";
 
   const listChoices = wordlistIDs.length;
 
@@ -198,12 +215,36 @@ function LaunchModal({
               </option>
             ))}
           </select>
-          {vpnID && (
-            <span className="hint muted">
-              Runs only on a worker that can build the tunnel, and only if its address
-              actually changes.
-            </span>
-          )}
+        </div>
+      )}
+
+      <label className="check" style={{ cursor: vpnID ? "default" : "pointer", marginTop: 4 }}>
+        <input
+          type="checkbox"
+          checked={fleet}
+          disabled={!!vpnID}
+          onChange={(e) => setOwnWorkers(e.target.checked)}
+        />
+        <span>
+          <strong>Give this run its own workers</strong>
+          <div className="hint" style={{ marginTop: 2 }}>
+            {vpnID
+              ? "Required when scanning through a VPN — the tunnel lives in a gateway container these workers share."
+              : "Containers created for this scan and destroyed when it ends."}
+          </div>
+        </span>
+      </label>
+
+      {fleet && (
+        <div className="row" style={{ marginTop: 6 }}>
+          <label className="param-label" style={{ minWidth: 0 }}>Workers</label>
+          <input
+            type="number" min={1} max={8} value={workerCount}
+            style={{ width: 70 }}
+            onChange={(e) =>
+              setWorkerCount(Math.min(8, Math.max(1, Number(e.target.value) || 1)))}
+          />
+          <span className="hint muted" style={{ flex: 1 }}>{fleetNote}</span>
         </div>
       )}
 
@@ -282,6 +323,53 @@ function RunProgress({ run }: { run: Run }) {
 }
 
 // Per-target progress; live-updated via the run's SSE stream.
+/**
+ * What a run's own containers are doing, when it has any.
+ *
+ * This is the only place a fleet failure is explained: the run row says
+ * "failed" and the database has nowhere else to put the reason, so a VPN
+ * gateway that never came up would otherwise be a scan that failed silently.
+ */
+function FleetBanner({ runID }: { runID: string }) {
+  const { data } = useQuery({
+    queryKey: ["run", runID], queryFn: () => api.run(runID),
+    refetchInterval: (q) => {
+      const st = (q.state.data as { fleet?: RunFleet } | undefined)?.fleet?.status;
+      return st === "requested" || st === "up" ? 4000 : false;
+    },
+  });
+  const f = data?.fleet;
+  if (!f) return null;
+
+  const what = f.vpn_config_id
+    ? `a VPN gateway and ${f.workers} worker${f.workers === 1 ? "" : "s"}`
+    : `${f.workers} worker${f.workers === 1 ? "" : "s"}`;
+  const line: Record<RunFleet["status"], string> = {
+    requested: `Starting ${what} for this run…`,
+    up: `Running on ${what} brought up for this run.`,
+    failed: `This run could not get ${what} of its own.`,
+    torn_down: `Ran on ${what} of its own, since destroyed.`,
+  };
+
+  return (
+    <div
+      className="empty"
+      style={{
+        textAlign: "left", margin: "8px 0", padding: "8px 12px", fontSize: 13,
+        borderColor: f.status === "failed" ? "var(--warn)" : undefined,
+      }}
+    >
+      <strong>{line[f.status]}</strong>
+      {f.egress_ip && (
+        <span className="muted"> Scanning from <span className="mono">{f.egress_ip}</span>.</span>
+      )}
+      {f.error && (
+        <div className="mono wrap" style={{ marginTop: 6, fontSize: 12 }}>{f.error}</div>
+      )}
+    </div>
+  );
+}
+
 function RunDetail({ runID }: { runID: string }) {
   const [targets, setTargets] = useState<RunTarget[]>([]);
   useEffect(() => {
@@ -294,10 +382,20 @@ function RunDetail({ runID }: { runID: string }) {
     return () => { live = false; es.close(); clearInterval(iv); };
   }, [runID]);
 
-  if (!targets.length) return <div className="muted" style={{ padding: 12 }}>Planning…</div>;
+  // The banner renders before the targets check: a run waiting on containers
+  // that will never arrive is exactly the case where "Planning…" alone is a lie.
+  if (!targets.length) {
+    return (
+      <div style={{ padding: 12 }}>
+        <FleetBanner runID={runID} />
+        <span className="muted">Planning…</span>
+      </div>
+    );
+  }
 
   return (
     <>
+    <FleetBanner runID={runID} />
     <table style={{ margin: "6px 0" }}>
       <thead><tr><th>Target</th><th>Status</th><th>Progress</th></tr></thead>
       <tbody>

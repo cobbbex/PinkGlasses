@@ -213,6 +213,65 @@ inventory with fabricated assets (`architecture.md` §10.3).
 The install token is single-use and expires in 1 hour; the worker's long-lived credential is
 minted on enrollment and never leaves the box. See `scripts/install.sh`.
 
+## Scanning through a VPN
+
+**VPN configs** takes OpenVPN `.ovpn` and WireGuard `.conf` files. Pick one in the
+scan-launch dialog under **Scan from**, and everything that run sends at a target leaves
+through that tunnel.
+
+The run gets **containers of its own** to do it. One gateway container raises the tunnel;
+the run's workers share its network namespace, so their traffic is routed through it
+without any of them holding the privilege to raise a tunnel themselves. Both are destroyed
+when the run finishes.
+
+```
+vpn gateway ──── tun0, default route ──── the internet
+     ▲
+     └── network namespace shared by ──── run worker 0, run worker 1, …
+                                          (nmap, chromium, nuclei, gobuster)
+```
+
+Three things follow from that shape, and they are the reasons for it:
+
+- **The workers never hold `NET_ADMIN` or `/dev/net/tun`.** The container running scanners
+  over hostile output is the one most likely to be exploited; it is the one that should
+  hold the least. Sharing a namespace gives it the tunnel's routing and none of its
+  capability.
+- **A worker cannot exist outside the tunnel.** The workers are started only after the
+  gateway reports healthy, and it reports healthy only once its public address has actually
+  changed. If the tunnel never comes up, no worker is started, the containers are removed,
+  and the run fails with the gateway's last log lines rather than quietly scanning from
+  your own address.
+- **No other worker can take the run's work.** The run is bound to a pool created for it
+  alone, so there is no path by which one of its tasks runs outside the tunnel.
+
+The egress address the gateway observed is recorded against the VPN config and shown in
+**VPN configs**, so you can confirm where a scan actually came from.
+
+You can also ask for a run's own workers **without** a VPN — the checkbox in the launch
+dialog — when you want a long scan not to occupy the standing fleet. Up to 8 workers per
+run; at most 3 runs hold their own containers at once (`ASM_MAX_RUN_FLEETS`).
+
+### If it does not come up
+
+The run fails with the reason, which is the gateway container's own output. The usual ones:
+
+| Message | Cause |
+|---|---|
+| `the VPN gateway did not report a working tunnel within 90s` | The endpoint is unreachable, or the credentials are wrong |
+| `…stopped before its tunnel came up: …` | The tail is openvpn's or wg's own error — read it literally |
+| `the VPN configuration could not be decrypted` | `ASM_SECRET_KEY` differs from the one the config was stored under |
+| `the provisioner is unreachable` | `ASM_PROVISIONER_URL` / `ASM_PROVISIONER_TOKEN` are not set on the **scheduler** |
+| `this run's own workers stopped reporting for 2m0s` | The tunnel dropped mid-scan; the workers lost every route with it |
+
+A WireGuard config whose `AllowedIPs` does not include a default route is rejected at
+upload: a tunnel that carries nothing is worse than no tunnel, because it looks like one.
+
+**Requirements.** The scheduler needs `ASM_PROVISIONER_URL`, `ASM_PROVISIONER_TOKEN` and
+`ASM_SECRET_KEY` — the shipped `docker-compose.yml` sets all three. Config bodies are
+sealed with AES-256-GCM at rest, are never returned by any API endpoint, and are never
+written to a log.
+
 ## The Hosts view
 
 Names and the machines they point at are one question in practice, so there is a

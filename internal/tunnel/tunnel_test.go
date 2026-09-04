@@ -1,4 +1,4 @@
-package scanner
+package tunnel
 
 import (
 	"context"
@@ -14,10 +14,10 @@ import (
 // early return and scanned with no tunnel — the exact leak the feature exists
 // to prevent, made worse by looking like success.
 func TestFailedTunnelIsNotRememberedAsUp(t *testing.T) {
-	var tun tunnel
+	var tun Tunnel
 
 	// An unsupported kind fails after the state fields would have been set.
-	err := tun.up(context.Background(), "config-1", "not-a-real-kind", "body")
+	err := tun.Up(context.Background(), "config-1", "not-a-real-kind", "body")
 	if err == nil {
 		t.Fatal("an unsupported tunnel kind should fail")
 	}
@@ -25,12 +25,12 @@ func TestFailedTunnelIsNotRememberedAsUp(t *testing.T) {
 		t.Errorf("failed attempt left state behind: iface=%q configID=%q kind=%q",
 			tun.iface, tun.configID, tun.kind)
 	}
-	if tun.currentEgress() != "" {
-		t.Errorf("failed attempt reported an egress address: %q", tun.currentEgress())
+	if tun.Egress() != "" {
+		t.Errorf("failed attempt reported an egress address: %q", tun.Egress())
 	}
 
 	// The second attempt must actually try again rather than short-circuit.
-	err = tun.up(context.Background(), "config-1", "not-a-real-kind", "body")
+	err = tun.Up(context.Background(), "config-1", "not-a-real-kind", "body")
 	if err == nil {
 		t.Fatal("the second attempt returned success: a failed tunnel was treated as live")
 	}
@@ -41,8 +41,8 @@ func TestFailedTunnelIsNotRememberedAsUp(t *testing.T) {
 
 // down() on a tunnel that was never up must be safe and leave nothing behind.
 func TestTunnelDownWhenNeverUp(t *testing.T) {
-	var tun tunnel
-	tun.down()
+	var tun Tunnel
+	tun.Down()
 	if tun.iface != "" || tun.dir != "" || tun.configID != "" {
 		t.Error("down() on an unused tunnel left state behind")
 	}

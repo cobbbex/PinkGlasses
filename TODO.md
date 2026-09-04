@@ -376,3 +376,45 @@ what had happened rather than reading what the code intended.
       and refuses the task unless it changed. Verified: a deliberately unusable config gave
       3 attempts, 3 refusals, 0 tools run and 0 services touched.
 - [ ] How to save and then show user historical data ?
+
+## Phase 19 — Ephemeral scan fleets, and a VPN gateway per run
+
+Scanning through a VPN currently means a long-lived worker holding NET_ADMIN
+alongside nmap, chromium and nuclei — the privilege sits in the container most
+likely to be the thing that gets exploited — and one tunnel at a time per box.
+
+Instead: a run can bring up its own fleet. A VPN gateway container holds the
+tunnel and nothing else; the run's workers join its network namespace, so they
+inherit its egress without needing any network privilege themselves. Both are
+destroyed when the run ends.
+
+Most of the routing already exists: worker pools, enrollment tokens bound to a
+pool, a lease query that filters on it, and a provisioner that is the only
+component touching the Docker socket.
+
+- [x] 19.1 **Ephemeral fleet per run**, no VPN involved. A run can request its own
+      workers: a pool for the run, an enrollment token bound to it, containers created
+      by the provisioner and labelled with the run, torn down when the run ends. Testable
+      and useful on its own — it is how a run gets workers that cannot be starved by
+      another run.
+- [x] 19.2 **VPN gateway container.** Holds the tunnel and nothing else; the run's workers
+      share its network namespace. The worker stops needing NET_ADMIN entirely, and the
+      egress check moves into the gateway, which refuses to report healthy until its
+      address has actually changed.
+- [x] 19.3 **Teardown and supervision.** Containers, worker rows and the pool are removed
+      when the run finishes, and orphans left by a control-plane restart are swept. A run
+      whose fleet dies must fail with a reason rather than stall: workers sharing a dead
+      gateway's namespace lose all networking, including their route back here, so they
+      cannot report it themselves.
+- [x] 19.4 **A ceiling.** Containers per run and concurrent fleets are capped, with a clear
+      failure when the cap is hit rather than a fork bomb.
+- [x] 19.5 **Document the architecture** in architecture.md, README and the wiki: what a run
+      fleet is, why the privilege lives in the gateway, and what happens when it dies.
+
+Built as: `run_fleet` (migration 00019) records the intent; the scheduler
+(`internal/fleet`) builds, supervises and tears down through the provisioner;
+`cmd/vpngw` is the gateway binary, shipped in the worker image and selected by
+entrypoint. The planner, the dispatcher and the worker all read one fact —
+`store.RunHasFleet` — to decide who owns the tunnel, because deciding it
+separately is what broke the first version. Documented in architecture.md §7.6,
+the README, and `wiki/VPN-Scanning.md`.

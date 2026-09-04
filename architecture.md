@@ -850,7 +850,109 @@ primitive:
   account over unsolicited SYN scanning; this is the operator's responsibility, and the UI
   should say so at enrollment time rather than after the suspension email.
 
-### 7.6 Version skew
+### 7.6 Run fleets: containers a scan brings up for itself
+
+A run can bring up its own workers, and — when it scans through a VPN — a
+**gateway container** holding the tunnel, which those workers share a network
+namespace with. Everything is destroyed when the run ends.
+
+```
+             ┌──────────────────────────────────────────┐
+  scheduler  │  pinkglasses-vpn-<run>                   │
+      │      │  vpngw: openvpn/wg → tun0, default route │
+      │ 1    │  healthy only once egress != base        │
+      ▼      └──────────────────────────────────────────┘
+ provisioner            ▲ network_mode: container:<gw>
+      │ 2               │
+      │        ┌────────┴────────┬─────────────────┐
+      └───────►│ run worker 0    │ run worker 1    │  no NET_ADMIN,
+               │ nmap, chromium, │ nuclei, httpx…  │  no /dev/net/tun,
+               │ gobuster…       │                 │  no routes to change
+               └─────────────────┴─────────────────┘
+                        │ 3  enrol with a token bound to this run's pool
+                        ▼
+                     gateway ── leases only this run's tasks
+```
+
+**Why the tunnel is not in the worker.** The worker container is the one running
+nmap, chromium, nuclei and gobuster against hostile input; it is the container
+most likely to be exploited. Giving it `NET_ADMIN` and `/dev/net/tun` so it can
+raise a tunnel hands that privilege to exactly the wrong process. Splitting it
+puts the privilege in a container that runs one small binary, parses no attacker
+input, and makes no outbound request of its own. The workers get the tunnel's
+routing without any of its capability — sharing a namespace is not a capability
+grant.
+
+It also makes the tunnel a property of the **run** rather than of a worker. One
+tunnel is raised once and verified once, instead of every worker raising its own
+and each verification being a separate chance to fail open.
+
+**The ordering that makes it safe.** The workers are created only after the
+gateway reports healthy, and the gateway reports healthy only once its observed
+egress address differs from the one it recorded before connecting. A worker
+therefore cannot exist in a namespace that is not tunnelled — not for a moment,
+not while the tunnel is still coming up. If the gateway never gets there, the
+whole fleet is torn down and the run fails with the gateway's last log lines.
+
+**Routing.** A run with a fleet is bound to a **pool created for it alone**
+(§7.5), and the enrollment token the fleet's workers use is bound to that pool.
+Standing workers cannot lease the run's tasks and the run's workers cannot lease
+anyone else's. That is what makes the egress guarantee hold: there is no path by
+which one of this run's tasks runs somewhere outside the tunnel.
+
+**Who owns the tunnel.** Three components have to agree on this and they all
+read one fact, `run_fleet` (`store.RunHasFleet`):
+
+| | Run with a fleet | Run with a VPN but no fleet |
+|---|---|---|
+| Planner | no `vpn` requirement | traffic tasks require `vpn` |
+| Dispatcher | no config on the job | config id attached |
+| Worker | `PG_EGRESS_FIXED=1`, builds nothing | fetches the config, raises the tunnel |
+
+All three fail **closed** if they cannot read it — they keep the requirement. A
+wrong "no fleet" stalls tasks visibly; a wrong "has fleet" would scan from the
+worker's own address, which is the one outcome worth avoiding. An earlier
+version of the VPN feature had the planner and the dispatcher deciding this
+separately and disagreeing, which produced discovery tasks that demanded a
+tunnel no worker could build; reading one fact is the fix for that shape of bug.
+
+**Lifecycle.** The API only records the intent; the scheduler does the work,
+because it has to survive a restart of whatever served the request:
+
+| State | Set by | Meaning |
+|---|---|---|
+| `requested` | api, when the run is created | pool and token exist, no containers |
+| `up` | scheduler, after the provisioner returns | containers running, egress recorded |
+| `failed` | scheduler | could not be built, or lost its workers; the run is failed with the same reason |
+| `torn_down` | scheduler | containers and worker rows removed |
+
+The scheduler also **supervises** a live fleet. Workers sharing a dead gateway's
+namespace lose every route, including the one back to the control plane, so they
+cannot report their own failure — silence is the only symptom. A fleet with no
+live worker for two minutes fails its run with a message that says so. Without
+this a dropped tunnel is an indefinite hang.
+
+**Teardown** removes the containers, then the worker rows and the run's pool.
+Task attribution survives it: a worker's name and kind are stamped on each task
+when it is leased (§5.3), so a finished run still says which worker ran what
+long after the container is gone. Containers whose run ended while the control
+plane was down are collected by an orphan sweep at startup and every five
+minutes, which asks the provisioner which run ids still have containers and
+removes any the database no longer wants.
+
+**Ceilings.** A run may ask for at most 8 workers (`maxFleetWorkers`), the
+provisioner enforces `ASM_PROVISIONER_MAX_WORKERS` on top, and at most
+`ASM_MAX_RUN_FLEETS` runs (default 3) may hold containers at once. A run that
+arrives over the limit is failed with the reason rather than queued, because a
+run whose tasks are bound to a pool with no members makes no progress and no
+other worker can rescue it.
+
+**What the scheduler needs.** `ASM_PROVISIONER_URL`, `ASM_PROVISIONER_TOKEN`,
+and `ASM_SECRET_KEY` — it opens the sealed VPN configuration to hand it to the
+gateway. With no provisioner configured the feature is simply off and runs that
+ask for a fleet fail with that reason.
+
+### 7.7 Version skew
 
 The control plane records `agent_version` per worker and knows the minimum protocol version
 it supports. Workers older than `min_supported` are refused with a clear message in the UI
@@ -1049,6 +1151,10 @@ the very content it is scanning. Therefore:
 - **Provenance on every row.** `service_observation.worker_id` records which box saw what,
   so if a worker is later found compromised you can identify and re-verify everything it
   contributed rather than discarding the whole database.
+- **Privilege sits beside the worker, never inside it.** A run scanning through a VPN gets
+  a separate gateway container holding `NET_ADMIN` and `/dev/net/tun`; the workers share
+  its network namespace and hold neither (§7.6). The container parsing hostile output is
+  the one that should hold the least, so the tunnel lives in the one that parses none.
 
 ---
 
