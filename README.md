@@ -10,6 +10,17 @@ surface of one organization — domains, DNS, hosts, open ports, services, techn
 and findings. DNSDumpster-style discovery output; Shodan-style drill-down. Scanning runs on
 a fleet of workers you own, including VPS boxes you enroll from the UI.
 
+<p align="center">
+  <img src="assets/screenshots/hosts.png"
+       alt="The Hosts view: every name and address discovered for one company, enriched with reverse DNS, ASN, AS name and announced prefix."
+       width="900">
+</p>
+<p align="center">
+  <sub>The Hosts view — every name and address found for one company, with reverse DNS,
+  ASN and announced prefix. Non-resolving names are folded away by default; here 24,947
+  of them.</sub>
+</p>
+
 Design docs: [`architecture.md`](architecture.md) · [`worker-pipeline.md`](worker-pipeline.md)
 · build plan: [`TODO.md`](TODO.md)
 
