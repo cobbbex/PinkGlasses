@@ -31,6 +31,7 @@ const NAV = [
 
 const COLLAPSE_KEY = "asm.sidebar.collapsed";
 const MINE_KEY = "asm.scopes.mine";
+const SCOPE_KEY = "asm.scope.id";
 
 /**
  * The authentication gate.
@@ -82,7 +83,15 @@ function Shell({ me, onSignedOut }: { me: User; onSignedOut: () => void }) {
   const toast = useToast();
   const [scopes, setScopes] = useState<Scope[]>([]);
   const [allScopes, setAllScopes] = useState<Scope[]>([]);
-  const [scopeID, setScopeID] = useState("");
+  // Which company is selected, remembered across loads.
+  //
+  // Without this the app fell back to the first company alphabetically on every
+  // load, which is most visible on the host page: it opens in a new tab by
+  // design, so the sidebar would name a different company than the page you
+  // were looking at.
+  const [scopeID, setScopeID] = useState(() => {
+    try { return localStorage.getItem(SCOPE_KEY) ?? ""; } catch { return ""; }
+  });
   // Whether the company list is narrowed to the ones this user created. A view
   // preference, so it lives in the browser rather than on the server.
   const [mine, setMine] = useState(() => {
@@ -110,11 +119,21 @@ function Shell({ me, onSignedOut }: { me: User; onSignedOut: () => void }) {
         setScopes(list);
         setAllScopes(all ?? list);
         // Keep a selection that is still visible; otherwise fall back to the
-        // first, so filtering never leaves the app pointed at nothing.
+        // first, so filtering never leaves the app pointed at nothing. This is
+        // also what validates the remembered id: a company that has since been
+        // deleted, or that the "mine" filter hides, quietly falls back.
         setScopeID((cur) => (cur && list.some((s) => s.id === cur) ? cur : (list[0]?.id ?? "")));
       })
       .catch(() => toast("err", "Could not load scopes — is the API running?"));
   }, [mine]);
+
+  // Mirrored from the state rather than written by each setter, so the fallback
+  // above is remembered too — and a scope that has been deleted, or hidden by
+  // the "mine" filter, does not linger in storage.
+  useEffect(() => {
+    if (!scopeID) return;
+    try { localStorage.setItem(SCOPE_KEY, scopeID); } catch { /* private mode */ }
+  }, [scopeID]);
 
   function changeMine(next: boolean) {
     setMine(next);
