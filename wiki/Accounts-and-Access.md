@@ -114,6 +114,31 @@ account — measured at 31–41 ms either way.
 **The last enabled administrator cannot be demoted, disabled or deleted.** The
 recovery path otherwise runs through `psql`.
 
+## Renaming an account
+
+**Accounts → edit** changes the username. It is safe for history: audit records
+and scope ownership point at the account's id, not at its name, so what somebody
+did stays attached to them. An audit row keeps the name that was in use when it
+was written, and resolves through the id to whatever the account is called now:
+
+```
+   action    | name_at_the_time | account_now
+-------------+------------------+-------------
+ user.setup  | doom             | admin
+```
+
+Two things a rename does move:
+
+- **What future `created_by` strings say.** Those columns store a name, so rows
+  written before and after a rename disagree. They are a convenience; the id is
+  the fact.
+- **Which account a trusted proxy resolves to.** If a proxy is in front, its
+  `X-Forwarded-User` must be changed to match, or that person stops being able
+  to sign in.
+
+Deleting an account is different: its audit rows survive with the name that
+performed each action, and only the link to the account is dropped.
+
 ## API tokens
 
 For scripts and CI, so automating something does not mean sharing a password.

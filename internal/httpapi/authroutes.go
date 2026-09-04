@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -245,6 +246,7 @@ func (s *Server) patchUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
+		Username    *string `json:"username"`
 		DisplayName *string `json:"display_name"`
 		Role        *string `json:"role"`
 		Disabled    *bool   `json:"disabled"`
@@ -253,6 +255,14 @@ func (s *Server) patchUser(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
 		return
+	}
+	if in.Username != nil {
+		v := strings.TrimSpace(*in.Username)
+		if err := checkUsername(v); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		in.Username = &v
 	}
 	var role *auth.Role
 	if in.Role != nil {
@@ -292,14 +302,23 @@ func (s *Server) patchUser(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = s.st.DeleteUserSessions(r.Context(), id)
 	}
-	u, err := s.st.UpdateUser(r.Context(), id, in.DisplayName, role, in.Disabled)
+	u, err := s.st.UpdateUser(r.Context(), id, in.Username, in.DisplayName, role, in.Disabled)
+	if errors.Is(err, store.ErrUsernameTaken) {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "user not found")
 		return
 	}
 	me := currentUser(r)
-	s.audit.LogUser(r.Context(), me.UserID, me.Username, "user.update", id.String(),
-		map[string]any{"role": u.Role, "disabled": u.Disabled, "password_reset": in.Password != nil})
+	detail := map[string]any{"role": u.Role, "disabled": u.Disabled, "password_reset": in.Password != nil}
+	if in.Username != nil {
+		// Worth recording explicitly: after this, the audit trail shows a name
+		// that did not exist before, and only the user id ties the two together.
+		detail["renamed_to"] = u.Username
+	}
+	s.audit.LogUser(r.Context(), me.UserID, me.Username, "user.update", id.String(), detail)
 	writeJSON(w, http.StatusOK, u)
 }
 

@@ -122,8 +122,14 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	return out, rows.Err()
 }
 
-// UpdateUser changes an account's display name, role or disabled flag.
-func (s *Store) UpdateUser(ctx context.Context, id uuid.UUID, display *string, role *auth.Role, disabled *bool) (User, error) {
+// UpdateUser changes an account's username, display name, role or disabled flag.
+//
+// Renaming is safe for history: audit records and scope ownership point at the
+// user id, not the name, so what somebody did stays attached to them. The two
+// things a rename does move are what future `created_by` strings say, and which
+// account a trusted proxy's X-Forwarded-User resolves to — so a rename has to be
+// mirrored in the proxy if one is in front (architecture.md §10.2).
+func (s *Store) UpdateUser(ctx context.Context, id uuid.UUID, username, display *string, role *auth.Role, disabled *bool) (User, error) {
 	var roleStr *string
 	if role != nil {
 		v := string(*role)
@@ -131,10 +137,15 @@ func (s *Store) UpdateUser(ctx context.Context, id uuid.UUID, display *string, r
 	}
 	u, err := scanUser(s.Pool.QueryRow(ctx, `
 		UPDATE app_user SET
-		  display_name = COALESCE($2, display_name),
-		  role         = COALESCE($3, role),
-		  disabled     = COALESCE($4, disabled)
-		WHERE id=$1 RETURNING `+userCols, id, display, roleStr, disabled))
+		  username     = COALESCE($2, username),
+		  display_name = COALESCE($3, display_name),
+		  role         = COALESCE($4, role),
+		  disabled     = COALESCE($5, disabled)
+		WHERE id=$1 RETURNING `+userCols, id, username, display, roleStr, disabled))
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return User{}, ErrUsernameTaken
+	}
 	if err != nil {
 		return User{}, err
 	}

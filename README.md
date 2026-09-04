@@ -234,8 +234,11 @@ Starting a scan is what separates viewer from operator, because a scan sends
 packets at somebody's infrastructure. Adding a VPN configuration or enrolling a
 worker is admin, because both hand out credentials.
 
-Manage accounts under **Accounts** in the sidebar (administrators only). Disabling
-an account is reversible and keeps its history; removing one is not. Either takes
+Manage accounts under **Accounts** in the sidebar (administrators only). You can
+change a username there; history stays attached to the account rather than to the
+name, so renaming loses nothing (if an identity proxy is in front, change what it
+sends to match). Disabling an account is reversible and keeps its history;
+removing one is not. Either takes
 effect immediately — changing a role, disabling an account or setting a new
 password signs that person out everywhere on their next request.
 

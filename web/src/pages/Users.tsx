@@ -180,6 +180,7 @@ function EditUser({ user, me, onClose, onDone }: {
   user: User; me: User; onClose: () => void; onDone: () => void;
 }) {
   const toast = useToast();
+  const [username, setUsername] = useState(user.username);
   const [display, setDisplay] = useState(user.display_name);
   const [role, setRole] = useState<Role>(user.role);
   const [disabled, setDisabled] = useState(user.disabled);
@@ -190,6 +191,7 @@ function EditUser({ user, me, onClose, onDone }: {
     setBusy(true);
     try {
       await api.patchUser(user.id, {
+        ...(username !== user.username ? { username } : {}),
         display_name: display, role, disabled,
         ...(password ? { password } : {}),
       });
@@ -207,11 +209,22 @@ function EditUser({ user, me, onClose, onDone }: {
       title={`Edit ${user.username}`} open onClose={onClose}
       footer={<>
         <button className="ghost" onClick={onClose}>Cancel</button>
-        <button onClick={save} disabled={busy || (!!password && password.length < 12)}>
+        <button onClick={save} disabled={busy || !username.trim() || (!!password && password.length < 12)}>
           {busy ? "Saving…" : "Save"}
         </button>
       </>}
     >
+      <label className="param-label">Username</label>
+      <input value={username} onChange={(e) => setUsername(e.target.value)}
+        style={{ width: "100%", boxSizing: "border-box", marginBottom: 4 }} />
+      {username !== user.username && (
+        <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+          They sign in as <strong className="mono">{username}</strong> from now on.
+          What they have already done stays attached to them — the audit log records
+          the account, not the name.
+        </div>
+      )}
+
       <label className="param-label">Display name</label>
       <input value={display} onChange={(e) => setDisplay(e.target.value)}
         style={{ width: "100%", boxSizing: "border-box", marginBottom: 12 }} />
