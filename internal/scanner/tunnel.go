@@ -31,7 +31,26 @@ type tunnel struct {
 	dir      string
 	egressIP string
 	baseIP   string
-	cmd      *exec.Cmd // openvpn runs in the foreground; wg-quick does not
+	cmd      *exec.Cmd // openvpn runs in the foreground; wireguard does not
+	// restore puts the routing back the way it was, for tunnels that changed it.
+	restore func(context.Context)
+	// openvpn's own output, kept so a failure can explain itself.
+	logFile *os.File
+	logPath string
+}
+
+// tunnelLogTail returns the last few lines of a tunnel client's own log, for
+// putting the reason a tunnel failed into the error the task reports.
+func tunnelLogTail(path string, lines int) string {
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 {
+		return ""
+	}
+	all := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if len(all) > lines {
+		all = all[len(all)-lines:]
+	}
+	return strings.Join(all, " | ")
 }
 
 // egressCheckURLs are asked what address we appear to come from. Several, so
@@ -103,20 +122,15 @@ func (t *tunnel) up(ctx context.Context, configID, kind, body string) error {
 
 	switch kind {
 	case "wireguard":
-		// wg-quick takes the interface name from the file name.
 		iface := "pgvpn0"
-		path := filepath.Join(dir, iface+".conf")
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		// A previous attempt that died mid-way can leave the interface behind.
+		_, _ = runTunnelCmd(ctx, 10*time.Second, "ip", "link", "del", iface)
+		undo, err := t.wgUp(ctx, iface, body, dir)
+		if err != nil {
 			t.resetLocked()
 			return err
 		}
-		if out, err := runTunnelCmd(ctx, 60*time.Second, "wg-quick", "up", path); err != nil {
-			// wg-quick can leave a half-built interface behind; take it down so
-			// the next attempt starts from nothing.
-			_, _ = runTunnelCmd(ctx, 20*time.Second, "wg-quick", "down", path)
-			t.resetLocked()
-			return fmt.Errorf("wg-quick up: %w: %s", err, out)
-		}
+		t.restore = undo
 		t.iface = iface
 	case "openvpn":
 		path := filepath.Join(dir, "client.ovpn")
@@ -124,14 +138,26 @@ func (t *tunnel) up(ctx context.Context, configID, kind, body string) error {
 			t.resetLocked()
 			return err
 		}
-		// openvpn stays in the foreground; it is killed on down().
-		cmd := exec.Command("openvpn", "--config", path, "--dev", "tun0",
-			"--daemon-log-file", filepath.Join(dir, "openvpn.log"))
+		// openvpn stays in the foreground so it can be killed on down(), and
+		// its output is kept: when a tunnel does not come up, openvpn's own
+		// explanation is the only thing that says why. The first version threw
+		// it away and passed a flag that does not exist, so a failure looked
+		// identical to a VPN that simply did not route.
+		logPath := filepath.Join(dir, "openvpn.log")
+		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			t.resetLocked()
+			return err
+		}
+		cmd := exec.Command("openvpn", "--config", path, "--verb", "3")
 		cmd.Dir = dir
+		cmd.Stdout, cmd.Stderr = logFile, logFile
 		if err := cmd.Start(); err != nil {
+			logFile.Close()
 			t.resetLocked()
 			return fmt.Errorf("openvpn start: %w", err)
 		}
+		t.logFile, t.logPath = logFile, logPath
 		t.cmd, t.iface = cmd, "tun0"
 	default:
 		t.resetLocked()
@@ -158,8 +184,14 @@ func (t *tunnel) up(ctx context.Context, configID, kind, body string) error {
 		slog.Info("scanning through tunnel", "kind", kind, "was", base, "now", got)
 		return nil
 	}
+	detail := ""
+	if t.logPath != "" {
+		if tail := tunnelLogTail(t.logPath, 8); tail != "" {
+			detail = ": " + tail
+		}
+	}
 	t.downLocked()
-	return fmt.Errorf("the tunnel did not change this worker's address within 45s (still %s); refusing to scan", base)
+	return fmt.Errorf("the tunnel did not change this worker's address within 45s (still %s); refusing to scan%s", base, detail)
 }
 
 // down tears the tunnel down and removes the config from disk.
@@ -178,11 +210,16 @@ func (t *tunnel) downLocked() {
 	defer cancel()
 	switch t.kind {
 	case "wireguard":
-		_, _ = runTunnelCmd(ctx, 25*time.Second, "wg-quick", "down", filepath.Join(t.dir, t.iface+".conf"))
+		if t.restore != nil {
+			t.restore(ctx)
+		}
 	case "openvpn":
 		if t.cmd != nil && t.cmd.Process != nil {
 			_ = t.cmd.Process.Kill()
 			_ = t.cmd.Wait()
+		}
+		if t.logFile != nil {
+			_ = t.logFile.Close()
 		}
 	}
 	slog.Info("tunnel down", "kind", t.kind, "iface", t.iface)
@@ -201,6 +238,12 @@ func (t *tunnel) cleanupLocked() {
 // attempt can never be mistaken for a live one.
 func (t *tunnel) resetLocked() {
 	t.iface, t.kind, t.configID, t.egressIP, t.baseIP, t.cmd = "", "", "", "", "", nil
+	t.restore = nil
+	if t.logFile != nil {
+		_ = t.logFile.Close()
+		t.logFile = nil
+	}
+	t.logPath = ""
 	t.cleanupLocked()
 }
 

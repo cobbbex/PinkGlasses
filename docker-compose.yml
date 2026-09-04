@@ -184,6 +184,11 @@ services:
     build: {context: ., dockerfile: deploy/Dockerfile.worker}
     cap_add: ["NET_RAW", "NET_ADMIN"]
     devices: ["/dev/net/tun"]
+    # wg-quick sets this unconditionally when it installs a default route, and
+    # /proc/sys is read-only inside a container. Declaring it here has Docker
+    # set it at creation, before the filesystem is sealed.
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: "1"
     environment:
       ASM_GATEWAY_URL: "http://gateway:8090"
       ASM_ENROLL_TOKEN: "${ASM_LOCAL_BOOTSTRAP_TOKEN:-change-me-local-bootstrap}"

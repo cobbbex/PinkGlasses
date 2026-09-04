@@ -198,30 +198,6 @@ const scanBatchSize = 64
 // Scanning incrementally starts as soon as the first names resolve, while
 // deduplicating against what is already queued keeps the property the barrier
 // existed for: a host that two sources both found is still scanned once.
-// sendsTrafficToTarget classifies every pipeline stage by whether it puts
-// packets on the wire towards the target being scanned.
-//
-// This is the single place that decides, because the requirement is applied
-// from it rather than remembered at each planning site. A new stage must be
-// added here or the test fails — which is what makes it impossible to add one
-// that quietly bypasses a tunnel.
-//
-// Discovery is deliberately false: it queries resolvers and passive sources,
-// not the target, so it neither needs the tunnel nor should be blocked when no
-// VPN-capable worker is free.
-var sendsTrafficToTarget = map[scanproto.Stage]bool{
-	scanproto.StagePassiveEnum:  false,
-	scanproto.StageDNSBrute:     false,
-	scanproto.StageDNSResolve:   false,
-	scanproto.StageIPEnrich:     false,
-	scanproto.StagePortScan:     true,
-	scanproto.StageServiceProbe: true,
-	scanproto.StageTechDetect:   true,
-	scanproto.StageScreenshot:   true,
-	scanproto.StageDirBrute:     true,
-	scanproto.StageVulnCheck:    true,
-}
-
 // withVPN adds the tunnel requirement to every spec whose stage sends traffic
 // to the target. Applied once per batch, immediately before insertion, so a
 // planning site cannot forget it.
@@ -230,7 +206,7 @@ func withVPN(specs []store.TaskSpec, req []string) []store.TaskSpec {
 		return specs
 	}
 	for i := range specs {
-		if !sendsTrafficToTarget[specs[i].Stage] {
+		if !specs[i].Stage.SendsTrafficToTarget() {
 			continue
 		}
 		for _, r := range req {

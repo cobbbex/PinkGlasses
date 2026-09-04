@@ -316,7 +316,16 @@ func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
 	// shown to change this worker's address. Failing the task is the right
 	// outcome: scanning anyway would send the traffic from the address the
 	// tunnel existed to hide.
-	if id := job.Params.VPNConfigID; id != "" {
+	if id := job.Params.VPNConfigID; id == "" {
+		// No tunnel for this job. If one is still up from an earlier run, take
+		// it down first: a scan that asked for nothing must leave from this
+		// worker's own address, not from whichever exit the last run chose.
+		if a.tun.currentEgress() != "" {
+			slog.Info("this task uses no tunnel; taking the previous one down",
+				"stage", job.Stage, "task", job.TaskID)
+			a.tun.down()
+		}
+	} else {
 		if err := a.ensureTunnel(ctx, id); err != nil {
 			slog.Error("refusing to scan: the tunnel is not carrying this traffic",
 				"stage", job.Stage, "task", job.TaskID, "config", id, "err", err)

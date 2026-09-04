@@ -38,6 +38,29 @@ var AllStages = []Stage{
 	StageServiceProbe, StageTechDetect, StageScreenshot, StageDirBrute, StageVulnCheck,
 }
 
+// SendsTrafficToTarget reports whether a stage puts packets on the wire towards
+// the target being scanned.
+//
+// One definition, used by the planner to decide which tasks demand a tunnel and
+// by the gateway to decide which jobs carry one. They were separate once: the
+// planner tagged only traffic stages, while the gateway attached the tunnel to
+// every job of the run, so discovery tasks landed on ordinary workers that then
+// tried to build a tunnel they had no capability for and failed the task.
+//
+// Discovery is false on purpose. It queries resolvers and passive sources, not
+// the target, so it neither needs the tunnel nor should wait for a VPN-capable
+// worker to be free.
+func (s Stage) SendsTrafficToTarget() bool {
+	switch s {
+	case StagePortScan, StageServiceProbe, StageTechDetect,
+		StageScreenshot, StageDirBrute, StageVulnCheck:
+		return true
+	case StagePassiveEnum, StageDNSBrute, StageDNSResolve, StageIPEnrich:
+		return false
+	}
+	return false
+}
+
 // Capability is a worker-side capability the dispatcher matches against a
 // task's Requires set.
 type Capability string

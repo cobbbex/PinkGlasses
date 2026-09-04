@@ -15,21 +15,24 @@ import (
 // scope target went through a planning path nobody had updated, so a run bound
 // to a VPN scanned from an ordinary worker's real address.
 func TestEveryStageIsClassified(t *testing.T) {
-	for _, st := range scanproto.AllStages {
-		if _, ok := sendsTrafficToTarget[st]; !ok {
-			t.Errorf("stage %q is not classified in sendsTrafficToTarget: "+
-				"decide whether it sends packets to the target, or it will bypass VPN routing", st)
-		}
+	// Traffic stages must demand the tunnel; discovery stages must not, or a
+	// run bound to a VPN would stall waiting for a VPN worker to resolve DNS.
+	traffic := map[scanproto.Stage]bool{
+		scanproto.StagePortScan: true, scanproto.StageServiceProbe: true,
+		scanproto.StageTechDetect: true, scanproto.StageScreenshot: true,
+		scanproto.StageDirBrute: true, scanproto.StageVulnCheck: true,
+		scanproto.StagePassiveEnum: false, scanproto.StageDNSBrute: false,
+		scanproto.StageDNSResolve: false, scanproto.StageIPEnrich: false,
 	}
-	for st := range sendsTrafficToTarget {
-		found := false
-		for _, known := range scanproto.AllStages {
-			if known == st {
-				found = true
-			}
+	for _, st := range scanproto.AllStages {
+		want, known := traffic[st]
+		if !known {
+			t.Errorf("stage %q is new and unclassified here: decide whether it sends "+
+				"packets at the target, or it will silently bypass a tunnel", st)
+			continue
 		}
-		if !found {
-			t.Errorf("sendsTrafficToTarget classifies %q, which is not a pipeline stage", st)
+		if got := st.SendsTrafficToTarget(); got != want {
+			t.Errorf("stage %q: SendsTrafficToTarget()=%v, want %v", st, got, want)
 		}
 	}
 }

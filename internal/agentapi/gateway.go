@@ -291,6 +291,12 @@ func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job) {
 // holds a private key, so the worker fetches it over its authenticated channel
 // rather than it riding in every job envelope.
 func (g *Gateway) attachVPN(ctx context.Context, job *scanproto.Job) {
+	// Only stages that send packets at the target go through the tunnel.
+	// Attaching it to discovery jobs sent ordinary workers off to build a
+	// tunnel they cannot build, and failed tasks that had no need of one.
+	if !job.Stage.SendsTrafficToTarget() {
+		return
+	}
 	runID, err := uuid.Parse(job.RunID)
 	if err != nil {
 		return
