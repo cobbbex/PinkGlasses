@@ -411,6 +411,14 @@ component touching the Docker socket.
 - [x] 19.5 **Document the architecture** in architecture.md, README and the wiki: what a run
       fleet is, why the privilege lives in the gateway, and what happens when it dies.
 
+Tested against your two VPS configs on 2026-09-04: WireGuard and OpenVPN both
+brought a gateway up (193.176.38.211 -> 157.230.81.163), workers confirmed
+inside the gateway's namespace with no NET_ADMIN and no /dev/net/tun, teardown
+removed all three containers, the orphan sweep collected a stranded gateway, an
+unreachable endpoint failed the run with the gateway's own error instead of
+scanning from the host address, and killing a live gateway failed its run in
+under three minutes.
+
 Built as: `run_fleet` (migration 00019) records the intent; the scheduler
 (`internal/fleet`) builds, supervises and tears down through the provisioner;
 `cmd/vpngw` is the gateway binary, shipped in the worker image and selected by

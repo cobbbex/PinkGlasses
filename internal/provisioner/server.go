@@ -62,11 +62,14 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) workers(w http.ResponseWriter, r *http.Request) {
-	list, err := s.d.List(r.Context())
+	all, err := s.d.List(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	// Standing workers only: a run's own containers come and go on their own
+	// and are reported through the run, not through the fleet.
+	list := Standing(all)
 	writeJSON(w, http.StatusOK, map[string]any{"count": len(list), "containers": list})
 }
 
@@ -87,11 +90,14 @@ func (s *Server) scale(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	current, err := s.d.List(r.Context())
+	all, err := s.d.List(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	// Only standing workers count toward the target. A run's own workers are
+	// owned by that run; scaling must neither count them nor remove them.
+	current := Standing(all)
 
 	// Partition by state. Docker's container list includes exited containers,
 	// and counting those as existing workers used to make "give me 2" create

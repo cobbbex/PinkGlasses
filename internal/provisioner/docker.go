@@ -113,13 +113,34 @@ func (d *Docker) do(ctx context.Context, method, path string, body any, out any)
 	return nil
 }
 
-// List returns the worker containers this service manages.
+// List returns every container this service manages, of any role.
+//
+// It used to filter on role=worker, which made VPN gateways invisible to
+// everything that goes through here — teardown, the orphan sweep, and Remove's
+// own safety check. The visible symptom was a gateway that outlived its run
+// and kept holding the tunnel. Roles are filtered by the caller now, because
+// the callers disagree about which they want.
 func (d *Docker) List(ctx context.Context) ([]Container, error) {
-	filters := url.QueryEscape(fmt.Sprintf(
-		`{"label":["%s=true","%s=%s"]}`, managedLabel, roleLabel, roleWorker))
+	filters := url.QueryEscape(fmt.Sprintf(`{"label":["%s=true"]}`, managedLabel))
 	var out []Container
 	err := d.do(ctx, http.MethodGet, "/containers/json?all=true&filters="+filters, nil, &out)
 	return out, err
+}
+
+// Standing returns the long-lived worker containers: the fleet an operator
+// scales, excluding both gateways and any run's own ephemeral workers.
+//
+// The distinction matters because scaling counts these. Counting a run's
+// workers among them would have "scale to 2" tear down the containers of a
+// scan that is still running.
+func Standing(list []Container) []Container {
+	out := make([]Container, 0, len(list))
+	for _, c := range list {
+		if c.Role() == roleWorker && c.RunID() == "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // Spec describes the worker container to create.
@@ -184,6 +205,13 @@ func (d *Docker) Create(ctx context.Context, sp Spec, index int) (string, error)
 		// that being handed a tunnel it cannot build is a logged no-op rather
 		// than a failed task.
 		env = append(env, "PG_EGRESS_FIXED=1")
+		// A shared namespace is a shared hostname, so a worker left to name
+		// itself would enrol under the *gateway's* container id — every worker
+		// in the fleet under the same name, and that name belonging to a
+		// container which is not a worker at all. Task attribution would then
+		// point at the wrong thing. Name it after its own container instead,
+		// which is also what `docker logs` wants.
+		env = append(env, "ASM_WORKER_NAME="+name)
 	}
 
 	host := map[string]any{
