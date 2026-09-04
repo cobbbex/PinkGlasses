@@ -108,8 +108,14 @@ Each step is `.1` implement · `.2` image + reporting · `.3` **GATE** (must pas
 - [x] 13.0.3 Wordlists + resolvers baked into the worker image (assetnote DNS lists, a
       resolver list). Needed by shuffledns, gobuster dns, gobuster dir.
 - [x] 13.0.4 Render subfinder's `provider-config.yaml` from the API-key env vars at worker
-      startup, skipping blanks. Keys already exist in `.env.example` and are passed to the
-      worker in `docker-compose.yml`; nothing reads them yet.
+      startup, skipping blanks. (The trailing "nothing reads them yet" stood here, and in
+      the README, long after `NewAgent` had started calling `WriteProviderConfig`.)
+      Extended 2026-09-04 to all 40 sources subfinder v2.16 takes a credential for, from
+      17 — of which three (`zoomeye`, `hunter`, `binaryedge`) had been renamed or dropped
+      upstream and were being written into a config subfinder read straight past. The
+      worker now asks `subfinder -ls` at startup and reports any source name it no longer
+      recognises, and a test keeps `providers.go`, `.env.example` and `docker-compose.yml`
+      in step.
 - [x] 13.0.5 **GATE:** worker starts with keys set, `provider-config.yaml` is written with
       only the populated sources, and no secret is logged.
 

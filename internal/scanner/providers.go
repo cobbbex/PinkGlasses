@@ -1,41 +1,81 @@
 package scanner
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // providerSource maps a subfinder data source to the environment variables that
-// configure it. Most take a single key; a few need two joined with a colon.
+// configure it.
+//
+// `source` must be spelled exactly as subfinder spells it: the provider config
+// is a YAML map keyed by source name, and a key subfinder does not recognise is
+// ignored in silence. Three of these were wrong for a long time — `zoomeye` had
+// been renamed `zoomeyeapi`, and `hunter` and `binaryedge` had been dropped —
+// so anyone who pasted those keys got nothing at all and was never told. That is
+// what checkSourceNames exists to catch.
 type providerSource struct {
 	source string // subfinder's name for the source
 	env    string // primary env var
 	env2   string // optional second var, joined as "first:second"
 }
 
-// providerSources is the full set we support. Keys are optional: a source with
-// no value is omitted, so subfinder simply does not query it.
+// providerSources is every source subfinder accepts a credential for, in the
+// order subfinder itself lists them. Keys are optional: a source with no value
+// is left out of the config, so subfinder simply does not query it.
+//
+// Most take one value. The three with `env2` take two joined by a colon, which
+// is the shape subfinder expects for them; where a provider issues a single
+// composite string of its own, paste it whole into the primary variable.
 var providerSources = []providerSource{
-	{source: "dnsdumpster", env: "DNSDUMPSTER_API_KEY"},
-	{source: "shodan", env: "SHODAN_API_KEY"},
+	{source: "alienvault", env: "ALIENVAULT_API_KEY"},
+	{source: "bevigil", env: "BEVIGIL_API_KEY"},
+	{source: "bufferover", env: "BUFFEROVER_API_KEY"},
+	{source: "builtwith", env: "BUILTWITH_API_KEY"},
+	{source: "c99", env: "C99_API_KEY"},
 	{source: "censys", env: "CENSYS_API_ID", env2: "CENSYS_API_SECRET"},
-	{source: "securitytrails", env: "SECURITYTRAILS_API_KEY"},
-	{source: "netlas", env: "NETLAS_API_KEY"},
-	{source: "zoomeye", env: "ZOOMEYE_API_KEY"},
-	{source: "quake", env: "QUAKE_API_KEY"},
+	{source: "certspotter", env: "CERTSPOTTER_API_KEY"},
+	{source: "chaos", env: "CHAOS_API_KEY"},
+	{source: "chinaz", env: "CHINAZ_API_KEY"},
+	{source: "digitalyama", env: "DIGITALYAMA_API_KEY"},
+	{source: "dnsdb", env: "DNSDB_API_KEY"},
+	{source: "dnsdumpster", env: "DNSDUMPSTER_API_KEY"},
+	{source: "dnsrepo", env: "DNSREPO_API_KEY"},
+	{source: "domainsproject", env: "DOMAINSPROJECT_API_KEY"},
+	{source: "driftnet", env: "DRIFTNET_API_KEY"},
 	{source: "fofa", env: "FOFA_EMAIL", env2: "FOFA_API_KEY"},
-	{source: "hunter", env: "HUNTER_API_KEY"},
-	{source: "binaryedge", env: "BINARYEDGE_API_KEY"},
+	{source: "fullhunt", env: "FULLHUNT_API_KEY"},
+	{source: "github", env: "GITHUB_TOKEN"},
+	{source: "hackertarget", env: "HACKERTARGET_API_KEY"},
+	{source: "intelx", env: "INTELX_HOST", env2: "INTELX_API_KEY"},
 	{source: "leakix", env: "LEAKIX_API_KEY"},
+	{source: "merklemap", env: "MERKLEMAP_API_KEY"},
+	{source: "netlas", env: "NETLAS_API_KEY"},
+	{source: "onyphe", env: "ONYPHE_API_KEY"},
+	{source: "profundis", env: "PROFUNDIS_API_KEY"},
+	{source: "pugrecon", env: "PUGRECON_API_KEY"},
+	{source: "quake", env: "QUAKE_API_KEY"},
+	{source: "reconeer", env: "RECONEER_API_KEY"},
+	{source: "redhuntlabs", env: "REDHUNTLABS_API_KEY"},
+	{source: "robtex", env: "ROBTEX_API_KEY"},
+	{source: "rsecloud", env: "RSECLOUD_API_KEY"},
+	{source: "securitytrails", env: "SECURITYTRAILS_API_KEY"},
+	{source: "shodan", env: "SHODAN_API_KEY"},
+	{source: "submd", env: "SUBMD_API_KEY"},
+	{source: "threatbook", env: "THREATBOOK_API_KEY"},
+	{source: "urlscan", env: "URLSCAN_API_KEY"},
 	{source: "virustotal", env: "VIRUSTOTAL_API_KEY"},
 	{source: "whoisxmlapi", env: "WHOISXMLAPI_API_KEY"},
-	{source: "bevigil", env: "BEVIGIL_API_KEY"},
-	{source: "intelx", env: "INTELX_HOST", env2: "INTELX_API_KEY"},
-	{source: "chaos", env: "CHAOS_API_KEY"},
-	{source: "github", env: "GITHUB_TOKEN"},
+	{source: "windvane", env: "WINDVANE_API_KEY"},
+	{source: "zoomeyeapi", env: "ZOOMEYE_API_KEY"},
 }
 
 // WriteProviderConfig renders subfinder's provider-config.yaml from the API-key
@@ -61,7 +101,11 @@ func WriteProviderConfig(dir string) (string, []string, error) {
 		if ps.env2 != "" {
 			v2 := strings.TrimSpace(os.Getenv(ps.env2))
 			if v2 == "" {
-				// A two-part source is unusable with only half its credentials.
+				// A two-part source is unusable with only half its credentials,
+				// and half a credential in the config would be a source that
+				// looks configured and returns nothing.
+				slog.Warn("passive source ignored: only half its credentials are set",
+					"source", ps.source, "have", ps.env, "missing", ps.env2)
 				continue
 			}
 			value = v1 + ":" + v2
@@ -83,4 +127,62 @@ func WriteProviderConfig(dir string) (string, []string, error) {
 	}
 	sort.Strings(configured)
 	return path, configured, nil
+}
+
+// sourceLine matches one entry of `subfinder -ls`: a lowercase name, optionally
+// followed by the marker for "needs a key" (*) or "takes one optionally" (~).
+var sourceLine = regexp.MustCompile(`^[a-z0-9.]+$`)
+
+// SubfinderSources asks the installed subfinder which sources it knows about.
+//
+// Returns nil when subfinder is missing or unreadable, which callers must treat
+// as "cannot tell" rather than "knows nothing".
+func SubfinderSources(ctx context.Context) map[string]bool {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "subfinder", "-ls", "-silent").CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return nil
+	}
+	known := map[string]bool{}
+	for _, raw := range strings.Split(stripANSI(string(out)), "\n") {
+		// Trim the key/optional-key markers and the banner's indentation.
+		f := strings.Fields(strings.TrimRight(strings.TrimSpace(raw), "*~ "))
+		if len(f) != 1 {
+			continue
+		}
+		if sourceLine.MatchString(f[0]) {
+			known[f[0]] = true
+		}
+	}
+	if len(known) == 0 {
+		return nil
+	}
+	return known
+}
+
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
+
+// CheckSourceNames reports any source we would configure that the installed
+// subfinder does not recognise.
+//
+// A provider config keyed by a name subfinder has renamed or dropped is ignored
+// without a word, so an operator who pasted a key sees no error and no results —
+// they simply get fewer subdomains than they paid for. Upgrading subfinder is
+// what causes it, and this is the only moment anything can notice.
+func CheckSourceNames(ctx context.Context) []string {
+	known := SubfinderSources(ctx)
+	if known == nil {
+		return nil // cannot tell; say nothing rather than cry wolf
+	}
+	var unknown []string
+	for _, ps := range providerSources {
+		if !known[ps.source] {
+			unknown = append(unknown, ps.source)
+		}
+	}
+	sort.Strings(unknown)
+	return unknown
 }

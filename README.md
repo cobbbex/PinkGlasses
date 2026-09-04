@@ -583,25 +583,64 @@ npm run build         # emits web/dist, served by the api binary
 
 ## Passive discovery API keys
 
-Passive enumeration finds subdomains without sending a single packet to the target, and
-it gets substantially better with API keys. Copy `.env.example` to `.env` and fill in
-whichever you have — **every one is optional**, and blanks are skipped:
+Passive enumeration finds subdomains without sending a single packet at the
+target, and it gets substantially better with API keys. `.env.example` lists
+**every source subfinder accepts a credential for** — 40 of them, grouped by what
+they are. Copy it to `.env` and paste in whichever you have; every one is
+optional and blanks are skipped.
 
 ```
-DNSDUMPSTER_API_KEY=      SHODAN_API_KEY=          CENSYS_API_ID= / _SECRET=
-SECURITYTRAILS_API_KEY=   VIRUSTOTAL_API_KEY=      NETLAS_API_KEY=
-ZOOMEYE_API_KEY=          QUAKE_API_KEY=           FOFA_EMAIL= / FOFA_API_KEY=
-HUNTER_API_KEY=           BINARYEDGE_API_KEY=      LEAKIX_API_KEY=
-WHOISXMLAPI_API_KEY=      BEVIGIL_API_KEY=         INTELX_HOST= / INTELX_API_KEY=
-CHAOS_API_KEY=            GITHUB_TOKEN=
+# Certificate transparency and DNS history
+CERTSPOTTER_API_KEY=   DNSDB_API_KEY=       DNSDUMPSTER_API_KEY=  DNSREPO_API_KEY=
+MERKLEMAP_API_KEY=     SECURITYTRAILS_API_KEY=  WHOISXMLAPI_API_KEY=
+
+# Internet-wide scan indexes
+CENSYS_API_ID= / _SECRET=   FOFA_EMAIL= / FOFA_API_KEY=   FULLHUNT_API_KEY=
+NETLAS_API_KEY=   ONYPHE_API_KEY=   QUAKE_API_KEY=   SHODAN_API_KEY=   ZOOMEYE_API_KEY=
+
+# Threat intelligence and reputation
+ALIENVAULT_API_KEY=  LEAKIX_API_KEY=  THREATBOOK_API_KEY=  URLSCAN_API_KEY=
+VIRUSTOTAL_API_KEY=
+
+# Recon platforms and aggregators
+BEVIGIL_API_KEY=  BUFFEROVER_API_KEY=  BUILTWITH_API_KEY=  C99_API_KEY=
+CHAOS_API_KEY=  CHINAZ_API_KEY=  DIGITALYAMA_API_KEY=  DOMAINSPROJECT_API_KEY=
+DRIFTNET_API_KEY=  HACKERTARGET_API_KEY=  INTELX_HOST= / INTELX_API_KEY=
+PROFUNDIS_API_KEY=  PUGRECON_API_KEY=  RECONEER_API_KEY=  REDHUNTLABS_API_KEY=
+ROBTEX_API_KEY=  RSECLOUD_API_KEY=  SUBMD_API_KEY=  WINDVANE_API_KEY=
+
+# Code search
+GITHUB_TOKEN=
 ```
 
-Compose passes them to the worker, which renders subfinder's `provider-config.yaml` from
-them at startup. Keys live only in `.env` (git-ignored) and on the worker — they are never
-stored in the database or shown in the UI.
+Twelve more sources need no key at all and are always used: `anubis`,
+`commoncrawl`, `crtsh`, `digitorus`, `hudsonrock`, `rapiddns`, `scanmalware`,
+`shodanct`, `sitedossier`, `thc`, `threatcrowd`, `waybackarchive`.
 
-> Wiring these into subfinder is TODO 13.0.4 — the variables are defined and delivered to
-> the worker, but nothing reads them yet.
+**Paste the value and nothing else.** A `.env` file has no inline comments, so
+`SHODAN_API_KEY=abc123  # my key` sets the key to `abc123  # my key` and the
+provider rejects it.
+
+Three sources take two parts, which the worker joins the way subfinder expects —
+Censys as `ID:SECRET`, FOFA as `EMAIL:KEY`, IntelX as `HOST:KEY`. Set both halves
+or neither; half a credential is skipped and said so in the log.
+
+Compose passes them to the worker, which renders subfinder's
+`provider-config.yaml` at startup and logs which sources came up configured:
+
+```
+passive sources configured  count=3  sources="[censys github shodan]"
+```
+
+Keys live only in `.env` (git-ignored) and in the worker's environment. They are
+never stored in the database, never shown in the UI, and never written to a log —
+the config file is mode 0600 and only source *names* are logged.
+
+If you upgrade subfinder and it renames or drops a source, the worker says so at
+startup instead of ignoring your key. That check exists because it had already
+happened: `zoomeye` had become `zoomeyeapi`, and `hunter` and `binaryedge` were
+gone, so three keys were being written into a config subfinder read straight
+past.
 
 ## Safety & authorization
 

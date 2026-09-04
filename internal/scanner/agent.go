@@ -100,6 +100,16 @@ func NewAgent(cfg AgentConfig) *Agent {
 		slog.Info("no passive-source API keys set; using free sources only")
 	}
 
+	// Ask subfinder whether it still recognises the names we key the config by.
+	// A renamed or removed source is ignored silently, so an operator who pasted
+	// a key would get no error and simply fewer results — which is exactly what
+	// happened with zoomeye, hunter and binaryedge.
+	if unknown := CheckSourceNames(context.Background()); len(unknown) > 0 {
+		slog.Error("this subfinder does not recognise some sources we configure; "+
+			"their API keys will be ignored. Update providerSources to match "+
+			"`subfinder -ls`.", "sources", unknown)
+	}
+
 	a := &Agent{
 		providerConfig: pcPath,
 		cfg:            cfg,
