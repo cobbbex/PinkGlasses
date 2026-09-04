@@ -109,6 +109,37 @@ purpose. Add it as an **active** target (port scanning is refused otherwise) and
 standard run walks the whole pipeline in about a minute, ending with 22/tcp and 80/tcp
 open on `45.33.32.156`.
 
+### Signing in
+
+```
+username: admin
+password: pinkglasses
+```
+
+The account is created on first boot, on an empty database only. **Change the
+password before this is reachable by anyone else** — it is published here, so it
+is not a secret, and what this database holds is a complete map of your external
+attack surface. The UI carries a warning banner and the API logs at every start
+until you do.
+
+Change it under **password** at the foot of the sidebar. The minimum is 12
+characters, which `pinkglasses` deliberately is not: the default cannot be
+re-entered as its own replacement.
+
+To start with something that was never published, set this before first boot:
+
+```bash
+ASM_DEFAULT_ADMIN_PASSWORD=$(openssl rand -base64 24)
+```
+
+Or set it to `-` to create no account at all, in which case the first visit asks
+you to create an administrator instead.
+
+The account is never recreated once the database has any account in it, so
+deleting or renaming it is permanent — as is losing the password. If you lock
+yourself out, `go run ./tools/pwhash 'new password'` prints a hash you can write
+straight into `app_user.password_hash`.
+
 ## Stop it
 
 ```bash
@@ -226,10 +257,10 @@ minted on enrollment and never leaves the box. See `scripts/install.sh`.
 
 ## Accounts and access
 
-On first visit the app asks you to **create the first administrator**. Do it
-immediately: until an account exists there is nothing to authenticate against,
-and the API answers anyone who can reach it. After that, every endpoint requires
-a signed-in session or an API token.
+A fresh install starts with one account — `admin` / `pinkglasses` — created on
+first boot. Change the password immediately; see [Signing in](#signing-in) above
+for why, and for how to start with one that was never published. Every endpoint
+requires a signed-in session or an API token.
 
 ### Roles
 

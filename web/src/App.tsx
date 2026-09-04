@@ -43,15 +43,22 @@ const SCOPE_KEY = "asm.scope.id";
 export default function App() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [me, setMe] = useState<User | null>(null);
+  // True while the shipped password still works. Checked against the stored
+  // hash on every load, so the banner disappears the moment it is changed and
+  // comes back if it is ever set again.
+  const [defaultPw, setDefaultPw] = useState(false);
 
   async function refreshAuth() {
     try {
       const st = await api.authStatus();
       setStatus(st);
       if (st.user) {
-        setMe((await api.me()).user);
+        const m = await api.me();
+        setMe(m.user);
+        setDefaultPw(!!m.using_default_password);
       } else {
         setMe(null);
+        setDefaultPw(false);
       }
     } catch {
       setStatus({ setup_required: false });
@@ -76,10 +83,12 @@ export default function App() {
   if (!me) {
     return <Auth status={status} onSignedIn={refreshAuth} />;
   }
-  return <Shell me={me} onSignedOut={refreshAuth} />;
+  return <Shell me={me} defaultPw={defaultPw} onSignedOut={refreshAuth} />;
 }
 
-function Shell({ me, onSignedOut }: { me: User; onSignedOut: () => void }) {
+function Shell({ me, defaultPw, onSignedOut }: {
+  me: User; defaultPw: boolean; onSignedOut: () => void;
+}) {
   const toast = useToast();
   const [scopes, setScopes] = useState<Scope[]>([]);
   const [allScopes, setAllScopes] = useState<Scope[]>([]);
@@ -198,6 +207,7 @@ function Shell({ me, onSignedOut }: { me: User; onSignedOut: () => void }) {
       </aside>
 
       <main className="main">
+        {defaultPw && <DefaultPasswordBanner />}
         <Routes>
           {/* A host page names its own scope, so it renders before one is
               picked — otherwise opening a host in a new tab would land on the
@@ -343,6 +353,36 @@ function AccountMenu({ me, collapsed, onSignedOut }: {
           account over. Every other session is signed out.
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * Shown on every page while the account still has the password this project
+ * ships with — which is published in the README, so anyone who can reach the
+ * install can sign in as an administrator.
+ *
+ * Deliberately not dismissible. A banner you can click away is one you stop
+ * seeing, and the thing it is warning about does not go away with it.
+ */
+function DefaultPasswordBanner() {
+  return (
+    <div
+      role="alert"
+      style={{
+        border: "1px solid var(--warn, #d98b2b)",
+        borderRadius: 8,
+        padding: "10px 14px",
+        marginBottom: 14,
+        fontSize: 13,
+        lineHeight: 1.5,
+        background: "rgba(217,139,43,.08)",
+      }}
+    >
+      <strong>This install is still using the default password.</strong>{" "}
+      It is published in the README, so anyone who can reach this address can sign
+      in as an administrator and read your whole attack surface. Change it under{" "}
+      <strong>password</strong> at the foot of the sidebar.
     </div>
   );
 }

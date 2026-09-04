@@ -94,3 +94,35 @@ func TestSecretsAreDistinctAndHashed(t *testing.T) {
 		t.Fatal("HashSecret does not agree with NewSecret")
 	}
 }
+
+// TestDefaultPasswordFailsOwnPolicy pins a deliberate choice: the shipped
+// password is shorter than CheckPasswordPolicy allows, so an operator cannot
+// "change" it to itself. If someone lengthens the default to satisfy the policy,
+// that property is lost silently — hence this test.
+func TestDefaultPasswordFailsOwnPolicy(t *testing.T) {
+	if err := CheckPasswordPolicy(DefaultPassword); err == nil {
+		t.Errorf("the default password %q now satisfies the password policy; "+
+			"it must not, or it can be re-entered as its own replacement", DefaultPassword)
+	}
+}
+
+func TestDefaultAdminPassword(t *testing.T) {
+	t.Setenv("ASM_DEFAULT_ADMIN_PASSWORD", "")
+	if got := DefaultAdminPassword(); got != DefaultPassword {
+		t.Errorf("unset: got %q, want the published default", got)
+	}
+	if SeedDisabled() {
+		t.Error("unset must not disable seeding")
+	}
+	t.Setenv("ASM_DEFAULT_ADMIN_PASSWORD", "a chosen passphrase")
+	if got := DefaultAdminPassword(); got != "a chosen passphrase" {
+		t.Errorf("override ignored: got %q", got)
+	}
+	if SeedDisabled() {
+		t.Error("an override must not disable seeding")
+	}
+	t.Setenv("ASM_DEFAULT_ADMIN_PASSWORD", "-")
+	if !SeedDisabled() {
+		t.Error(`"-" must disable seeding entirely`)
+	}
+}

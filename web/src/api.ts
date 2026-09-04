@@ -222,7 +222,7 @@ export const api = {
   login: (username: string, password: string) =>
     req<{ user: User }>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   logout: () => req<{ ok: boolean }>("/auth/logout", { method: "POST" }),
-  me: () => req<{ user: User; via: string }>("/auth/me"),
+  me: () => req<{ user: User; via: string; using_default_password?: boolean }>("/auth/me"),
   changePassword: (current_password: string, new_password: string) =>
     req<{ user: User }>("/auth/password", {
       method: "POST", body: JSON.stringify({ current_password, new_password }),

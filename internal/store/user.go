@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -191,4 +192,38 @@ func (s *Store) DeleteUser(ctx context.Context, id uuid.UUID) (bool, error) {
 // TouchLogin records a successful sign-in.
 func (s *Store) TouchLogin(ctx context.Context, id uuid.UUID) {
 	_, _ = s.Pool.Exec(ctx, `UPDATE app_user SET last_login_at=now() WHERE id=$1`, id)
+}
+
+// EnsureDefaultAdmin creates the starting account on an empty database.
+//
+// Conditional on the table being empty, in the insert itself, so it cannot race
+// another api replica and cannot resurrect an account somebody deleted on
+// purpose. Returns whether it created one.
+func (s *Store) EnsureDefaultAdmin(ctx context.Context, username, password string) (bool, error) {
+	_, err := s.CreateUser(ctx, username, "Administrator", password, auth.RoleAdmin, nil, true)
+	if err != nil {
+		// firstOnly turns "somebody already exists" into this error, which here
+		// is the ordinary case on every boot after the first.
+		if strings.Contains(err.Error(), "an account already exists") {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// UsingDefaultPassword reports whether an account still has the password it was
+// seeded with.
+//
+// Checked against the stored hash rather than tracked with a flag: a flag can
+// drift from reality, and the only question worth answering is whether this
+// password works right now.
+func (s *Store) UsingDefaultPassword(ctx context.Context, id uuid.UUID, password string) bool {
+	var hash *string
+	if err := s.Pool.QueryRow(ctx,
+		`SELECT password_hash FROM app_user WHERE id=$1`, id).Scan(&hash); err != nil || hash == nil {
+		return false
+	}
+	ok, err := auth.VerifyPassword(*hash, password)
+	return err == nil && ok
 }

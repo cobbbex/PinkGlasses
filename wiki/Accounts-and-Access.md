@@ -26,17 +26,54 @@ Both of those now answer `401`.
 
 ## First run
 
-An install with no accounts shows a form that creates the first administrator.
-**Do it immediately** — until an account exists there is nothing to authenticate
-against, and the API answers anyone who can reach it. The setup screen says so.
+A fresh install starts with one account:
 
-The creation is conditional on the table still being empty *in the insert
-itself*, so two people hitting a fresh install at once cannot both become
-administrator. Once one account exists, `auth/setup` refuses for good.
+```
+admin / pinkglasses
+```
 
-The first administrator inherits every scope created before there were accounts.
-Those record `created_by = 'local'`, which names nobody, and the person setting
-the install up is by construction the only one who has been using it.
+It is created on the first boot that finds an empty database, and the creation is
+conditional on the table being empty *in the insert itself*, so two api replicas
+starting together cannot both create it.
+
+This is a deliberate trade, and it is the weakest thing on this page. A published
+credential is the pattern behind Mirai and a long line of breaches, and what this
+database holds is exactly what an attacker would want. Three things are meant to
+keep it honest, and all three should stay:
+
+1. **Created only on an empty database.** Delete the account and it does not come
+   back; rename it and the seed does not recreate the old name.
+2. **The API says so at every start**, not just the first, for as long as the
+   password still works.
+3. **The UI carries a banner** on every page until it is changed — and it is not
+   dismissible, because a banner you can click away is one you stop seeing while
+   the thing it warns about stays true.
+
+The check behind (2) and (3) verifies the published password against the stored
+hash rather than reading a flag, so it cannot drift: change the password and the
+warnings stop; set it back and they return.
+
+`pinkglasses` is 11 characters, one short of the 12-character minimum. That is on
+purpose — the default cannot be re-entered as its own replacement.
+
+### Starting without a published password
+
+```bash
+ASM_DEFAULT_ADMIN_PASSWORD=$(openssl rand -base64 24)   # before first boot
+ASM_DEFAULT_ADMIN_PASSWORD=-                            # create no account at all
+```
+
+With `-`, the first visit shows a form that creates the first administrator
+instead, which is the better path if you are exposing this to anyone.
+
+Either way the first administrator inherits every scope created before there were
+accounts. Those record `created_by = 'local'`, which names nobody.
+
+### Locked out
+
+The account is never recreated, so a forgotten password has no in-app recovery.
+`go run ./tools/pwhash 'new password'` prints an argon2id hash to write into
+`app_user.password_hash` directly.
 
 ## Roles
 

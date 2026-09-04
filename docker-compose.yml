@@ -48,6 +48,10 @@ services:
       # header authentication is off and the app's own login is the only way in
       # (architecture.md §10.2).
       ASM_TRUSTED_PROXY_SECRET: "${ASM_TRUSTED_PROXY_SECRET:-}"
+      # Password for the `admin` account created on first boot. Empty means the
+      # published default, which the UI and the startup log both complain about
+      # until it is changed. "-" creates no account and asks on first visit.
+      ASM_DEFAULT_ADMIN_PASSWORD: "${ASM_DEFAULT_ADMIN_PASSWORD:-}"
       # wordlist and resolver uploads are streamed into object storage
       ASM_S3_ENDPOINT: "http://minio:9000"
       ASM_S3_BUCKET: "${ASM_S3_BUCKET:-asm-artifacts}"

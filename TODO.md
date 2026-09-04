@@ -403,6 +403,14 @@ what had happened rather than reading what the code intended.
       never offered the work. The worker measures its address before and after connecting
       and refuses the task unless it changed. Verified: a deliberately unusable config gave
       3 attempts, 3 refusals, 0 tools run and 0 services touched.
+- [ ] **Reconsider the shipped default credential.** `admin` / `pinkglasses` is created
+      on first boot (README, wiki/Accounts-and-Access.md). It is mitigated — created only
+      on an empty database, warned about in the log at every start and in a
+      non-dismissible UI banner, and 11 characters so it cannot be re-entered as its own
+      replacement — but a published credential on a database holding a complete map of
+      somebody's attack surface is still the weakest thing in the auth design. Better:
+      generate a random password on first boot and print it once, which keeps the
+      zero-config start without publishing anything.
 - [ ] How to save and then show user historical data ?
 - [ ] **A worker whose row is reaped never re-enrols.** Seen 2026-09-04: the gateway
       restarted, the worker reconnected and re-enrolled, then its heartbeat stopped
@@ -461,6 +469,8 @@ entrypoint. The planner, the dispatcher and the worker all read one fact —
 `store.RunHasFleet` — to decide who owns the tunnel, because deciding it
 separately is what broke the first version. Documented in architecture.md §7.6,
 the README, and `wiki/VPN-Scanning.md`.
+
+- [ ] Add to .env file file all subfinder supported survices list then i could put there API tokens to them.
 
 ## UI tuninnig
 Write here new UI features.
