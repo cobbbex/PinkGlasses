@@ -98,6 +98,10 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 				if err := in.st.LinkDomainIP(ctx, domID, ipID, o.RType, now); err != nil {
 					return sum, err
 				}
+				// The per-run record behind the edge, for the host page's
+				// resolution history. Best-effort: the edge is the fact, this
+				// is the memory of when it was true.
+				_ = in.st.RecordDomainIPObservation(ctx, domID, ipID, runID, now)
 				if !ipSeen[o.Value] {
 					sum.IPs = append(sum.IPs, o.Value)
 					ipSeen[o.Value] = true

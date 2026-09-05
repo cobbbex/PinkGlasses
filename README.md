@@ -441,6 +441,25 @@ you created. "You" is whatever `X-Forwarded-User` says, or `local` — so this t
 a shared list, it does not protect anything. Real accounts are Phase 17; until then
 anyone who can reach the API can list every company by not asking for the filter.
 
+
+**Seen.** The last column is when that name was last seen resolving to that
+address, with the time; hover it for when the pair was first seen. It is the
+pair's timestamps, not the name's or the address's alone — a name that moves
+between two addresses shows a different date on each row.
+
+**History, per address.** Open a host and each name resolving to it carries a
+row of dots, one per completed run that resolved the name: filled where it
+pointed at this address, hollow where it pointed elsewhere. Hover a dot for the
+date. Under a name that has pointed at other addresses, `also →` lists them, so
+a move is visible from either side. Each open port carries the same strip, one
+dot per run that port-scanned the address: filled where the port was open,
+hollow where the scan ran and did not find it — which is how a port that closed
+and came back shows the gap that *first seen / last seen* alone cannot.
+
+Resolution history starts at migration 00023 and port history at 00016; runs
+before those looked but left no per-run record, and are left out rather than
+read as "did not find".
+
 ## Finding history
 
 Scanning the same host again does not overwrite what the last scan knew. Every run

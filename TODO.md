@@ -481,10 +481,31 @@ the README, and `wiki/VPN-Scanning.md`.
 ## UI tuninnig
 Write here new UI features.
 
-- [ ] Add date and time to hosts table with when they were got.
-- [ ] Add to detailed host view host cookies names. If we can search by cookies so why don`t show this information in host detailed view.
-- [ ] How to save host ip history and how and where to view it ?
-- [ ] How to save and how to view services and port history ?
+- [x] Add date and time to hosts table with when they were got. A **Seen** column: when the
+      name was last seen resolving to that address, with the time; hover for first seen. It is
+      the name→address pair's timestamps, so a name that moves shows a different date per row.
+- [x] Add to detailed host view host cookies names. Was already there — each service card
+      lists "Cookies set (names only)" — verified end to end 2026-09-05: 18 observations carry
+      names and the host API returns them (`webvpn`, `BIGipServerpool_web_https`, `NSC_wt_mfi`…).
+- [ ] **Ingest writes a service_observation only when a probe had details.** Found while
+      building port history: on scanme.nmap.org, 18 of 22 completed port-scan runs that
+      reported port 80 open left no `service_observation` row, because `ObsService` writes
+      one only when product, version or banner is non-empty (`internal/ingest/ingest.go`).
+      The table is therefore a record of *details*, not of *open*. Port history reads the
+      port-scan task result instead; a bare per-run row on every open observation would
+      make banner/version history possible too — `UpsertServiceObservation` already merges.
+- [x] How to save host ip history and how and where to view it ? Same answer as findings:
+      a per-run record (`domain_ip_observation`, 00023, written by dns_resolve ingest) shown as
+      one dot per completed run that resolved the name — filled where it pointed at this
+      address, hollow where it pointed elsewhere — in the host page's "Names resolving here"
+      table, plus `also →` listing the other addresses the name has pointed at. History starts
+      at 00023; earlier runs left no per-run record and are excluded rather than read as
+      "pointed away". Verified: a passive run wrote 2 rows and the page shows the dot.
+- [x] How to save and how to view services and port history ? One dot per completed run
+      that port-scanned the address, on each service card: filled where the port was open,
+      hollow where the scan ran and did not find it. "Open" is read from the port-scan task's
+      own result, not `service_observation` — see the ingest note above for why. Verified on
+      scanme.nmap.org: 22 runs, 22 filled, for both 22/tcp and 80/tcp.
 
 ## Phase 20 — Every active scan gets its own exit; passive never touches the target
 

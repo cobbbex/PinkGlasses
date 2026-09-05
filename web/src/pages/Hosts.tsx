@@ -94,6 +94,7 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
               <tr>
                 <th>Subdomain</th><th>Address</th><th>Reverse DNS</th>
                 <th>ASN</th><th>AS name</th><th>AS range</th><th>Services</th>
+                <th title="When this name was last seen resolving to this address. Hover a value for when it was first seen.">Seen</th>
                 <th></th>
               </tr>
             </thead>
@@ -120,6 +121,10 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                   <td>{r.as_org ?? "—"}</td>
                   <td className="mono muted">{r.as_range ?? "—"}</td>
                   <td className="muted">{r.ip_id ? r.services : "—"}</td>
+                  <td className="muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}
+                      title={`First seen ${new Date(r.first_seen).toLocaleString()}\nLast seen ${new Date(r.last_seen).toLocaleString()}`}>
+                    {new Date(r.last_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                  </td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     {r.screenshot_service_id && (
                       <ScreenshotButton

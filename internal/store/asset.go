@@ -84,6 +84,16 @@ func (s *Store) LinkDomainIP(ctx context.Context, domainID, ipID uuid.UUID, via 
 	return err
 }
 
+// RecordDomainIPObservation notes that a run saw this name resolve to this
+// address. Best-effort from the caller's side: the edge itself is already
+// recorded by LinkDomainIP; this is the history behind it.
+func (s *Store) RecordDomainIPObservation(ctx context.Context, domainID, ipID, runID uuid.UUID, at time.Time) error {
+	_, err := s.Pool.Exec(ctx, `
+		INSERT INTO domain_ip_observation (domain_id, ip_id, run_id, observed_at)
+		VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, domainID, ipID, runID, at)
+	return err
+}
+
 // UpsertService inserts or refreshes an open port.
 func (s *Store) UpsertService(ctx context.Context, ipID uuid.UUID, port int, proto, state string, at time.Time) (uuid.UUID, error) {
 	var id uuid.UUID
@@ -296,7 +306,10 @@ type HostRow struct {
 	Cloud    *string    `json:"cloud,omitempty"`
 	IsShared bool       `json:"is_shared"`
 	Services int        `json:"services"`
-	LastSeen time.Time  `json:"last_seen"`
+	// FirstSeen and LastSeen are when this name was first and most recently seen
+	// resolving to this address — the pair, not the name or the address alone.
+	FirstSeen time.Time `json:"first_seen"`
+	LastSeen  time.Time `json:"last_seen"`
 	// ScreenshotServiceID is the service on this address holding the most
 	// recent screenshot, so the list can offer to show one without asking for
 	// each row's services separately.
@@ -335,7 +348,7 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 		SELECT d.id, d.name, ip.id, host(ip.addr), ip.ptr, ip.asn, ip.as_org,
 		       ip.as_range, ip.country, ip.cloud, COALESCE(ip.is_shared,false),
 		       COALESCE((SELECT count(*) FROM service sv WHERE sv.ip_id = ip.id), 0),
-		       d.last_seen, shot.service_id
+		       COALESCE(di.first_seen, d.first_seen), COALESCE(di.last_seen, d.last_seen), shot.service_id
 		FROM domain d
 		LEFT JOIN domain_ip di ON di.domain_id = d.id
 		LEFT JOIN ip_address ip ON ip.id = di.ip_id
@@ -361,7 +374,7 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 		var h HostRow
 		if err := rows.Scan(&h.DomainID, &h.Name, &h.IPID, &h.Addr, &h.PTR, &h.ASN,
 			&h.ASOrg, &h.ASRange, &h.Country, &h.Cloud, &h.IsShared, &h.Services,
-			&h.LastSeen, &h.ScreenshotServiceID); err != nil {
+			&h.FirstSeen, &h.LastSeen, &h.ScreenshotServiceID); err != nil {
 			return res, err
 		}
 		res.Rows = append(res.Rows, h)
@@ -393,6 +406,13 @@ type HostName struct {
 	Via       string    `json:"via"`
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`
+	// History has one entry per completed run that resolved this name since
+	// per-run resolution records began (00023): observed is whether it pointed
+	// at this address in that run.
+	History []domain.FindingRun `json:"history"`
+	// AlsoResolvedTo lists the other addresses this name has pointed at, so a
+	// move is visible from either side.
+	AlsoResolvedTo []string `json:"also_resolved_to"`
 }
 
 // HostTech is a technology fingerprinted on one service.
@@ -417,6 +437,10 @@ type HostService struct {
 	// The key itself stays server-side: the image is fetched by service id,
 	// so a caller cannot ask the API for an arbitrary object.
 	HasScreenshot bool `json:"has_screenshot"`
+	// History has one entry per completed run that port-scanned this address:
+	// observed is whether that run found the port open. A port that closed and
+	// reopened shows the gap, which first_seen/last_seen alone cannot.
+	History []domain.FindingRun `json:"history"`
 }
 
 // HostDetailResult is everything known about one address.
@@ -447,9 +471,30 @@ func (s *Store) HostDetail(ctx context.Context, ipID uuid.UUID) (HostDetailResul
 		return res, err
 	}
 
+	// Per name: one history entry for every completed run that resolved it
+	// (a done dns_resolve task for that name) since 00023, marking whether that
+	// run saw it point here. Runs before 00023 resolved names too but left no
+	// per-run record, so they are excluded rather than read as "pointed away".
 	nameRows, err := s.Pool.Query(ctx, `
-		SELECT d.name, di.via, di.first_seen, di.last_seen
+		SELECT d.name, di.via, di.first_seen, di.last_seen,
+		       COALESCE(h.hist, '[]'::jsonb),
+		       COALESCE((SELECT array_agg(host(ip2.addr) ORDER BY ip2.addr)
+		                   FROM domain_ip di2 JOIN ip_address ip2 ON ip2.id = di2.ip_id
+		                  WHERE di2.domain_id = d.id AND di2.ip_id <> di.ip_id), '{}')
 		FROM domain_ip di JOIN domain d ON d.id = di.domain_id
+		LEFT JOIN LATERAL (
+		  SELECT jsonb_agg(jsonb_build_object(
+		           'run_id', r.id, 'at', r.started_at,
+		           'observed', o.run_id IS NOT NULL, 'observed_at', o.observed_at)
+		         ORDER BY r.started_at) AS hist
+		  FROM (SELECT DISTINCT t.run_id FROM scan_task t
+		         WHERE t.status = 'done' AND t.stage = 'dns_resolve'
+		           AND t.target->>'domain' = d.name) tr
+		  JOIN scan_run r ON r.id = tr.run_id AND r.status = 'completed'
+		       AND r.started_at >= (SELECT tstamp FROM goose_db_version WHERE version_id = 23)
+		  LEFT JOIN domain_ip_observation o
+		         ON o.domain_id = di.domain_id AND o.ip_id = di.ip_id AND o.run_id = r.id
+		) h ON true
 		WHERE di.ip_id=$1 ORDER BY d.name`, ipID)
 	if err != nil {
 		return res, err
@@ -457,9 +502,12 @@ func (s *Store) HostDetail(ctx context.Context, ipID uuid.UUID) (HostDetailResul
 	defer nameRows.Close()
 	for nameRows.Next() {
 		var n HostName
-		if err := nameRows.Scan(&n.Name, &n.Via, &n.FirstSeen, &n.LastSeen); err != nil {
+		var hist []byte
+		n.History, n.AlsoResolvedTo = []domain.FindingRun{}, []string{}
+		if err := nameRows.Scan(&n.Name, &n.Via, &n.FirstSeen, &n.LastSeen, &hist, &n.AlsoResolvedTo); err != nil {
 			return res, err
 		}
+		_ = json.Unmarshal(hist, &n.History)
 		res.Names = append(res.Names, n)
 	}
 	if err := nameRows.Err(); err != nil {
@@ -473,14 +521,44 @@ func (s *Store) HostDetail(ctx context.Context, ipID uuid.UUID) (HostDetailResul
 		SELECT sv.id, sv.ip_id, sv.port, sv.proto, sv.last_state, sv.first_seen, sv.last_seen,
 		       o.banner, o.product, o.version, o.http, o.tls, o.observed_at,
 		       EXISTS (SELECT 1 FROM service_observation so
-		                WHERE so.service_id = sv.id AND COALESCE(so.screenshot_key,'') <> '')
+		                WHERE so.service_id = sv.id AND COALESCE(so.screenshot_key,'') <> ''),
+		       COALESCE(h.hist, '[]'::jsonb)
 		FROM service sv
+		JOIN ip_address ip ON ip.id = sv.ip_id
 		LEFT JOIN LATERAL (
 		  SELECT banner, product, version, http, tls, observed_at
 		  FROM service_observation
 		  WHERE service_id = sv.id
 		  ORDER BY observed_at DESC LIMIT 1
 		) o ON true
+		-- One entry per completed run that port-scanned this address. Port scans
+		-- are batched, so the address is in target.ips; a single-address task
+		-- carries target.ip.
+		--
+		-- "Observed" is read from the port-scan task's own result — the list of
+		-- {ip, port} it reported open — not from service_observation. That table
+		-- only gets a row when a probe had a product, version or banner to
+		-- record, so 18 of 22 runs that found port 80 open on the test host left
+		-- none; built on it, a hollow dot would have said "scanned, not found"
+		-- about a port that was found. The observation row still counts as
+		-- evidence when it exists, and supplies the timestamp.
+		LEFT JOIN LATERAL (
+		  SELECT jsonb_agg(jsonb_build_object(
+		           'run_id', r.id, 'at', r.started_at,
+		           'observed', (ps.found OR so.id IS NOT NULL),
+		           'observed_at', COALESCE(so.observed_at, ps.finished_at))
+		         ORDER BY r.started_at) AS hist
+		  FROM (SELECT t.run_id,
+		               bool_or(t.result->'services' @> jsonb_build_array(
+		                 jsonb_build_object('ip', host(ip.addr), 'port', sv.port))) AS found,
+		               max(t.finished_at) AS finished_at
+		          FROM scan_task t
+		         WHERE t.status = 'done' AND t.stage = 'port_scan'
+		           AND (t.target->'ips' ? host(ip.addr) OR t.target->>'ip' = host(ip.addr))
+		         GROUP BY t.run_id) ps
+		  JOIN scan_run r ON r.id = ps.run_id AND r.status = 'completed'
+		  LEFT JOIN service_observation so ON so.service_id = sv.id AND so.run_id = r.id
+		) h ON true
 		WHERE sv.ip_id=$1
 		ORDER BY sv.port`, ipID)
 	if err != nil {
@@ -490,13 +568,15 @@ func (s *Store) HostDetail(ctx context.Context, ipID uuid.UUID) (HostDetailResul
 	byService := map[uuid.UUID]int{}
 	for svcRows.Next() {
 		var sv HostService
-		sv.Technologies = []HostTech{}
+		var hist []byte
+		sv.Technologies, sv.History = []HostTech{}, []domain.FindingRun{}
 		if err := svcRows.Scan(&sv.ID, &sv.IPID, &sv.Port, &sv.Proto, &sv.LastState,
 			&sv.FirstSeen, &sv.LastSeen,
 			&sv.Banner, &sv.Product, &sv.Version, &sv.HTTP, &sv.TLS, &sv.ObservedAt,
-			&sv.HasScreenshot); err != nil {
+			&sv.HasScreenshot, &hist); err != nil {
 			return res, err
 		}
+		_ = json.Unmarshal(hist, &sv.History)
 		byService[sv.ID] = len(res.Services)
 		res.Services = append(res.Services, sv)
 	}

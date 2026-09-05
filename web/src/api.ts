@@ -113,7 +113,9 @@ export interface HostRow {
   ip_id?: string | null; addr?: string | null; ptr?: string | null;
   asn?: number | null; as_org?: string | null; as_range?: string | null;
   country?: string | null; cloud?: string | null;
-  is_shared: boolean; services: number; last_seen: string;
+  is_shared: boolean; services: number;
+  /** When this name was first and most recently seen resolving to this address. */
+  first_seen: string; last_seen: string;
 }
 export interface Wordlist {
   id: string; name: string; kind: string;
@@ -133,6 +135,10 @@ export interface ScanProfilePreset {
 
 export interface HostName {
   name: string; via: string; first_seen: string; last_seen: string;
+  /** One entry per completed run that resolved this name; observed = it pointed here. */
+  history?: FindingRun[] | null;
+  /** Other addresses this name has resolved to, so a move shows from either side. */
+  also_resolved_to?: string[] | null;
 }
 export interface HostTech { name: string; version?: string | null; cpe?: string | null }
 /** An open port plus the most recent thing observed answering on it. */
@@ -146,6 +152,8 @@ export interface HostService extends Service {
   tls?: Record<string, any> | null;
   observed_at?: string | null;
   technologies: HostTech[];
+  /** One entry per completed run that port-scanned this address; observed = found open. */
+  history?: FindingRun[] | null;
 }
 export interface HostDetail {
   host: Host; names: HostName[]; services: HostService[]; findings: Finding[];

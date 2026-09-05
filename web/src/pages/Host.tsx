@@ -86,14 +86,26 @@ export default function Host() {
       ) : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Name</th><th>Record</th><th>First seen</th><th>Last seen</th></tr></thead>
+            <thead><tr>
+              <th>Name</th><th>Record</th><th>First seen</th><th>Last seen</th>
+              <th title="One dot per run that resolved this name. Filled: it pointed here. Hollow: it pointed elsewhere. Hover for the date.">Resolution history</th>
+            </tr></thead>
             <tbody>
               {names.map((n) => (
                 <tr key={n.name + n.via}>
-                  <td className="mono">{n.name}</td>
+                  <td className="mono">
+                    {n.name}
+                    {(n.also_resolved_to?.length ?? 0) > 0 && (
+                      <div className="muted" style={{ fontSize: 11, marginTop: 2, fontFamily: "inherit" }}
+                           title="Other addresses this name has resolved to">
+                        also → {n.also_resolved_to!.join(", ")}
+                      </div>
+                    )}
+                  </td>
                   <td><span className="pill">{n.via}</span></td>
-                  <td className="muted">{new Date(n.first_seen).toLocaleDateString()}</td>
-                  <td className="muted">{new Date(n.last_seen).toLocaleDateString()}</td>
+                  <td className="muted" title={new Date(n.first_seen).toLocaleString()}>{new Date(n.first_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</td>
+                  <td className="muted" title={new Date(n.last_seen).toLocaleString()}>{new Date(n.last_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</td>
+                  <td><DotStrip history={n.history ?? []} /></td>
                 </tr>
               ))}
             </tbody>
@@ -160,6 +172,9 @@ function ServiceCard({ sv }: { sv: HostService }) {
       <div className="row" style={{ margin: 0, alignItems: "baseline", gap: 10 }}>
         <strong className="mono" style={{ fontSize: 16 }}>{sv.port}/{sv.proto}</strong>
         <span className={"badge" + (sv.last_state === "open" ? " b-open" : "")}>{sv.last_state}</span>
+        <span title="One dot per run that port-scanned this address. Filled: this port was open. Hollow: the scan ran and did not find it. Hover a dot for the date.">
+          <DotStrip history={sv.history ?? []} />
+        </span>
         {product && <span>{product}</span>}
         {http?.status !== undefined && <span className="pill">HTTP {http.status}</span>}
         <span className="muted" style={{ marginLeft: "auto", fontSize: 12 }}>
