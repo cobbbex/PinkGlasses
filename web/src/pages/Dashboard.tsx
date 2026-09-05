@@ -18,7 +18,10 @@ export default function Dashboard({ scopeID }: { scopeID: string }) {
       </div>
 
       <div className="cards">
-        <Stat n={sum?.domains} label="Domains" />
+        <Stat n={sum?.domains_resolving} label="Resolving names"
+              hint={sum && sum.domains > sum.domains_resolving
+                ? `${(sum.domains - sum.domains_resolving).toLocaleString()} more never resolved`
+                : undefined} />
         <Stat n={sum?.ips} label="Hosts" />
         <Stat n={sum?.services} label="Services" />
         <Stat n={sum?.open_findings} label="Open findings" />

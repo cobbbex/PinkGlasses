@@ -247,7 +247,11 @@ type Artifact struct {
 type ObsType string
 
 const (
-	ObsSubdomain  ObsType = "subdomain"
+	ObsSubdomain ObsType = "subdomain"
+	// ObsWildcard says an apex answers for any label: Domain is the apex, Value
+	// the comma-joined addresses a random label resolved to. Names under it that
+	// resolve only to those addresses are phantoms and are not reported.
+	ObsWildcard   ObsType = "wildcard"
 	ObsDNSRecord  ObsType = "dns_record"
 	ObsIP         ObsType = "ip"
 	ObsService    ObsType = "service"

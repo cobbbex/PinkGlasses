@@ -73,6 +73,28 @@ func (s *Store) EnrichIP(ctx context.Context, id uuid.UUID, ptr, asOrg, country,
 	return err
 }
 
+// MarkWildcard records that an apex answers for any label, and which addresses
+// it answers with. is_wildcard existed in the schema from the start; this is
+// the first thing to set it.
+func (s *Store) MarkWildcard(ctx context.Context, scopeID uuid.UUID, name, apex string, ips []string, at time.Time) error {
+	id, err := s.UpsertDomain(ctx, scopeID, name, apex, "wildcard-probe", at)
+	if err != nil {
+		return err
+	}
+	if _, err := s.Pool.Exec(ctx, `UPDATE domain SET is_wildcard=true WHERE id=$1`, id); err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		if ip == "" {
+			continue
+		}
+		if err := s.UpsertDNSRecord(ctx, id, "WILDCARD", ip, 0, at); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // LinkDomainIP records a temporal domain->ip edge (the DNSDumpster map).
 func (s *Store) LinkDomainIP(ctx context.Context, domainID, ipID uuid.UUID, via string, at time.Time) error {
 	_, err := s.Pool.Exec(ctx, `
@@ -304,8 +326,11 @@ type HostRow struct {
 	ASRange  *string    `json:"as_range,omitempty"`
 	Country  *string    `json:"country,omitempty"`
 	Cloud    *string    `json:"cloud,omitempty"`
-	IsShared bool       `json:"is_shared"`
-	Services int        `json:"services"`
+	// ApexWildcard: the apex answers for any label, so names under it that
+	// resolve only to the wildcard address were never recorded.
+	ApexWildcard bool `json:"apex_wildcard"`
+	IsShared     bool `json:"is_shared"`
+	Services     int  `json:"services"`
 	// FirstSeen and LastSeen are when this name was first and most recently seen
 	// resolving to this address — the pair, not the name or the address alone.
 	FirstSeen time.Time `json:"first_seen"`
@@ -347,6 +372,7 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 	rows, err := s.Pool.Query(ctx, `
 		SELECT d.id, d.name, ip.id, host(ip.addr), ip.ptr, ip.asn, ip.as_org,
 		       ip.as_range, ip.country, ip.cloud, COALESCE(ip.is_shared,false),
+		       COALESCE((SELECT a.is_wildcard FROM domain a WHERE a.scope_id = d.scope_id AND a.name = d.apex), false),
 		       COALESCE((SELECT count(*) FROM service sv WHERE sv.ip_id = ip.id), 0),
 		       COALESCE(di.first_seen, d.first_seen), COALESCE(di.last_seen, d.last_seen), shot.service_id
 		FROM domain d
@@ -373,7 +399,7 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 	for rows.Next() {
 		var h HostRow
 		if err := rows.Scan(&h.DomainID, &h.Name, &h.IPID, &h.Addr, &h.PTR, &h.ASN,
-			&h.ASOrg, &h.ASRange, &h.Country, &h.Cloud, &h.IsShared, &h.Services,
+			&h.ASOrg, &h.ASRange, &h.Country, &h.Cloud, &h.IsShared, &h.ApexWildcard, &h.Services,
 			&h.FirstSeen, &h.LastSeen, &h.ScreenshotServiceID); err != nil {
 			return res, err
 		}

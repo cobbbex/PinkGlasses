@@ -70,6 +70,13 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 			}
 		}
 		switch o.Type {
+		case scanproto.ObsWildcard:
+			// The apex answers for any label. Flag it so the UI can say so, and
+			// keep the addresses it answers with as WILDCARD records.
+			if o.Domain != "" {
+				_ = in.st.MarkWildcard(ctx, scopeID, norm(o.Domain), planner.Apex(o.Domain), strings.Split(o.Value, ","), now)
+			}
+
 		case scanproto.ObsSubdomain:
 			if o.Domain == "" {
 				continue

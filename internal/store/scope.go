@@ -115,10 +115,14 @@ func (s *Store) ListTargets(ctx context.Context, scopeID uuid.UUID, tag string) 
 
 // ScopeSummary holds dashboard counters.
 type ScopeSummary struct {
-	Domains  int `json:"domains"`
-	IPs      int `json:"ips"`
-	Services int `json:"services"`
-	Findings int `json:"open_findings"`
+	// DomainsResolving is how many of those names currently point at an
+	// address. Passive sources return every name they have ever heard of; for a
+	// famous domain most are dead, and the bare count buries the ones that matter.
+	DomainsResolving int `json:"domains_resolving"`
+	Domains          int `json:"domains"`
+	IPs              int `json:"ips"`
+	Services         int `json:"services"`
+	Findings         int `json:"open_findings"`
 }
 
 // Summary returns dashboard counters for a scope.
@@ -127,11 +131,13 @@ func (s *Store) Summary(ctx context.Context, scopeID uuid.UUID) (ScopeSummary, e
 	err := s.Pool.QueryRow(ctx, `
 		SELECT
 		  (SELECT count(*) FROM domain WHERE scope_id=$1),
+		  (SELECT count(*) FROM domain d WHERE d.scope_id=$1
+		     AND EXISTS (SELECT 1 FROM domain_ip di WHERE di.domain_id = d.id)),
 		  (SELECT count(*) FROM ip_address WHERE scope_id=$1),
 		  (SELECT count(*) FROM service sv JOIN ip_address ip ON ip.id=sv.ip_id WHERE ip.scope_id=$1),
 		  (SELECT count(*) FROM finding WHERE scope_id=$1 AND status='open')`,
 		scopeID,
-	).Scan(&sum.Domains, &sum.IPs, &sum.Services, &sum.Findings)
+	).Scan(&sum.Domains, &sum.DomainsResolving, &sum.IPs, &sum.Services, &sum.Findings)
 	return sum, err
 }
 

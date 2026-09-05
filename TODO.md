@@ -657,11 +657,11 @@ Two things the tests turned up, both fixed in the same change:
 - [x] 22.2 **Default credential: random on first boot, printed once.** Keeps the zero-config
       start without a password in the README. The banner and startup warning stay for the
       case where the printed password is never changed.
-- [ ] 22.3 **Passive-discovery noise.** example.com: 24,950 names, 3 resolve, 24,947 dead
+- [x] 22.3 **Passive-discovery noise.** example.com: 24,950 names, 3 resolve, 24,947 dead
       entries from subfinder. Count and rank resolving names first on the dashboard; stop
       re-planning dns_resolve for a name that has failed N runs in a row; keep the names —
       dangling ones are takeover candidates.
-- [ ] 22.4 **Wildcard DNS detection** (13.5): detect a wildcard before brute force and flag
+- [x] 22.4 **Wildcard DNS detection** (13.5): detect a wildcard before brute force and flag
       the domain rather than explode it into thousands of fake subdomains.
 - [ ] 22.5 **Docs debt.** An OpenAPI document generated from the same router walk the
       reference test uses; `worker-pipeline.md` updated to what runs (13.14.2).

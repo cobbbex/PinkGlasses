@@ -40,7 +40,7 @@ export interface ApiToken {
   role: Role; created_at: string; expires_at?: string | null;
   revoked_at?: string | null; last_used_at?: string | null;
 }
-export interface Summary { domains: number; ips: number; services: number; open_findings: number }
+export interface Summary { domains: number; domains_resolving: number; ips: number; services: number; open_findings: number }
 export interface Target {
   id: string; scope_id: string; kind: string; value: string; tags: string[];
   mode: string; authorized_by?: string | null;
@@ -131,6 +131,8 @@ export interface HostRow {
   asn?: number | null; as_org?: string | null; as_range?: string | null;
   country?: string | null; cloud?: string | null;
   is_shared: boolean; services: number;
+  /** The apex answers for any label; phantom names under it were dropped at discovery. */
+  apex_wildcard?: boolean;
   /** When this name was first and most recently seen resolving to this address. */
   first_seen: string; last_seen: string;
 }

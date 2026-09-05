@@ -60,7 +60,7 @@ implementations when a binary is absent, so it works before you install anything
 |---|---|---|
 | Subdomains | subfinder | stdlib resolver |
 | DNS bruteforce | shuffledns + massdns | skipped |
-| Resolution & enrichment | dnsx, Team Cymru | stdlib resolver |
+| Resolution & enrichment | dnsx, Team Cymru; a wildcard probe per apex | stdlib resolver |
 | Ports & services | **nmap -sV** alone at top-100; naabu → nmap when wider | Go connect-scan |
 | Tech & versions | httpx `-tech-detect`, nuclei | header/body fingerprint |
 | Screenshots | httpx `-screenshot` | (needs `browser` capability) |

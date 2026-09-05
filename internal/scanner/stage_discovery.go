@@ -2,6 +2,8 @@ package scanner
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net"
@@ -105,10 +107,88 @@ func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanpro
 	slog.Info("passive enumeration",
 		"domain", root, "candidates", len(names), "by_source", fmt.Sprint(perSource))
 
+	// Wildcard DNS: if a random label under the apex resolves, every candidate
+	// will "resolve" too, and 25,000 phantom hosts pointing at one address is
+	// not discovery. Probe once per apex, flag it, and drop the names that
+	// resolve only to the wildcard addresses. Names that also point somewhere
+	// else, or carry a CNAME, are kept — those are real.
+	wild := wildcardIPs(ctx, root)
+	if len(wild) > 0 {
+		obs = append(obs, scanproto.Observation{Type: scanproto.ObsWildcard, Domain: root, Value: joinSorted(wild)})
+	}
+
 	resolved := s.resolveNames(ctx, names, jobParams(job))
+	if len(wild) > 0 {
+		var dropped int
+		obs, resolved, dropped = dropPhantoms(obs, resolved, wild)
+		slog.Warn("wildcard DNS: names resolving only to the wildcard address were dropped",
+			"domain", root, "wildcard_ips", joinSorted(wild), "dropped", dropped, "kept", len(resolved))
+	}
 	slog.Info("resolution", "domain", root,
 		"candidates", len(names), "observations", len(resolved))
 	return append(obs, resolved...), nil
+}
+
+// wildcardIPs asks whether an apex answers for any label, by resolving two
+// labels nobody would have registered. The union of their addresses is the
+// wildcard set; empty means no wildcard.
+func wildcardIPs(ctx context.Context, apex string) map[string]bool {
+	res := net.Resolver{}
+	out := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		b := make([]byte, 12)
+		_, _ = rand.Read(b)
+		label := hex.EncodeToString(b) + "." + apex
+		ips, err := res.LookupHost(withTimeout(ctx, 5*time.Second), label)
+		if err != nil {
+			continue
+		}
+		for _, ip := range ips {
+			out[ip] = true
+		}
+	}
+	return out
+}
+
+// dropPhantoms removes DNS records — and the subdomain candidates they belong
+// to — for names whose every address is a wildcard address. A name with any
+// non-wildcard address or a CNAME is real and kept, records and all. Names
+// that never resolved are untouched: absence is not evidence either way.
+func dropPhantoms(cands, records []scanproto.Observation, wild map[string]bool) (keptCands, keptRecords []scanproto.Observation, dropped int) {
+	real := map[string]bool{} // names with evidence beyond the wildcard
+	seen := map[string]bool{} // names that had any record at all
+	for _, r := range records {
+		if r.Type != scanproto.ObsDNSRecord {
+			continue
+		}
+		seen[r.Domain] = true
+		if r.RType == "CNAME" || !wild[r.Value] {
+			real[r.Domain] = true
+		}
+	}
+	for _, r := range records {
+		if r.Type == scanproto.ObsDNSRecord && seen[r.Domain] && !real[r.Domain] {
+			continue
+		}
+		keptRecords = append(keptRecords, r)
+	}
+	for _, c := range cands {
+		if c.Type == scanproto.ObsSubdomain && seen[c.Domain] && !real[c.Domain] {
+			dropped++
+			continue
+		}
+		keptCands = append(keptCands, c)
+	}
+	return keptCands, keptRecords, dropped
+}
+
+func joinSorted(set map[string]bool) string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
 }
 
 // resolveNames turns candidate names into A/AAAA observations. dnsx is the
@@ -319,6 +399,12 @@ func (s *Scanner) dnsResolve(ctx context.Context, job scanproto.Job) ([]scanprot
 	var obs []scanproto.Observation
 	res := net.Resolver{}
 	c := withTimeout(ctx, 5*time.Second)
+
+	// Flag a wildcard apex here too, so a run without passive enumeration
+	// still learns it.
+	if wild := wildcardIPs(ctx, name); len(wild) > 0 {
+		obs = append(obs, scanproto.Observation{Type: scanproto.ObsWildcard, Domain: name, Value: joinSorted(wild)})
+	}
 
 	if ips, err := res.LookupHost(c, name); err == nil {
 		for _, ip := range ips {

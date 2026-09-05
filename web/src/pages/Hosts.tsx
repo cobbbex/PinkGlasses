@@ -111,6 +111,10 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                       <a href={`/host/${r.ip_id}`} target="_blank" rel="noreferrer"
                          onClick={(e) => e.stopPropagation()}>{r.name}</a>
                     ) : r.name}
+                    {r.apex_wildcard && (
+                      <span className="pill" style={{ marginLeft: 6 }}
+                            title="This domain answers for any name (wildcard DNS). Names that resolved only to the wildcard address were dropped at discovery; what you see here pointed somewhere else too.">wildcard</span>
+                    )}
                   </td>
                   <td className="mono">
                     {r.addr ?? <span className="muted">did not resolve</span>}
