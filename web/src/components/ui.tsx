@@ -3,10 +3,12 @@ import { ReactNode, useEffect, useRef, useState, createContext, useContext, useC
 /* ---------- Modal ---------- */
 
 export function Modal({
-  title, open, onClose, children, footer, wide,
+  title, open, onClose, children, footer, wide, xl,
 }: {
   title: string; open: boolean; onClose: () => void;
-  children: ReactNode; footer?: ReactNode; wide?: boolean;
+  children: ReactNode; footer?: ReactNode;
+  /** wide: 780px, for dialogs with a choice or two; xl: 1040px, for a whole form. */
+  wide?: boolean; xl?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -18,7 +20,7 @@ export function Modal({
   if (!open) return null;
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className={"modal" + (wide ? " wide" : "")} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <div className={"modal" + (wide || xl ? " wide" : "") + (xl ? " xl" : "")} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
         <div className="modal-head">
           <h3>{title}</h3>
           <button className="icon" onClick={onClose} aria-label="Close">✕</button>

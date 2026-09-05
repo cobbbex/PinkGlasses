@@ -205,7 +205,7 @@ function Schedules({ scopeID }: { scopeID: string }) {
       )}
 
       <Modal
-        title="Schedule a recurring scan" open={open} onClose={() => setOpen(false)}
+        title="Schedule a recurring scan" open={open} onClose={() => setOpen(false)} wide
         footer={<>
           <button className="ghost" onClick={() => setOpen(false)}>Cancel</button>
           <button onClick={create} disabled={busy || !ready}>{busy ? "Saving…" : "Schedule"}</button>
@@ -359,7 +359,7 @@ function LaunchModal({
 
   return (
     <Modal
-      title="Start a scan" open={open} onClose={close} wide={manual}
+      title="Start a scan" open={open} onClose={close} wide xl={manual}
       footer={<>
         <button className="ghost" onClick={close}>Cancel</button>
         <button onClick={start} disabled={busy || usable.length === 0 || !exitReady}>
