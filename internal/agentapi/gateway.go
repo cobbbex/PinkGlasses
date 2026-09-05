@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -214,9 +215,25 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			cur, credOK := g.reloadWorker(ctx, workerID)
-			if !credOK || cur.Status != domain.WorkerActive {
-				continue // pending/draining/quarantined: hold, no new leases
+			cur, state := g.reloadWorker(ctx, workerID)
+			if state == workerMissing {
+				// The row is gone — reaped as stale, or removed in the UI — but
+				// this socket is still open, so the worker keeps sending
+				// heartbeats that update zero rows and keeps logging "control
+				// channel up". Holding it here forever is how a whole fleet
+				// once vanished while every worker believed it was fine. Close
+				// with a reason; the reconnect gets a 401 and the worker
+				// already knows to re-enrol on that.
+				slog.Warn("worker has no record any more; closing its channel so it re-enrols",
+					"worker", workerID)
+				_ = conn.WriteControl(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.ClosePolicyViolation,
+						"unknown to the control plane; re-enrol"),
+					time.Now().Add(2*time.Second))
+				return
+			}
+			if state != workerOK || cur.Status != domain.WorkerActive {
+				continue // db hiccup, or pending/draining/quarantined: hold, no new leases
 			}
 			slots := cur.MaxConcurrency - cur.RunningTasks
 			if slots <= 0 {
@@ -553,12 +570,28 @@ func (g *Gateway) authWorker(r *http.Request) (uuid.UUID, domain.Worker, bool) {
 	return id, worker, true
 }
 
-func (g *Gateway) reloadWorker(ctx context.Context, id uuid.UUID) (domain.Worker, bool) {
+// workerState is what reloadWorker learned: the row is there, the row is gone,
+// or the database could not say. The middle one is the only one that ends a
+// connection; the last is waited out, because closing a healthy worker's
+// channel over a transient error would make every blip a re-enrolment.
+type workerState int
+
+const (
+	workerOK workerState = iota
+	workerMissing
+	workerUnknown
+)
+
+func (g *Gateway) reloadWorker(ctx context.Context, id uuid.UUID) (domain.Worker, workerState) {
 	worker, _, err := g.st.WorkerForAuth(ctx, id)
-	if err != nil {
-		return domain.Worker{}, false
+	switch {
+	case err == nil:
+		return worker, workerOK
+	case errors.Is(err, store.ErrNoWorker):
+		return domain.Worker{}, workerMissing
+	default:
+		return domain.Worker{}, workerUnknown
 	}
-	return worker, true
 }
 
 func (g *Gateway) register(id uuid.UUID, conn *websocket.Conn) {

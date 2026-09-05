@@ -127,8 +127,14 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 			if err != nil {
 				return sum, err
 			}
-			// nmap -sV style detail: record product/version/banner as an observation.
-			if o.Product != "" || o.Version != "" || o.Banner != "" {
+			// One observation row per run for every open port, detail or not.
+			// This used to be written only when nmap supplied a product,
+			// version or banner, which made service_observation a record of
+			// *details* rather than of *open*: on the test host, 18 of 22 runs
+			// that found port 80 open left no row. A bare row is safe — the
+			// upsert lets only non-empty values overwrite — and it is what
+			// makes per-run banner and version history possible.
+			if o.State == "" || o.State == "open" {
 				so := domainObs(now)
 				so.Product, so.Version, so.Banner = o.Product, o.Version, o.Banner
 				_ = in.st.UpsertServiceObservation(ctx, svcID, runID, workerID, so)

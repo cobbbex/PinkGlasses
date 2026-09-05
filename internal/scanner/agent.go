@@ -165,7 +165,14 @@ func (a *Agent) Run(ctx context.Context) error {
 		if err := a.ensureEnrolled(ctx); err != nil {
 			slog.Error("enrolment failed", "err", err)
 		} else if err := a.connect(ctx); err != nil {
-			slog.Warn("control channel dropped; reconnecting", "err", err)
+			// The gateway closes with this code when it has no record of us any
+			// more. Forget the credential now rather than after the reconnect's
+			// 401, so the log says what happened instead of "dropped".
+			if websocket.IsCloseError(err, websocket.ClosePolicyViolation) {
+				a.forgetCredential("the control plane no longer knows this worker")
+			} else {
+				slog.Warn("control channel dropped; reconnecting", "err", err)
+			}
 		}
 		select {
 		case <-ctx.Done():

@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/jackc/pgx/v5"
 	"time"
 
 	"github.com/google/uuid"
@@ -92,6 +94,11 @@ func (s *Store) ReapStaleLocalWorkers(ctx context.Context, cutoff time.Duration)
 
 // AuthenticateWorker looks up an active/pending worker by id and verifies the
 // caller holds the matching credential hash. Returns the worker on success.
+// ErrNoWorker is returned by WorkerForAuth when the row does not exist — as
+// opposed to a transient database error. The two must be told apart: a missing
+// worker should be sent away to re-enrol, a hiccup should be waited out.
+var ErrNoWorker = errors.New("no such worker")
+
 func (s *Store) WorkerForAuth(ctx context.Context, id uuid.UUID) (domain.Worker, []byte, error) {
 	var w domain.Worker
 	var credHash []byte
@@ -101,6 +108,9 @@ func (s *Store) WorkerForAuth(ctx context.Context, id uuid.UUID) (domain.Worker,
 		FROM worker WHERE id=$1`, id,
 	).Scan(&w.ID, &w.PoolID, &w.Name, &w.Kind, &w.Status, &w.Capabilities, &toolsRaw,
 		&w.AgentVersion, &w.EgressIP, &w.Country, &w.MaxConcurrency, &w.RunningTasks, &credHash, &w.LastSeenAt, &w.EnrolledAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return w, nil, ErrNoWorker
+	}
 	if err != nil {
 		return w, nil, err
 	}

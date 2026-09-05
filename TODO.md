@@ -418,7 +418,14 @@ what had happened rather than reading what the code intended.
       generate a random password on first boot and print it once, which keeps the
       zero-config start without publishing anything.
 - [ ] How to save and then show user historical data ?
-- [ ] **A worker whose row is reaped never re-enrols.** Seen 2026-09-04: the gateway
+- [x] **A worker whose row is reaped never re-enrols.** Fixed 2026-09-05. Mechanism: the
+      gateway's dispatch loop reloaded the worker row every 2 s and, when it was gone, did
+      `continue` — holding the socket open forever while heartbeats updated zero rows. The
+      worker only re-enrols on a 401, and a 401 needs a new HTTP request, which nothing ever
+      forced. Now a missing row (`store.ErrNoWorker`, distinct from a transient DB error, which
+      still waits) closes the channel with a policy-violation frame and a reason; the worker
+      drops its credential on that frame and re-enrols. Live test: row deleted at 13:00:54,
+      channel closed 13:00:56, re-enrolled 13:01:01 — seven seconds, versus never. Original text: Seen 2026-09-04: the gateway
       restarted, the worker reconnected and re-enrolled, then its heartbeat stopped
       reaching the database; `ReapStaleLocalWorkers` deleted the row after 10 minutes and
       the worker sat there with "control channel up" believing it was fine. The whole
@@ -487,7 +494,9 @@ Write here new UI features.
 - [x] Add to detailed host view host cookies names. Was already there — each service card
       lists "Cookies set (names only)" — verified end to end 2026-09-05: 18 observations carry
       names and the host API returns them (`webvpn`, `BIGipServerpool_web_https`, `NSC_wt_mfi`…).
-- [ ] **Ingest writes a service_observation only when a probe had details.** Found while
+- [x] **Ingest writes a service_observation only when a probe had details.** Fixed
+      2026-09-05: every open `ObsService` now leaves a per-run row; the upsert already lets only
+      non-empty values overwrite, so a bare row and a detailed one merge. Original text: Found while
       building port history: on scanme.nmap.org, 18 of 22 completed port-scan runs that
       reported port 80 open left no `service_observation` row, because `ObsService` writes
       one only when product, version or banner is non-empty (`internal/ingest/ingest.go`).
@@ -560,15 +569,15 @@ its `port_scan` pending on its own run-scoped pool; releasing the slot built it.
 The five refusals — no exit, local without a VPN config, remote to an empty pool,
 an unknown exit, and passive needing none — each answer with the fix named.
 
-Not demonstrated end to end: a local fleet actually reaching `up` and running
-active stages through the tunnel. Both VPN configurations were deleted from the
-UI (audit: `vpn.delete` by `admin`, 19:19:40 and 19:19:41 UTC on 2026-09-04) and
-their sealed bodies cannot be recovered, so every local run in this test used a
-throwaway config with an unreachable endpoint and failed at the gateway, as it
-should. The gateway/namespace mechanism itself was proven under Phase 19 with
-real tunnels; what Phase 20 changed — routing, the exit rule, the queue — is
-covered above. Re-add a VPN configuration and run one `standard` scan from local
-workers to close the gap.
+Gap closed 2026-09-05 once a VPN configuration was re-added: a local-exit
+`standard` run on scanme.nmap.org (run 557fcd63) reached `up` under per-task
+routing — egress 157.230.81.163, two workers in the gateway's network namespace
+with the VPN as their own outbound address — and ran every active stage
+(port_scan, service_probe ×2, tech_detect, screenshot, dir_brute, vuln_check) on
+the fleet worker while its three passive stages ran on the standing worker. The
+run completed and the fleet tore down to zero containers. After teardown the
+finished tasks show no pool, because the run-scoped pool is deleted with the
+fleet and scan_task.pool_id sets null; attribution stays on worker_name.
 
 Two mistakes worth keeping: the first two attempts to hold the ceiling for the
 queue test forged database state that the scheduler then correctly acted on — a
