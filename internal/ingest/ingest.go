@@ -160,9 +160,25 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 			so := domainObs(now)
 			so.Product = o.Product
 			so.Version = o.Version
-			so.HTTP = map[string]any{"status": o.Status, "title": o.Title, "headers": o.Headers, "favicon": o.Favicon}
-			// Only set when there is something, so a later observation without
-			// cookies does not overwrite the names an earlier one recorded.
+			// Only fields with a value. The store merges documents with jsonb
+			// `||`, which takes the right-hand value for every key present — so
+			// a stage that knows no title would erase one with "". And a nil
+			// headers map marshals to JSON null, which `||` does not merge with
+			// an object but concatenates into a two-element array; the host
+			// page then had an array where it expected a map (React error #31).
+			so.HTTP = map[string]any{}
+			if o.Status != 0 {
+				so.HTTP["status"] = o.Status
+			}
+			if o.Title != "" {
+				so.HTTP["title"] = o.Title
+			}
+			if len(o.Headers) > 0 {
+				so.HTTP["headers"] = o.Headers
+			}
+			if o.Favicon != "" {
+				so.HTTP["favicon"] = o.Favicon
+			}
 			if len(o.Cookies) > 0 {
 				so.HTTP["cookies"] = o.Cookies
 			}

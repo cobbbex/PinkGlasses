@@ -159,7 +159,15 @@ export default function Host() {
  */
 function ServiceCard({ sv }: { sv: HostService }) {
   const http = sv.http ?? null;
-  const headers = http?.headers ?? {};
+  // Defensive against a malformed document: only a plain object, and only its
+  // string values, are rendered — an object child would take the page down.
+  const rawHeaders: unknown = http?.headers;
+  const headers: Record<string, string> = {};
+  if (rawHeaders && typeof rawHeaders === "object" && !Array.isArray(rawHeaders)) {
+    for (const [k, v] of Object.entries(rawHeaders as Record<string, unknown>)) {
+      if (typeof v === "string") headers[k] = v;
+    }
+  }
   const headerKeys = Object.keys(headers).sort();
   // A version already spelled out in the product string is not repeated:
   // banners like "Apache/2.4.7 (Ubuntu)" would otherwise read "… 2.4.7 2.4.7".

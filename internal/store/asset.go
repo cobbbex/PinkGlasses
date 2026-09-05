@@ -163,9 +163,13 @@ func (s *Store) UpsertServiceObservation(ctx context.Context, serviceID, runID u
 		         WHEN jsonb_typeof(EXCLUDED.http) IS DISTINCT FROM 'object' THEN service_observation.http
 		         WHEN jsonb_typeof(service_observation.http) IS DISTINCT FROM 'object' THEN EXCLUDED.http
 		         ELSE service_observation.http || EXCLUDED.http
+		              -- Typed guards, not COALESCE: a jsonb null is not SQL NULL,
+		              -- and {} concatenated with null is a two-element array, not a merge.
 		              || jsonb_build_object('headers',
-		                   COALESCE(service_observation.http->'headers','{}'::jsonb)
-		                   || COALESCE(EXCLUDED.http->'headers','{}'::jsonb))
+		                   CASE WHEN jsonb_typeof(service_observation.http->'headers')='object'
+		                        THEN service_observation.http->'headers' ELSE '{}'::jsonb END
+		                   || CASE WHEN jsonb_typeof(EXCLUDED.http->'headers')='object'
+		                        THEN EXCLUDED.http->'headers' ELSE '{}'::jsonb END)
 		              -- Cookie names are unioned, not replaced: the probe and the
 		              -- tech-detect pass may each see a different set, and a
 		              -- fingerprint missing because the other stage wrote last
@@ -176,8 +180,10 @@ func (s *Store) UpsertServiceObservation(ctx context.Context, serviceID, runID u
 		                   ELSE jsonb_build_object('cookies', (
 		                     SELECT COALESCE(jsonb_agg(DISTINCT c ORDER BY c), '[]'::jsonb)
 		                     FROM jsonb_array_elements_text(
-		                       COALESCE(service_observation.http->'cookies','[]'::jsonb)
-		                       || COALESCE(EXCLUDED.http->'cookies','[]'::jsonb)) AS c))
+		                       CASE WHEN jsonb_typeof(service_observation.http->'cookies')='array'
+		                            THEN service_observation.http->'cookies' ELSE '[]'::jsonb END
+		                       || CASE WHEN jsonb_typeof(EXCLUDED.http->'cookies')='array'
+		                            THEN EXCLUDED.http->'cookies' ELSE '[]'::jsonb END) AS c))
 		                 END
 		       END,
 		  tls=COALESCE(NULLIF(EXCLUDED.tls,'null'::jsonb), service_observation.tls),
