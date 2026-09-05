@@ -146,14 +146,8 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "user not found")
 		return
 	}
-	// Checked against the stored hash, not remembered in a flag: the only
-	// question worth answering is whether the published password works right
-	// now. Costs one argon2 verification on app load, and only for the
-	// account that was seeded.
-	usingDefault := u.Username == auth.DefaultUsername &&
-		s.st.UsingDefaultPassword(r.Context(), u.ID, auth.DefaultPassword)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user": u, "via": id.Via, "using_default_password": usingDefault,
+		"user": u, "via": id.Via, "must_change_password": u.MustChangePassword,
 	})
 }
 

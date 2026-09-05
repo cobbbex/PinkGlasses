@@ -26,37 +26,26 @@ Both of those now answer `401`.
 
 ## First run
 
-A fresh install starts with one account:
+A fresh install starts with one account, `admin`. Its password is **generated at
+first boot and printed once** in the api log:
 
 ```
-admin / pinkglasses
+docker compose logs api | grep "default administrator"
 ```
 
-It is created on the first boot that finds an empty database, and the creation is
-conditional on the table being empty *in the insert itself*, so two api replicas
-starting together cannot both create it.
+Nothing in this wiki or the README is a credential. The account carries a
+*must change password* flag until the printed password is replaced: the UI shows
+a banner on every page, and the api warns at every start. Both stop the moment
+the password is changed.
 
-This is a deliberate trade, and it is the weakest thing on this page. A published
-credential is the pattern behind Mirai and a long line of breaches, and what this
-database holds is exactly what an attacker would want. Three things are meant to
-keep it honest, and all three should stay:
+Why not a setup form? It is still there — set `ASM_DEFAULT_ADMIN_PASSWORD=-` and
+the first visit asks you to create an administrator. The generated password
+exists so a fresh `docker compose up` yields a working, signed-in install without
+a step, while keeping a published constant out of the picture: a scanner whose
+database is a map of your attack surface should not be reachable with a password
+from a README, and for a while this one was.
 
-1. **Created only on an empty database.** Delete the account and it does not come
-   back; rename it and the seed does not recreate the old name.
-2. **The API says so at every start**, not just the first, for as long as the
-   password still works.
-3. **The UI carries a banner** on every page until it is changed — and it is not
-   dismissible, because a banner you can click away is one you stop seeing while
-   the thing it warns about stays true.
-
-The check behind (2) and (3) verifies the published password against the stored
-hash rather than reading a flag, so it cannot drift: change the password and the
-warnings stop; set it back and they return.
-
-`pinkglasses` is 11 characters, one short of the 12-character minimum. That is on
-purpose — the default cannot be re-entered as its own replacement.
-
-### Starting without a published password
+### Choosing the password yourself
 
 ```bash
 ASM_DEFAULT_ADMIN_PASSWORD=$(openssl rand -base64 24)   # before first boot

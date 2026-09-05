@@ -409,7 +409,7 @@ what had happened rather than reading what the code intended.
       never offered the work. The worker measures its address before and after connecting
       and refuses the task unless it changed. Verified: a deliberately unusable config gave
       3 attempts, 3 refusals, 0 tools run and 0 services touched.
-- [ ] **Reconsider the shipped default credential.** `admin` / `pinkglasses` is created
+- [x] **Reconsider the shipped default credential.** Done as 22.2. Original: `admin` / `pinkglasses` is created
       on first boot (README, wiki/Accounts-and-Access.md). It is mitigated — created only
       on an empty database, warned about in the log at every start and in a
       non-dismissible UI banner, and 11 characters so it cannot be re-entered as its own
@@ -417,7 +417,7 @@ what had happened rather than reading what the code intended.
       somebody's attack surface is still the weakest thing in the auth design. Better:
       generate a random password on first boot and print it once, which keeps the
       zero-config start without publishing anything.
-- [ ] **The run events stream carries nothing.** `GET /runs/{id}/events` opens a
+- [x] **The run events stream carries nothing.** Done as 22.1: database triggers on scan_task, scan_run and run_fleet raise `pg_notify`, the api LISTENs and fans out. Original: `GET /runs/{id}/events` opens a
       server-sent events stream and the UI subscribes to it, but `SSEHub.Publish` has no
       callers anywhere — found 2026-09-05 while writing the API reference. Nothing is broken
       only because the UI also polls every 4 s. Either publish from ingest and the planner
@@ -650,11 +650,11 @@ Two things the tests turned up, both fixed in the same change:
 
 ## Phase 22 — After recurring scans, in this order
 
-- [ ] 22.1 **Make the events stream real.** `SSEHub.Publish` has no callers. Publish on task
+- [x] 22.1 **Make the events stream real.** `SSEHub.Publish` has no callers. Publish on task
       done, stage advanced and run finished from where those happen, and lengthen the UI's
       poll to a fallback. With runs recurring and dashboards left open, polling every run
       detail every 4 s is the wrong shape.
-- [ ] 22.2 **Default credential: random on first boot, printed once.** Keeps the zero-config
+- [x] 22.2 **Default credential: random on first boot, printed once.** Keeps the zero-config
       start without a password in the README. The banner and startup warning stay for the
       case where the printed password is never changed.
 - [ ] 22.3 **Passive-discovery noise.** example.com: 24,950 names, 3 resolve, 24,947 dead

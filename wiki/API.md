@@ -70,7 +70,7 @@ There is no cursor pagination yet.
 | Route | Purpose |
 |---|---|
 | `POST /auth/logout` | end this session |
-| `GET /auth/me` | `{user, via, using_default_password}` |
+| `GET /auth/me` | `{user, via, must_change_password}` |
 | `POST /auth/password` | `{current_password, new_password}` — signs your other sessions out |
 
 ## Companies and targets

@@ -43,9 +43,9 @@ const SCOPE_KEY = "asm.scope.id";
 export default function App() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [me, setMe] = useState<User | null>(null);
-  // True while the shipped password still works. Checked against the stored
-  // hash on every load, so the banner disappears the moment it is changed and
-  // comes back if it is ever set again.
+  // True while the account still has the password it was created with — the
+  // one printed in the api log at first boot, or set by an administrator.
+  // Cleared the moment it is changed.
   const [defaultPw, setDefaultPw] = useState(false);
 
   async function refreshAuth() {
@@ -55,7 +55,7 @@ export default function App() {
       if (st.user) {
         const m = await api.me();
         setMe(m.user);
-        setDefaultPw(!!m.using_default_password);
+        setDefaultPw(!!m.must_change_password);
       } else {
         setMe(null);
         setDefaultPw(false);
@@ -358,9 +358,9 @@ function AccountMenu({ me, collapsed, onSignedOut }: {
 }
 
 /**
- * Shown on every page while the account still has the password this project
- * ships with — which is published in the README, so anyone who can reach the
- * install can sign in as an administrator.
+ * Shown on every page while the account still has the password it was
+ * created with: printed once in the api log at first boot, or set by an
+ * administrator. Either way somebody other than the owner has seen it.
  *
  * Deliberately not dismissible. A banner you can click away is one you stop
  * seeing, and the thing it is warning about does not go away with it.
@@ -379,9 +379,9 @@ function DefaultPasswordBanner() {
         background: "rgba(217,139,43,.08)",
       }}
     >
-      <strong>This install is still using the default password.</strong>{" "}
-      It is published in the README, so anyone who can reach this address can sign
-      in as an administrator and read your whole attack surface. Change it under{" "}
+      <strong>This account still has the password it was created with.</strong>{" "}
+      That is the one printed in the api log at first boot, or one an administrator set
+      for you — either way it has been seen by someone other than you. Change it under{" "}
       <strong>password</strong> at the foot of the sidebar.
     </div>
   );

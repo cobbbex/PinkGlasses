@@ -95,21 +95,26 @@ func TestSecretsAreDistinctAndHashed(t *testing.T) {
 	}
 }
 
-// TestDefaultPasswordFailsOwnPolicy pins a deliberate choice: the shipped
-// password is shorter than CheckPasswordPolicy allows, so an operator cannot
-// "change" it to itself. If someone lengthens the default to satisfy the policy,
-// that property is lost silently — hence this test.
-func TestDefaultPasswordFailsOwnPolicy(t *testing.T) {
-	if err := CheckPasswordPolicy(DefaultPassword); err == nil {
-		t.Errorf("the default password %q now satisfies the password policy; "+
-			"it must not, or it can be re-entered as its own replacement", DefaultPassword)
+// The generated first-boot password must satisfy the policy every user is held
+// to, and two generations must differ.
+func TestGeneratePassword(t *testing.T) {
+	a, err := GeneratePassword()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckPasswordPolicy(a); err != nil {
+		t.Errorf("generated password %q fails the policy: %v", a, err)
+	}
+	b, _ := GeneratePassword()
+	if a == b {
+		t.Error("two generated passwords were identical")
 	}
 }
 
 func TestDefaultAdminPassword(t *testing.T) {
 	t.Setenv("ASM_DEFAULT_ADMIN_PASSWORD", "")
-	if got := DefaultAdminPassword(); got != DefaultPassword {
-		t.Errorf("unset: got %q, want the published default", got)
+	if got := DefaultAdminPassword(); got != "" {
+		t.Errorf("unset must mean generate (empty), got %q", got)
 	}
 	if SeedDisabled() {
 		t.Error("unset must not disable seeding")
@@ -118,11 +123,8 @@ func TestDefaultAdminPassword(t *testing.T) {
 	if got := DefaultAdminPassword(); got != "a chosen passphrase" {
 		t.Errorf("override ignored: got %q", got)
 	}
-	if SeedDisabled() {
-		t.Error("an override must not disable seeding")
-	}
 	t.Setenv("ASM_DEFAULT_ADMIN_PASSWORD", "-")
-	if !SeedDisabled() {
+	if !SeedDisabled() || DefaultAdminPassword() != "" {
 		t.Error(`"-" must disable seeding entirely`)
 	}
 }

@@ -25,17 +25,20 @@ type User struct {
 	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
 	// HasPassword says whether this account can sign in with a password at all.
 	HasPassword bool `json:"has_password"`
+	// MustChangePassword is set on the seeded account until its printed
+	// password is replaced, and shown as a banner until then.
+	MustChangePassword bool `json:"must_change_password"`
 }
 
 // ErrUsernameTaken is returned when a username is already in use.
 var ErrUsernameTaken = errors.New("that username is already taken")
 
-const userCols = `id, username, display_name, role, disabled, created_at, last_login_at, password_hash IS NOT NULL`
+const userCols = `id, username, display_name, role, disabled, created_at, last_login_at, password_hash IS NOT NULL, must_change_password`
 
 func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	var u User
 	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.Disabled,
-		&u.CreatedAt, &u.LastLoginAt, &u.HasPassword)
+		&u.CreatedAt, &u.LastLoginAt, &u.HasPassword, &u.MustChangePassword)
 	return u, err
 }
 
@@ -90,7 +93,7 @@ func (s *Store) UserByUsername(ctx context.Context, username string) (User, stri
 	err := s.Pool.QueryRow(ctx, `
 		SELECT `+userCols+`, password_hash FROM app_user WHERE lower(username)=lower($1)`,
 		username).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &u.Disabled,
-		&u.CreatedAt, &u.LastLoginAt, &u.HasPassword, &hash)
+		&u.CreatedAt, &u.LastLoginAt, &u.HasPassword, &u.MustChangePassword, &hash)
 	if err != nil {
 		return User{}, "", err
 	}
@@ -165,8 +168,25 @@ func (s *Store) SetPassword(ctx context.Context, id uuid.UUID, password string) 
 	if err != nil {
 		return err
 	}
-	_, err = s.Pool.Exec(ctx, `UPDATE app_user SET password_hash=$2 WHERE id=$1`, id, hash)
+	// A new password is, by definition, no longer the one the account was
+	// created with.
+	_, err = s.Pool.Exec(ctx, `UPDATE app_user SET password_hash=$2, must_change_password=false WHERE id=$1`, id, hash)
 	return err
+}
+
+// SetMustChangePassword marks an account as carrying a password somebody else
+// chose or a machine printed; the UI nags until it is replaced.
+func (s *Store) SetMustChangePassword(ctx context.Context, id uuid.UUID, v bool) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE app_user SET must_change_password=$2 WHERE id=$1`, id, v)
+	return err
+}
+
+// CountMustChangePassword is how many enabled accounts still carry such a
+// password, for the startup warning.
+func (s *Store) CountMustChangePassword(ctx context.Context) (int, error) {
+	var n int
+	err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM app_user WHERE must_change_password AND NOT disabled`).Scan(&n)
+	return n, err
 }
 
 // CountAdmins reports how many enabled administrators there are, so the last
@@ -210,20 +230,4 @@ func (s *Store) EnsureDefaultAdmin(ctx context.Context, username, password strin
 		return false, err
 	}
 	return true, nil
-}
-
-// UsingDefaultPassword reports whether an account still has the password it was
-// seeded with.
-//
-// Checked against the stored hash rather than tracked with a flag: a flag can
-// drift from reality, and the only question worth answering is whether this
-// password works right now.
-func (s *Store) UsingDefaultPassword(ctx context.Context, id uuid.UUID, password string) bool {
-	var hash *string
-	if err := s.Pool.QueryRow(ctx,
-		`SELECT password_hash FROM app_user WHERE id=$1`, id).Scan(&hash); err != nil || hash == nil {
-		return false
-	}
-	ok, err := auth.VerifyPassword(*hash, password)
-	return err == nil && ok
 }

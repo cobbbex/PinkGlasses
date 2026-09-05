@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, Run, RunTarget, RunActivity, RunFleet, Schedule } from "../api";
 import { Badge, useToast, Modal } from "../components/ui";
 import ScanSettings from "../components/ScanSettings";
@@ -601,14 +601,18 @@ function FleetBanner({ runID }: { runID: string }) {
 }
 
 function RunDetail({ runID }: { runID: string }) {
+  const qc = useQueryClient();
   const [targets, setTargets] = useState<RunTarget[]>([]);
   useEffect(() => {
     let live = true;
     const poll = () => api.runTargets(runID).then((t) => live && setTargets(t)).catch(() => {});
     poll();
+    // Events arrive whenever a task, the run or its fleet changes state, raised
+    // by database triggers from whichever process made the change. The poll
+    // stays as a fallback for a dropped stream, not as the main signal.
     const es = new EventSource(`/api/v1/runs/${runID}/events`);
-    es.onmessage = () => poll();
-    const iv = setInterval(poll, 4000);
+    es.onmessage = () => { poll(); qc.invalidateQueries({ queryKey: ["run", runID] }); qc.invalidateQueries({ queryKey: ["runs"] }); };
+    const iv = setInterval(poll, 30000);
     return () => { live = false; es.close(); clearInterval(iv); };
   }, [runID]);
 
@@ -665,8 +669,11 @@ function RunWorkers({ runID }: { runID: string }) {
     let live = true;
     const poll = () => api.runActivity(runID).then((a) => live && setAct(a)).catch(() => {});
     poll();
-    const iv = setInterval(poll, 3000);
-    return () => { live = false; clearInterval(iv); };
+    // Refresh on run events too; the interval is only a fallback now.
+    const es = new EventSource(`/api/v1/runs/${runID}/events`);
+    es.onmessage = () => poll();
+    const iv = setInterval(poll, 30000);
+    return () => { live = false; es.close(); clearInterval(iv); };
   }, [runID]);
 
   if (!act) return null;

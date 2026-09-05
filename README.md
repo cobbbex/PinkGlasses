@@ -112,34 +112,31 @@ open on `45.33.32.156`.
 
 ### Signing in
 
+The first boot creates one administrator, **`admin`**, with a password it
+generates and prints **once**, in the api log:
+
 ```
-username: admin
-password: pinkglasses
+docker compose logs api | grep "default administrator"
+  WARN created the default administrator account — this password is printed ONCE … username=admin password=Xk3…
 ```
 
-The account is created on first boot, on an empty database only. **Change the
-password before this is reachable by anyone else** — it is published here, so it
-is not a secret, and what this database holds is a complete map of your external
-attack surface. The UI carries a warning banner and the API logs at every start
-until you do.
+Copy it, sign in, and change it under **password** at the foot of the sidebar —
+the UI carries a banner until you do, and the api says so at every start. The
+password appears nowhere else and is never printed again.
 
-Change it under **password** at the foot of the sidebar. The minimum is 12
-characters, which `pinkglasses` deliberately is not: the default cannot be
-re-entered as its own replacement.
-
-To start with something that was never published, set this before first boot:
+To choose it yourself instead, set this before first boot:
 
 ```bash
 ASM_DEFAULT_ADMIN_PASSWORD=$(openssl rand -base64 24)
 ```
 
 Or set it to `-` to create no account at all, in which case the first visit asks
-you to create an administrator instead.
+you to create an administrator.
 
-The account is never recreated once the database has any account in it, so
-deleting or renaming it is permanent — as is losing the password. If you lock
-yourself out, `go run ./tools/pwhash 'new password'` prints a hash you can write
-straight into `app_user.password_hash`.
+The account is only ever created on an empty database, so deleting or renaming
+it is permanent — as is losing the password. If you lock yourself out,
+`go run ./tools/pwhash 'new password'` prints a hash you can write straight into
+`app_user.password_hash`.
 
 ## Stop it
 
@@ -258,9 +255,9 @@ minted on enrollment and never leaves the box. See `scripts/install.sh`.
 
 ## Accounts and access
 
-A fresh install starts with one account — `admin` / `pinkglasses` — created on
-first boot. Change the password immediately; see [Signing in](#signing-in) above
-for why, and for how to start with one that was never published. Every endpoint
+A fresh install starts with one account, `admin`, whose password is generated at
+first boot and printed once in the api log — see [Signing in](#signing-in). Change
+it on first sign-in; the UI nags until you do. Every endpoint
 requires a signed-in session or an API token.
 
 ### Roles

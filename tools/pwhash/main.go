@@ -11,10 +11,11 @@ import (
 )
 
 func main() {
-	pw := auth.DefaultPassword
-	if len(os.Args) > 1 {
-		pw = os.Args[1]
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: pwhash <password>")
+		os.Exit(2)
 	}
+	pw := os.Args[1]
 	h, err := auth.HashPassword(pw)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

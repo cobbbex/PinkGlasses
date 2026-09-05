@@ -31,6 +31,10 @@ func main() {
 	seedDefaultAdmin(ctx, st)
 
 	api := httpapi.New(st)
+	// Run events arrive as Postgres notifications raised by triggers on
+	// scan_task, scan_run and run_fleet — from whichever process made the
+	// change — and are fanned out to browsers subscribed to that run.
+	go st.Listen(ctx, "run_events", api.PublishRunEvent)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", api.Routes())
 	mux.Handle("/healthz", api.Routes())
@@ -68,52 +72,54 @@ func spaHandler(dir string) http.Handler {
 	})
 }
 
-// seedDefaultAdmin creates the starting account on an empty database, and says
-// so every time the password is still the shipped one.
+// seedDefaultAdmin creates the starting account on an empty database.
 //
-// The noise is the point. A default credential that nobody is reminded about is
-// how an attack-surface scanner — holding a complete map of somebody's external
-// attack surface — ends up reachable with a password from a public README.
+// The password is the operator's choice from ASM_DEFAULT_ADMIN_PASSWORD or,
+// unset, one generated here and printed exactly once — this log line is the
+// only place it ever appears. The account carries a must-change flag until the
+// password is replaced, and every start says so while it is: a credential that
+// nobody is reminded about is how a scanner ends up reachable with the password
+// it was born with.
 func seedDefaultAdmin(ctx context.Context, st *store.Store) {
 	if auth.SeedDisabled() {
 		slog.Info("no default administrator will be created (ASM_DEFAULT_ADMIN_PASSWORD=-); " +
 			"the first visit will ask you to create one")
 		return
 	}
-	password := auth.DefaultAdminPassword()
+	password, chosen := auth.DefaultAdminPassword(), true
+	if password == "" {
+		var err error
+		if password, err = auth.GeneratePassword(); err != nil {
+			slog.Error("could not generate the default administrator's password", "err", err)
+			return
+		}
+		chosen = false
+	}
 	created, err := st.EnsureDefaultAdmin(ctx, auth.DefaultUsername, password)
 	if err != nil {
 		slog.Error("could not create the default administrator", "err", err)
 		return
 	}
 	if created {
-		slog.Warn("created the default administrator account",
-			"username", auth.DefaultUsername,
-			"password", describeSeedPassword(password))
-		// Same reasoning as the first-run setup form: anything created before
-		// there were accounts records created_by 'local', which names nobody.
-		if u, _, err := st.UserByUsername(ctx, auth.DefaultUsername); err == nil {
+		u, _, err := st.UserByUsername(ctx, auth.DefaultUsername)
+		if err == nil {
+			_ = st.SetMustChangePassword(ctx, u.ID, true)
 			if n, err := st.AdoptOwnerlessScopes(ctx, u.ID); err == nil && n > 0 {
 				slog.Info("assigned existing companies to the default administrator", "count", n)
 			}
 		}
+		if chosen {
+			slog.Warn("created the default administrator account",
+				"username", auth.DefaultUsername, "password", "(from ASM_DEFAULT_ADMIN_PASSWORD)")
+		} else {
+			// Printed once. Not stored anywhere else, not repeated on later
+			// starts. Lose it and tools/pwhash writes a new hash directly.
+			slog.Warn("created the default administrator account — this password is printed ONCE, here, and nowhere else",
+				"username", auth.DefaultUsername, "password", password)
+		}
 	}
-
-	// Whether it was created now or six months ago, say it while it is still
-	// in use. Silence after the first boot is how this gets forgotten.
-	u, _, err := st.UserByUsername(ctx, auth.DefaultUsername)
-	if err == nil && password == auth.DefaultPassword && st.UsingDefaultPassword(ctx, u.ID, password) {
-		slog.Warn("THE DEFAULT PASSWORD IS STILL IN USE — anyone who can reach this " +
-			"install can sign in as an administrator. Change it in the UI, or set " +
-			"ASM_DEFAULT_ADMIN_PASSWORD before first boot.")
+	if n, err := st.CountMustChangePassword(ctx); err == nil && n > 0 {
+		slog.Warn("an account still has the password it was created with; change it in the UI "+
+			"(password, at the foot of the sidebar)", "accounts", n)
 	}
-}
-
-// describeSeedPassword avoids writing an operator's own secret into the log
-// while still being useful about the published one.
-func describeSeedPassword(p string) string {
-	if p == auth.DefaultPassword {
-		return p + " (the published default — change it)"
-	}
-	return "(from ASM_DEFAULT_ADMIN_PASSWORD)"
 }

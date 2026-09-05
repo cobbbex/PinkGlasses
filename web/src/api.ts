@@ -26,6 +26,8 @@ export interface User {
   id: string; username: string; display_name: string; role: Role;
   disabled: boolean; created_at: string; last_login_at?: string | null;
   has_password: boolean;
+  /** Set on the seeded account until its printed password is replaced. */
+  must_change_password?: boolean;
 }
 export interface AuthStatus {
   /** True on a fresh install: there are no accounts yet. */
@@ -252,7 +254,7 @@ export const api = {
   login: (username: string, password: string) =>
     req<{ user: User }>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   logout: () => req<{ ok: boolean }>("/auth/logout", { method: "POST" }),
-  me: () => req<{ user: User; via: string; using_default_password?: boolean }>("/auth/me"),
+  me: () => req<{ user: User; via: string; must_change_password?: boolean }>("/auth/me"),
   changePassword: (current_password: string, new_password: string) =>
     req<{ user: User }>("/auth/password", {
       method: "POST", body: JSON.stringify({ current_password, new_password }),

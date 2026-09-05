@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // SSEHub fans run-progress events out to subscribed browser clients.
@@ -53,6 +54,30 @@ func (h *SSEHub) Publish(runID string, event any) {
 	}
 }
 
+// PublishRunEvent takes a notification payload from the database — JSON with
+// a run_id — and fans it out to that run's subscribers. This is the hub's one
+// publisher; it is fed by triggers, so nothing has to remember to call it.
+func (s *Server) PublishRunEvent(payload string) {
+	var ev struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal([]byte(payload), &ev); err != nil || ev.RunID == "" {
+		return
+	}
+	s.hub.publishRaw(ev.RunID, []byte(payload))
+}
+
+func (h *SSEHub) publishRaw(runID string, data []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for ch := range h.subs[runID] {
+		select {
+		case ch <- data:
+		default: // slow client; drop — the client polls as a fallback anyway
+		}
+	}
+}
+
 // stream writes SSE frames for a run until the client disconnects.
 func (h *SSEHub) stream(w http.ResponseWriter, r *http.Request, runID string) {
 	flusher, ok := w.(http.Flusher)
@@ -70,10 +95,17 @@ func (h *SSEHub) stream(w http.ResponseWriter, r *http.Request, runID string) {
 	w.Write([]byte(": connected\n\n"))
 	flusher.Flush()
 
+	// A comment every 25 s keeps an idle stream alive through proxies that
+	// close quiet connections; the browser ignores it.
+	keepalive := time.NewTicker(25 * time.Second)
+	defer keepalive.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-keepalive.C:
+			w.Write([]byte(": ping\n\n"))
+			flusher.Flush()
 		case data := <-ch:
 			w.Write([]byte("data: "))
 			w.Write(data)
