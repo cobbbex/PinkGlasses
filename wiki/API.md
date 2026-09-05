@@ -87,6 +87,7 @@ asset route is under a scope.
 | `GET /scopes/{scopeID}/summary` | viewer | dashboard counters: domains, ips, services, open_findings |
 | `GET /scopes/{scopeID}/targets` | viewer | `?tag=` filters |
 | `POST /scopes/{scopeID}/targets` | operator | `{value}` or `{values:[…]}`, `kind` (domain, cidr, ip, asn — inferred if omitted), `tags`, `mode` (`passive_only` default, `active`, `exclude`), `authorize: true` to record active authorization |
+| `DELETE /scopes/{scopeID}/targets/{targetID}` | operator | future runs stop covering it; what earlier runs discovered under it stays in the inventory. 404 if the target is not in this company |
 
 ## Runs
 

@@ -60,6 +60,32 @@ func (s *Server) scopeSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sum)
 }
 
+// deleteTarget takes a target out of a company. Future runs no longer cover it;
+// what earlier runs found under it stays in the inventory.
+func (s *Server) deleteTarget(w http.ResponseWriter, r *http.Request) {
+	scopeID, err := uuid.Parse(chi.URLParam(r, "scopeID"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad scope id")
+		return
+	}
+	targetID, err := uuid.Parse(chi.URLParam(r, "targetID"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad target id")
+		return
+	}
+	ok, err := s.st.DeleteTarget(r.Context(), scopeID, targetID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "target not found in this company")
+		return
+	}
+	s.auditReq(r, "target.delete", targetID.String(), map[string]any{"scope_id": scopeID.String()})
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
 func (s *Server) addTarget(w http.ResponseWriter, r *http.Request) {
 	scopeID, err := uuid.Parse(chi.URLParam(r, "scopeID"))
 	if err != nil {

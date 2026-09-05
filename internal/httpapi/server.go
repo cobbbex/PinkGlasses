@@ -133,6 +133,7 @@ func (s *Server) Routes() http.Handler {
 
 				o.Post("/scopes", s.createScope)
 				o.Post("/scopes/{scopeID}/targets", s.addTarget)
+				o.Delete("/scopes/{scopeID}/targets/{targetID}", s.deleteTarget)
 				o.Post("/scopes/{scopeID}/scan-profiles", s.saveScanProfile)
 				// Starting a run sends packets at somebody's infrastructure,
 				// which is why it is the boundary between reading and acting.

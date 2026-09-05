@@ -864,6 +864,25 @@ paths:
         "403": {$ref: "#/components/responses/e403"}
         "404": {$ref: "#/components/responses/e404"}
         "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/targets/{targetID}:
+    delete:
+      operationId: deleteScopesByScopeIDTargetsByTargetID
+      summary: "future runs stop covering it; what earlier runs discovered under it stays in the inventory. 404 if the target is not in this company"
+      x-required-role: operator
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+        - {name: targetID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
   /api/v1/runs/{runID}/cancel:
     post:
       operationId: postRunsByRunIDCancel

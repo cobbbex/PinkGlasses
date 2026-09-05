@@ -286,6 +286,8 @@ export const api = {
   targets: (s: string) => req<Target[] | null>(`/scopes/${s}/targets`).then((x) => x ?? []),
   addTarget: (s: string, body: unknown) =>
     req<Target[] | null>(`/scopes/${s}/targets`, { method: "POST", body: JSON.stringify(body) }).then((x) => x ?? []),
+  deleteTarget: (s: string, id: string) =>
+    req<{ deleted: boolean }>(`/scopes/${s}/targets/${id}`, { method: "DELETE" }),
   domains: (s: string, q = "") => req<Domain[] | null>(`/scopes/${s}/domains?q=${encodeURIComponent(q)}`).then((x) => x ?? []),
   graph: (s: string) =>
     req<{ nodes: any[] | null; edges: any[] | null }>(`/scopes/${s}/graph`)

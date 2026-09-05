@@ -7,6 +7,16 @@ export default function Dashboard({ scopeID }: { scopeID: string }) {
   const { data: sum } = useQuery({ queryKey: ["summary", scopeID], queryFn: () => api.summary(scopeID) });
   const { data: targets, refetch } = useQuery({ queryKey: ["targets", scopeID], queryFn: () => api.targets(scopeID) });
   const [open, setOpen] = useState(false);
+  const toast = useToast();
+  async function remove(t: Target) {
+    try {
+      await api.deleteTarget(scopeID, t.id);
+      toast("ok", `${t.value} removed — what earlier scans found under it stays in the inventory`);
+      refetch();
+    } catch (e) {
+      toast("err", String(e).replace(/^Error:\s*/, ""));
+    }
+  }
 
   return (
     <div>
@@ -40,7 +50,7 @@ export default function Dashboard({ scopeID }: { scopeID: string }) {
       ) : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Value</th><th>Kind</th><th>Mode</th><th>Tags</th></tr></thead>
+            <thead><tr><th>Value</th><th>Kind</th><th>Mode</th><th>Tags</th><th></th></tr></thead>
             <tbody>
               {(targets ?? []).map((t: Target) => (
                 <tr key={t.id}>
@@ -52,6 +62,10 @@ export default function Dashboard({ scopeID }: { scopeID: string }) {
                       : <span className="badge">{t.mode.replace("_", " ")}</span>}
                   </td>
                   <td>{(t.tags ?? []).map((x) => <span key={x} className="pill">{x}</span>)}</td>
+                  <td style={{ textAlign: "right" }}>
+                    <button className="ghost sm" title="Take this target out of the company; future scans stop covering it"
+                      onClick={() => remove(t)}>Remove</button>
+                  </td>
                 </tr>
               ))}
             </tbody>

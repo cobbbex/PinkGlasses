@@ -86,6 +86,18 @@ func (s *Store) AddTarget(ctx context.Context, t domain.ScopeTarget) (domain.Sco
 	return t, err
 }
 
+// DeleteTarget removes a target from its scope. Scoped by both ids so a
+// target id from another company cannot be removed through this company's
+// route. What earlier runs discovered under it stays: the inventory belongs to
+// the scope, and history is the point of keeping it.
+func (s *Store) DeleteTarget(ctx context.Context, scopeID, targetID uuid.UUID) (bool, error) {
+	ct, err := s.Pool.Exec(ctx, `DELETE FROM scope_target WHERE id=$1 AND scope_id=$2`, targetID, scopeID)
+	if err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() > 0, nil
+}
+
 // ListTargets returns the targets of a scope, optionally filtered by tag.
 func (s *Store) ListTargets(ctx context.Context, scopeID uuid.UUID, tag string) ([]domain.ScopeTarget, error) {
 	q := `SELECT id, scope_id, kind, value, tags, mode, pool_id, authorized_by, authorized_at, created_at
