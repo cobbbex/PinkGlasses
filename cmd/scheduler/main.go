@@ -16,6 +16,7 @@ import (
 	"github.com/benlik386/pinkglasses/internal/diff"
 	"github.com/benlik386/pinkglasses/internal/domain"
 	"github.com/benlik386/pinkglasses/internal/fleet"
+	"github.com/benlik386/pinkglasses/internal/launch"
 	"github.com/benlik386/pinkglasses/internal/notify"
 	"github.com/benlik386/pinkglasses/internal/obj"
 	"github.com/benlik386/pinkglasses/internal/planner"
@@ -58,6 +59,9 @@ func main() {
 	// the api because it has to outlive the request that asked for it: the
 	// containers must come down when the run ends, whatever happened in between.
 	fl := fleet.New(st, cfg.ProvisionerURL, cfg.ProvisionerToken, cfg.MaxRunFleets)
+	// Recurring scans start here, through the same code the API uses, so a
+	// scheduled run is refused for exactly the reasons a manual one would be.
+	ln := launch.New(st, pl)
 	if fl.Enabled() {
 		slog.Info("run fleets enabled", "max_concurrent", cfg.MaxRunFleets)
 		// Containers whose run ended while this was not running.
@@ -80,6 +84,7 @@ func main() {
 			slog.Info("scheduler stopping")
 			return
 		case <-ticker.C:
+			ln.Due(ctx)
 			tick(ctx, st, pl, df, nt)
 			// After tick, so a run that just finished has its containers
 			// removed on this pass rather than the next one.
@@ -142,6 +147,11 @@ func sweep(ctx context.Context, st *store.Store, seeder *wordlists.Seeder) {
 	// backstop for containers that died on their own. Remote workers are kept.
 	if n, err := st.ReapStaleLocalWorkers(ctx, 10*time.Minute); err == nil && n > 0 {
 		slog.Info("reaped stale local workers", "count", n)
+	}
+	// Runs that were created but never planned. Nothing advances a queued run
+	// with no tasks, and it blocks every scheduled scan for its company.
+	if n, err := st.FailZombieRuns(ctx, 10*time.Minute); err == nil && n > 0 {
+		slog.Warn("failed runs that were queued with no tasks", "count", n)
 	}
 	// Sessions that have aged out. Lookup already refuses an expired session,
 	// so this is housekeeping rather than enforcement — but a table that only

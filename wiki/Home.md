@@ -57,6 +57,14 @@ with the reason. That class of silent breakage — the stage runs, the results
 evaporate — has cost real debugging time here, and each of those three checks
 was added after it had already happened.
 
+## Recurring scans
+
+A schedule per company starts a run on a cadence, from the exit you choose,
+through the same code the launch button uses — so it is refused for the same
+reasons, and the refusal is shown on the schedule rather than lost in a log. A
+run still going when the next is due is skipped, never stacked. See the README's
+*Recurring scans* and `architecture.md` §3.3.
+
 ## Who can do what
 
 Every endpoint needs a signed-in session or an API token; three ordered roles

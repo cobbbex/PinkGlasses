@@ -598,3 +598,70 @@ Two mistakes worth keeping: the first two attempts to hold the ceiling for the
 queue test forged database state that the scheduler then correctly acted on — a
 `failed` run was torn down, a `pending` task was leased and completed. The hold
 that works is a `running` task with a live lease, the one state nothing touches.
+
+## Phase 21 — Recurring scans
+
+The tagline says "continuously watched", and nothing in the codebase starts a
+run without a human clicking: every run in the database was started by hand.
+Everything built to show change over time — finding, resolution and port
+history, the differ, the alert digests — only accumulates if scans recur. This
+turns the scanner into a monitor.
+
+- [x] 21.1 **One way to start a run.** Run creation lives in the API handler today, together
+      with exit binding and fleet requests. Move it to `internal/launch` so the API and the
+      scheduler start runs through the same code and are refused for the same reasons; the
+      handler becomes a thin wrapper. No second copy of the rules.
+- [x] 21.2 **A schedule per company.** `scan_schedule`: profile, exit (VPN config or remote
+      pool), cadence in hours, enabled, next_run_at, last_run_id. Scopes gain a default exit
+      so the launch dialog pre-selects it and a schedule has one to use.
+- [x] 21.3 **The scheduler starts what is due.** Each tick: schedules with next_run_at in
+      the past, whose company has no run still going (skip, never stack), start a run with
+      trigger 'scheduled' through 21.1; next_run_at advances from the planned time, not from
+      now, so a slow run does not drift the cadence. A refusal (VPN config deleted, pool
+      empty) is written on the schedule where the UI shows it, and retried next cadence.
+- [x] 21.4 **UI.** A schedule block on the Runs page: cadence, exit, last run, next run,
+      last refusal; enable/disable. Scheduled runs are labelled in the run list.
+- [x] 21.5 **Test.** A 2-minute cadence starts two runs unattended; the second is skipped
+      while the first still runs; the differ and a digest fire between them; deleting the
+      schedule's VPN config produces a visible refusal rather than a silent stop.
+
+Tested 2026-09-05 on scanme.nmap.org with the re-added WireGuard config: a 1-hour
+schedule started run 1 itself (trigger `scheduled`, `last_run_id` set); forcing it
+due while run 1 ran produced a skip with a 5-minute recheck and no error; run 1
+completed through its own VPN fleet (egress 157.230.81.163, torn down) and the
+differ ran; forcing it due again started run 2; `next_run_at` advanced from the
+planned time. A schedule whose VPN config was deleted showed "did not start" with
+the actionable sentence and started nothing. The schedule is left **paused** so it
+does not scan hourly through the operator's VPS unasked; resume it from the Runs
+page.
+
+Two things the tests turned up, both fixed in the same change:
+
+- **Exits are validated before a run row exists.** `Start` used to create the run and then
+  bind the exit; a refusal marked the row failed. For a person's click that recorded the
+  attempt; for a schedule it would have minted a failed run every hour on top of the reason
+  already written on the schedule. `checkExit` now runs first, with no side effects, and
+  `bindExit` only applies what it established.
+- **Runs queued with no tasks are zombies, and they blocked schedules.** Two runs from 2 and
+  4 September sat in `queued` with zero tasks — planning failed after the row was written,
+  and nothing advances a queued run — so `ScopeHasActiveRun` counted them and every
+  scheduled scan for that company was skipped forever. The sweep now fails a run queued
+  for ten minutes with no tasks (`FailZombieRuns`); verified on a planted row.
+
+## Phase 22 — After recurring scans, in this order
+
+- [ ] 22.1 **Make the events stream real.** `SSEHub.Publish` has no callers. Publish on task
+      done, stage advanced and run finished from where those happen, and lengthen the UI's
+      poll to a fallback. With runs recurring and dashboards left open, polling every run
+      detail every 4 s is the wrong shape.
+- [ ] 22.2 **Default credential: random on first boot, printed once.** Keeps the zero-config
+      start without a password in the README. The banner and startup warning stay for the
+      case where the printed password is never changed.
+- [ ] 22.3 **Passive-discovery noise.** example.com: 24,950 names, 3 resolve, 24,947 dead
+      entries from subfinder. Count and rank resolving names first on the dashboard; stop
+      re-planning dns_resolve for a name that has failed N runs in a row; keep the names —
+      dangling ones are takeover candidates.
+- [ ] 22.4 **Wildcard DNS detection** (13.5): detect a wildcard before brute force and flag
+      the domain rather than explode it into thousands of fake subdomains.
+- [ ] 22.5 **Docs debt.** An OpenAPI document generated from the same router walk the
+      reference test uses; `worker-pipeline.md` updated to what runs (13.14.2).

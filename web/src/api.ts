@@ -6,6 +6,19 @@ export interface Scope {
   id: string; name: string; created_at: string;
   /** Who created it. Free text until real accounts exist; "local" by default. */
   created_by?: string;
+  /** The exit schedules use and the launch dialog pre-selects. "" until chosen. */
+  default_exit?: "" | "local" | "remote";
+  default_vpn_config_id?: string | null;
+  default_pool_id?: string | null;
+}
+/** A recurring scan for one company. */
+export interface Schedule {
+  id: string; scope_id: string; profile: string; exit: "" | "local" | "remote";
+  vpn_config_id?: string | null; pool_id?: string | null; worker_count: number;
+  every_hours: number; enabled: boolean; next_run_at: string;
+  last_run_id?: string | null; last_run_at?: string | null;
+  /** Why the last attempt did not start a run — shown until one does. */
+  last_error?: string | null; created_at: string;
 }
 /** What a signed-in person may do. Ordered: admin > operator > viewer. */
 export type Role = "admin" | "operator" | "viewer";
@@ -46,6 +59,8 @@ export interface Service {
 }
 export interface Run {
   id: string; scope_id: string; profile: string; status: string;
+  /** "manual" when a person started it, "scheduled" when a schedule did. */
+  trigger?: string;
   started_at?: string | null; finished_at?: string | null; created_at: string;
   /** A label for the row — the first few targets, not the whole list. */
   targets?: string[] | null; target_count?: number;
@@ -334,6 +349,14 @@ export const api = {
     })),
   runTargets: (id: string) => req<RunTarget[] | null>(`/runs/${id}/targets`).then((x) => x ?? []),
   cancelRun: (id: string) => req(`/runs/${id}/cancel`, { method: "POST" }),
+  schedules: (s: string) => req<Schedule[] | null>(`/scopes/${s}/schedules`).then((x) => x ?? []),
+  createSchedule: (s: string, body: unknown) =>
+    req<Schedule>(`/scopes/${s}/schedules`, { method: "POST", body: JSON.stringify(body) }),
+  patchSchedule: (id: string, body: unknown) =>
+    req<Schedule>(`/schedules/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteSchedule: (id: string) => req<{ deleted: boolean }>(`/schedules/${id}`, { method: "DELETE" }),
+  patchScope: (s: string, body: unknown) =>
+    req<{ ok: boolean }>(`/scopes/${s}`, { method: "PATCH", body: JSON.stringify(body) }),
   workers: () => req<Worker[] | null>("/workers").then((x) => x ?? []),
   pools: () => req<WorkerPool[] | null>("/pools").then((x) => x ?? []),
   enrollToken: (body: unknown) =>

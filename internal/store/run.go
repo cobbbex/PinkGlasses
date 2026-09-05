@@ -247,3 +247,24 @@ func (s *Store) TryAdvisoryLock(ctx context.Context, key int64) (bool, error) {
 	err := s.Pool.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, key).Scan(&ok)
 	return ok, err
 }
+
+// FailZombieRuns fails runs that have sat in 'queued' past the grace period
+// with no tasks at all.
+//
+// A run is planned right after it is created; one that still has no tasks
+// minutes later had its planning fail after the row was written, and nothing
+// will ever advance it — the planner only looks at running runs. Left alone it
+// is not merely clutter: ScopeHasActiveRun counts it, so it blocks every
+// scheduled scan for its company forever. Two such runs, from 2 and 4 September,
+// were doing exactly that.
+func (s *Store) FailZombieRuns(ctx context.Context, olderThan time.Duration) (int64, error) {
+	ct, err := s.Pool.Exec(ctx, `
+		UPDATE scan_run r SET status='failed', finished_at=now()
+		WHERE r.status='queued'
+		  AND r.created_at < now() - $1::interval
+		  AND NOT EXISTS (SELECT 1 FROM scan_task t WHERE t.run_id = r.id)`, olderThan.String())
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}

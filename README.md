@@ -545,6 +545,30 @@ size of that list is the main thing deciding how loud a scan is — it is the on
 that fires thousands of requests at a single host. A run with no `dir` list falls back to
 the small list baked into the worker image.
 
+## Recurring scans
+
+**Runs → Recurring scans → + Schedule.** Pick a cadence in hours (24 is daily),
+a profile, and — for anything but passive — where the scan runs from, exactly as
+in the launch dialog. The first run starts within a minute; every later one on
+the cadence.
+
+Three behaviours are worth knowing:
+
+- **A schedule starts a run through the same code the button does**, so it is
+  refused for exactly the same reasons — VPN configuration removed, pool emptied,
+  no targets. The refusal is shown in the schedule's row as *did not start*, with
+  the sentence, and it tries again next cadence. A broken schedule is visible, not
+  silent.
+- **A company with a run still going is skipped, never stacked.** The slot is
+  re-checked five minutes later; a slow run is not treated as a broken schedule.
+- **The cadence does not drift.** The next time is computed from the planned
+  time, not from when the run actually started.
+
+Runs a schedule started carry a **scheduled** label in the run list. Pause and
+resume keep the schedule; remove deletes it. History — finding, resolution and
+port dots, the differ, alert digests — is what recurring scans are for: it only
+accumulates if scans recur.
+
 ## Watching a scan
 
 The **Runs** table gives each run a line: when it started, what it is scanning, how far

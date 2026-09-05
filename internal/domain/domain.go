@@ -97,6 +97,11 @@ type Scope struct {
 	// replaces it with a real user; today it is X-Forwarded-User or "local".
 	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
+	// The exit a schedule uses and the launch dialog pre-selects. "" means
+	// none chosen yet; a scheduled active run then refuses with the reason.
+	DefaultExit        string     `json:"default_exit"`
+	DefaultVPNConfigID *uuid.UUID `json:"default_vpn_config_id,omitempty"`
+	DefaultPoolID      *uuid.UUID `json:"default_pool_id,omitempty"`
 }
 
 // ScopeTarget is a domain/CIDR/ASN/IP the scope is allowed to look at.

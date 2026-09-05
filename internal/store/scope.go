@@ -16,8 +16,8 @@ func (s *Store) CreateScope(ctx context.Context, name, createdBy string, ownerID
 	var sc domain.Scope
 	err := s.Pool.QueryRow(ctx,
 		`INSERT INTO scope (name, created_by, owner_id) VALUES ($1,$2,$3)
-		 RETURNING id, name, created_by, created_at`, name, createdBy, ownerID,
-	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt)
+		 RETURNING id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id`, name, createdBy, ownerID,
+	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID)
 	return sc, err
 }
 
@@ -43,7 +43,7 @@ func (s *Store) AdoptOwnerlessScopes(ctx context.Context, ownerID uuid.UUID) (in
 // what matters, so the UI does not change when identity becomes verified.
 func (s *Store) ListScopes(ctx context.Context, owner string) ([]domain.Scope, error) {
 	rows, err := s.Pool.Query(ctx,
-		`SELECT id, name, created_by, created_at FROM scope
+		`SELECT id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id FROM scope
 		 WHERE ($1 = '' OR created_by = $1) ORDER BY created_at`, owner)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (s *Store) ListScopes(ctx context.Context, owner string) ([]domain.Scope, e
 	var out []domain.Scope
 	for rows.Next() {
 		var sc domain.Scope
-		if err := rows.Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt); err != nil {
+		if err := rows.Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID); err != nil {
 			return nil, err
 		}
 		out = append(out, sc)
@@ -64,8 +64,8 @@ func (s *Store) ListScopes(ctx context.Context, owner string) ([]domain.Scope, e
 func (s *Store) GetScope(ctx context.Context, id uuid.UUID) (domain.Scope, error) {
 	var sc domain.Scope
 	err := s.Pool.QueryRow(ctx,
-		`SELECT id, name, created_at FROM scope WHERE id=$1`, id,
-	).Scan(&sc.ID, &sc.Name, &sc.CreatedAt)
+		`SELECT id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id FROM scope WHERE id=$1`, id,
+	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID)
 	return sc, err
 }
 
@@ -133,4 +133,12 @@ func (s *Store) Summary(ctx context.Context, scopeID uuid.UUID) (ScopeSummary, e
 		scopeID,
 	).Scan(&sum.Domains, &sum.IPs, &sum.Services, &sum.Findings)
 	return sum, err
+}
+
+// SetScopeDefaults records the exit a company's scheduled runs use and the
+// launch dialog pre-selects.
+func (s *Store) SetScopeDefaults(ctx context.Context, id uuid.UUID, exit string, vpnID, poolID *uuid.UUID) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE scope SET default_exit=$2, default_vpn_config_id=$3, default_pool_id=$4 WHERE id=$1`,
+		id, exit, vpnID, poolID)
+	return err
 }

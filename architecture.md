@@ -149,6 +149,15 @@ Leader-elected via a Postgres advisory lock — no etcd.
 - Non-scanning sweeps: cert expiry, finding SLA aging, cloud IP-range feed refresh.
 - Fleet health: marks workers stale after N missed heartbeats, drains their tasks.
 
+**Recurring scans** start here too. Each tick, `launch.Due` takes every enabled
+schedule whose `next_run_at` has passed and starts a run through `internal/launch`
+— the same code the API handler calls, so a scheduled run is refused for exactly
+the reasons a manual one would be, and the refusal is written on the schedule
+where the UI shows it. A company with a run still going is skipped rather than
+stacked; `next_run_at` advances from the planned time so a slow run does not
+drift the cadence. There is deliberately no second implementation of "start a
+run": the handler is a thin wrapper over the same package.
+
 ### 3.4 `differ`
 
 Compares a completed run against the previous baseline **per target**, emitting

@@ -15,6 +15,7 @@ import (
 	"github.com/benlik386/pinkglasses/internal/auth"
 	"github.com/benlik386/pinkglasses/internal/config"
 	"github.com/benlik386/pinkglasses/internal/domain"
+	"github.com/benlik386/pinkglasses/internal/launch"
 	"github.com/benlik386/pinkglasses/internal/obj"
 	"github.com/benlik386/pinkglasses/internal/planner"
 	"github.com/benlik386/pinkglasses/internal/store"
@@ -22,17 +23,18 @@ import (
 
 // Server holds dependencies for the API handlers.
 type Server struct {
-	st      *store.Store
-	planner *planner.Planner
-	audit   *audit.Logger
-	hub     *SSEHub
-	obj     *obj.Store // wordlist uploads land here, not in the database
-	logins  *loginLimiter
+	st       *store.Store
+	planner  *planner.Planner
+	audit    *audit.Logger
+	hub      *SSEHub
+	obj      *obj.Store // wordlist uploads land here, not in the database
+	logins   *loginLimiter
+	launcher *launch.Launcher
 }
 
 // New builds the API server.
 func New(st *store.Store) *Server {
-	return &Server{
+	s := &Server{
 		st:      st,
 		planner: planner.New(st),
 		audit:   audit.New(st),
@@ -40,6 +42,8 @@ func New(st *store.Store) *Server {
 		obj:     obj.New(config.LoadAPI().S3),
 		logins:  newLoginLimiter(),
 	}
+	s.launcher = launch.New(st, s.planner)
+	return s
 }
 
 // Routes returns the HTTP handler for the api binary.
@@ -81,6 +85,7 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/scan-params", s.listScanParamSpecs)
 				r.Get("/scopes/{scopeID}/scan-profiles", s.listScanProfiles)
 				r.Get("/scopes/{scopeID}/runs", s.listRuns)
+				r.Get("/scopes/{scopeID}/schedules", s.listSchedules)
 				r.Get("/runs/{runID}", s.getRun)
 				r.Get("/runs/{runID}/targets", s.runTargets)
 				r.Get("/runs/{runID}/events", s.runEvents)
@@ -127,6 +132,11 @@ func (s *Server) Routes() http.Handler {
 				// which is why it is the boundary between reading and acting.
 				r.Post("/scopes/{scopeID}/runs", s.createRun)
 				r.Post("/runs/{runID}/cancel", s.cancelRun)
+				// Recurring scans, and the company default exit they use.
+				r.Post("/scopes/{scopeID}/schedules", s.createSchedule)
+				r.Patch("/schedules/{scheduleID}", s.patchSchedule)
+				r.Delete("/schedules/{scheduleID}", s.deleteSchedule)
+				r.Patch("/scopes/{scopeID}", s.patchScope)
 
 				r.Post("/scopes/{scopeID}/notifications", s.createChannel)
 				r.Patch("/notifications/{channelID}", s.patchChannel)

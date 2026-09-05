@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/benlik386/pinkglasses/internal/domain"
-	"github.com/benlik386/pinkglasses/internal/scanparams"
+	"github.com/benlik386/pinkglasses/internal/launch"
 )
 
 func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
@@ -17,20 +17,16 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Profile   string            `json:"profile"`
-		Targets   []string          `json:"targets"` // explicit values; empty + Tag/All below
-		Tag       string            `json:"tag"`
-		All       bool              `json:"all"`
-		ProfileID string            `json:"profile_id"` // saved preset
-		Params    map[string]string `json:"params"`     // ad-hoc overrides
-		// Lists of any kind. A kind not named here falls back to its defaults.
-		WordlistIDs []string `json:"wordlist_ids"`
-		// Exit is where the run's active stages — the ones that send packets at
-		// the target — run from. "local": an ephemeral fleet behind its own VPN
-		// gateway, which needs VPNConfigID. "remote": an existing pool of
-		// enrolled workers, which needs PoolID. Passive stages never touch the
-		// target and always run on the standing local workers, so a
-		// passive-profile run needs no exit at all (architecture.md §7.6).
+		Profile     string            `json:"profile"`
+		Targets     []string          `json:"targets"`
+		Tag         string            `json:"tag"`
+		All         bool              `json:"all"`
+		ProfileID   string            `json:"profile_id"`
+		Params      map[string]string `json:"params"`
+		WordlistIDs []string          `json:"wordlist_ids"`
+		// Exit is where the run's active stages leave from — "local" with a
+		// VPNConfigID, or "remote" with a PoolID. A passive run needs neither
+		// (architecture.md §7.6).
 		Exit        string `json:"exit"`
 		VPNConfigID string `json:"vpn_config_id"`
 		PoolID      string `json:"pool_id"`
@@ -40,149 +36,19 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad body")
 		return
 	}
-	profile := domain.RunProfile(in.Profile)
-	if profile == "" {
-		profile = domain.ProfileStandard
-	}
-
-	// Resolve the target set from scope targets (never scan exclude-mode ones).
-	scopeTargets, err := s.st.ListTargets(r.Context(), scopeID, in.Tag)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+	// One way to start a run, shared with the scheduler, so a scheduled run is
+	// refused for exactly the reasons a manual one would be.
+	run, ref := s.launcher.Start(r.Context(), scopeID, launch.Options{
+		Profile: in.Profile, Targets: in.Targets, Tag: in.Tag, All: in.All,
+		ProfileID: in.ProfileID, Params: in.Params, WordlistIDs: in.WordlistIDs,
+		Exit: in.Exit, VPNConfigID: in.VPNConfigID, PoolID: in.PoolID, WorkerCount: in.WorkerCount,
+		Trigger: "manual",
+	})
+	if ref != nil {
+		writeErr(w, ref.Status, ref.Msg)
 		return
 	}
-	want := map[string]bool{}
-	for _, v := range in.Targets {
-		want[v] = true
-	}
-	var runTargets []domain.RunTarget
-	for _, t := range scopeTargets {
-		if t.Mode == domain.ModeExclude {
-			continue
-		}
-		if in.All || in.Tag != "" || want[t.Value] {
-			runTargets = append(runTargets, domain.RunTarget{Kind: t.Kind, Value: t.Value})
-		}
-	}
-	if len(runTargets) == 0 {
-		// Distinguish "this scope is empty" from "your filter matched nothing".
-		// The first is by far the common case and the fix is completely
-		// different, so saying which one it is matters.
-		all, _ := s.st.ListTargets(r.Context(), scopeID, "")
-		usable := 0
-		for _, t := range all {
-			if t.Mode != domain.ModeExclude {
-				usable++
-			}
-		}
-		switch {
-		case usable == 0:
-			writeErr(w, http.StatusBadRequest,
-				"this scope has no targets yet — add a domain or CIDR on the Dashboard before scanning")
-		case in.Tag != "":
-			writeErr(w, http.StatusBadRequest,
-				"no targets carry the tag \""+in.Tag+"\"")
-		default:
-			writeErr(w, http.StatusBadRequest,
-				"none of the selected targets are in this scope")
-		}
-		return
-	}
-
-	// Resolve scan parameters: a saved preset (if any) overlaid with ad-hoc
-	// overrides, then whitelisted + validated (Phase 15.7) before use.
-	rawParams := map[string]string{}
-	var profileID *uuid.UUID
-	if in.ProfileID != "" {
-		if id, err := uuid.Parse(in.ProfileID); err == nil {
-			if pp, err := s.st.GetScanProfileParams(r.Context(), id); err == nil {
-				rawParams = pp
-				profileID = &id
-			}
-		}
-	}
-	for k, v := range in.Params {
-		rawParams[k] = v
-	}
-	cleanParams, err := scanparams.Validate(rawParams)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid scan parameter: "+err.Error())
-		return
-	}
-	effective := scanparams.WithDefaults(cleanParams)
-
-	run := domain.ScanRun{ScopeID: scopeID, Profile: profile, Trigger: "manual", MaxConcurrency: 32}
-	run, saved, err := s.st.CreateRun(r.Context(), run, runTargets)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// Which lists this run uses. A caller may name lists of any kind; every kind
-	// it stays silent about falls back to the registry defaults, so a plain scan
-	// needs no wordlist knowledge at all while a manual one can override just
-	// the subdomain lists and leave resolvers alone.
-	chosen := map[string]bool{}
-	var wlIDs []uuid.UUID
-	for _, raw := range in.WordlistIDs {
-		id, err := uuid.Parse(raw)
-		if err != nil {
-			continue
-		}
-		wl, err := s.st.GetWordlist(r.Context(), id)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "unknown wordlist "+raw)
-			return
-		}
-		if wl.Status != "ready" {
-			writeErr(w, http.StatusBadRequest,
-				"wordlist \""+wl.Name+"\" is not ready ("+wl.Status+")")
-			return
-		}
-		chosen[wl.Kind] = true
-		wlIDs = append(wlIDs, id)
-	}
-	for _, kind := range []string{"dns", "resolvers", "dir"} {
-		if chosen[kind] {
-			continue
-		}
-		if defs, err := s.st.DefaultWordlists(r.Context(), kind); err == nil {
-			for _, d := range defs {
-				wlIDs = append(wlIDs, d.ID)
-			}
-		}
-	}
-	if err := s.st.SetRunWordlists(r.Context(), run.ID, wlIDs); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	// Where the active stages run from. A run that has none — the passive
-	// profile — needs no exit; every other run needs exactly one, and there is
-	// deliberately no "direct from this host": an active scan always leaves
-	// from an address somebody chose.
-	if profile != domain.ProfilePassive {
-		if err := s.bindExit(r.Context(), run, scopeID, in.Exit, in.VPNConfigID, in.PoolID, in.WorkerCount); err != nil {
-			// The run row already exists; failing it keeps the record of the
-			// attempt and its reason rather than leaving a queued run with no
-			// tasks and no explanation.
-			_ = s.st.SetRunStatus(r.Context(), run.ID, domain.RunFailed)
-			writeErr(w, err.status, err.msg)
-			return
-		}
-	}
-
-	if err := s.st.SetRunParams(r.Context(), run.ID, profileID, effective); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// Plan the initial stage synchronously so tasks exist immediately; the
-	// scheduler drives it forward from there.
-	if err := s.planner.PlanInitial(r.Context(), run, saved, scopeTargets); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.auditReq(r, "run.create", run.ID.String(),
-		map[string]any{"profile": profile, "targets": len(saved)})
+	s.auditReq(r, "run.create", run.ID.String(), map[string]any{"profile": run.Profile})
 	writeJSON(w, http.StatusCreated, run)
 }
 

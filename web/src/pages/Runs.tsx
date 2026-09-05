@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, Run, RunTarget, RunActivity, RunFleet } from "../api";
+import { api, Run, RunTarget, RunActivity, RunFleet, Schedule } from "../api";
 import { Badge, useToast, Modal } from "../components/ui";
 import ScanSettings from "../components/ScanSettings";
 
@@ -64,7 +64,12 @@ export default function Runs({ scopeID }: { scopeID: string }) {
                   <tr style={{ cursor: "pointer" }} onClick={() => setOpen(open === r.id ? "" : r.id)}>
                     <td className="muted">{new Date(r.created_at).toLocaleString()}</td>
                     <td className="mono"><TargetLabel run={r} /></td>
-                    <td>{r.profile}</td>
+                    <td>
+                      {r.profile}
+                      {r.trigger === "scheduled" && (
+                        <span className="pill" style={{ marginLeft: 6 }} title="Started by a schedule">scheduled</span>
+                      )}
+                    </td>
                     <td><RunProgress run={r} /></td>
                     <td><Badge status={r.status} /></td>
                     <td style={{ textAlign: "right" }}>
@@ -87,7 +92,177 @@ export default function Runs({ scopeID }: { scopeID: string }) {
         </div>
       )}
 
+      <Schedules scopeID={scopeID} />
+
       <LaunchModal scopeID={scopeID} open={launch} onClose={() => setLaunch(false)} onDone={refetch} />
+    </div>
+  );
+}
+
+/**
+ * Recurring scans for this company. A schedule starts a run through the same
+ * code the button above uses, so it is refused for the same reasons — and the
+ * refusal is shown here rather than lost in a log.
+ */
+function Schedules({ scopeID }: { scopeID: string }) {
+  const toast = useToast();
+  const { data: list, refetch } = useQuery({
+    queryKey: ["schedules", scopeID], queryFn: () => api.schedules(scopeID),
+    refetchInterval: 15000,
+  });
+  const { data: vpn } = useQuery({ queryKey: ["vpn", scopeID], queryFn: () => api.vpnConfigs(scopeID) });
+  const { data: pools } = useQuery({ queryKey: ["pools"], queryFn: () => api.pools() });
+  const vpnConfigs = vpn?.configs ?? [];
+  const remotePools = (pools ?? []).filter((p) => p.active_workers > 0);
+
+  const [open, setOpen] = useState(false);
+  const [profile, setProfile] = useState("standard");
+  const [exit, setExit] = useState<"local" | "remote">(vpnConfigs.length || !remotePools.length ? "local" : "remote");
+  const [vpnID, setVpnID] = useState("");
+  const [poolID, setPoolID] = useState("");
+  const [hours, setHours] = useState(24);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { if (!vpnID && vpnConfigs.length) setVpnID(vpnConfigs[0].id); }, [vpnConfigs.length]);
+  useEffect(() => { if (!poolID && remotePools.length) setPoolID(remotePools[0].id); }, [remotePools.length]);
+
+  const passive = profile === "passive";
+  const ready = passive || (exit === "local" ? !!vpnID : !!poolID);
+
+  async function create() {
+    setBusy(true);
+    try {
+      await api.createSchedule(scopeID, {
+        profile, every_hours: hours,
+        ...(passive ? {} : exit === "local" ? { exit, vpn_config_id: vpnID, worker_count: 2 } : { exit, pool_id: poolID }),
+      });
+      toast("ok", `Every ${hours}h ${profile} scan scheduled — first run starts within a minute`);
+      setOpen(false); refetch();
+    } catch (e) {
+      toast("err", String(e).replace(/^Error:\s*/, ""));
+    } finally { setBusy(false); }
+  }
+  async function toggle(sc: Schedule) {
+    try { await api.patchSchedule(sc.id, { enabled: !sc.enabled }); refetch(); }
+    catch (e) { toast("err", String(e).replace(/^Error:\s*/, "")); }
+  }
+  async function remove(sc: Schedule) {
+    try { await api.deleteSchedule(sc.id); toast("ok", "Schedule removed"); refetch(); }
+    catch (e) { toast("err", String(e).replace(/^Error:\s*/, "")); }
+  }
+  const exitLabel = (sc: Schedule) =>
+    sc.profile === "passive" ? "no exit needed"
+    : sc.exit === "local" ? `local · ${vpnConfigs.find((c) => c.id === sc.vpn_config_id)?.name ?? "VPN config missing"}`
+    : `remote · ${(pools ?? []).find((p) => p.id === sc.pool_id)?.name ?? "pool missing"}`;
+
+  return (
+    <div style={{ marginTop: 26 }}>
+      <div className="page-head" style={{ marginBottom: 6 }}>
+        <div>
+          <div className="section-title" style={{ margin: 0 }}>Recurring scans</div>
+          <div className="sub">
+            A run starts on the cadence, from the exit you choose here. If the last run is still
+            going when the next is due, that slot is skipped rather than stacked.
+          </div>
+        </div>
+        <button onClick={() => setOpen(true)}>+ Schedule</button>
+      </div>
+
+      {(list ?? []).length === 0 ? (
+        <div className="empty">
+          <p style={{ marginTop: 0 }}>No recurring scans. Every run so far was started by hand.</p>
+          <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
+            History — findings, resolutions, ports — only accumulates if scans recur.
+          </p>
+        </div>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Every</th><th>Profile</th><th>Scan from</th><th>Last run</th><th>Next run</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {(list ?? []).map((sc) => (
+                <tr key={sc.id} style={sc.enabled ? undefined : { opacity: 0.55 }}>
+                  <td className="mono">{sc.every_hours}h</td>
+                  <td>{sc.profile}</td>
+                  <td className="muted" style={{ fontSize: 12.5 }}>{exitLabel(sc)}</td>
+                  <td className="muted">{sc.last_run_at ? new Date(sc.last_run_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "never"}</td>
+                  <td className="muted">{sc.enabled ? new Date(sc.next_run_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                  <td>
+                    {sc.last_error
+                      ? <span className="sev-high" title={sc.last_error}>did not start</span>
+                      : sc.enabled ? <span className="badge b-open">on</span> : <span className="muted">paused</span>}
+                    {sc.last_error && <div className="muted wrap" style={{ fontSize: 11.5, marginTop: 3, maxWidth: 420 }}>{sc.last_error}</div>}
+                  </td>
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    <button className="ghost sm" onClick={() => toggle(sc)}>{sc.enabled ? "pause" : "resume"}</button>
+                    <button className="ghost sm" onClick={() => remove(sc)}>remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Modal
+        title="Schedule a recurring scan" open={open} onClose={() => setOpen(false)}
+        footer={<>
+          <button className="ghost" onClick={() => setOpen(false)}>Cancel</button>
+          <button onClick={create} disabled={busy || !ready}>{busy ? "Saving…" : "Schedule"}</button>
+        </>}
+      >
+        <div className="row" style={{ marginTop: 0 }}>
+          <label className="param-label" style={{ minWidth: 0 }}>Every</label>
+          <input type="number" min={1} max={720} value={hours} style={{ width: 70 }}
+            onChange={(e) => setHours(Math.max(1, Number(e.target.value) || 1))} />
+          <span className="muted" style={{ fontSize: 12 }}>hours · 24 is daily, 168 weekly</span>
+        </div>
+        <div className="row">
+          <label className="param-label" style={{ minWidth: 0 }}>Profile</label>
+          <select value={profile} onChange={(e) => setProfile(e.target.value)}>
+            <option value="passive">passive</option>
+            <option value="standard">standard</option>
+            <option value="deep">deep</option>
+          </select>
+        </div>
+        {!passive && (
+          <div style={{ marginTop: 10 }}>
+            <div className="param-label" style={{ minWidth: 0, marginBottom: 6 }}>Scan from</div>
+            <label className="check" style={{ cursor: vpnConfigs.length ? "pointer" : "default" }}>
+              <input type="radio" name="sexit" checked={exit === "local"} disabled={!vpnConfigs.length} onChange={() => setExit("local")} />
+              <span style={{ flex: 1 }}>
+                <strong>Local workers behind a VPN</strong>
+                {exit === "local" && vpnConfigs.length > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    <select value={vpnID} onChange={(e) => setVpnID(e.target.value)} style={{ minWidth: 220 }}>
+                      {vpnConfigs.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
+                    </select>
+                  </div>
+                )}
+                {!vpnConfigs.length && <div className="hint">Needs a VPN configuration under VPN.</div>}
+              </span>
+            </label>
+            <label className="check" style={{ cursor: remotePools.length ? "pointer" : "default" }}>
+              <input type="radio" name="sexit" checked={exit === "remote"} disabled={!remotePools.length} onChange={() => setExit("remote")} />
+              <span style={{ flex: 1 }}>
+                <strong>Remote workers</strong>
+                {exit === "remote" && remotePools.length > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    <select value={poolID} onChange={(e) => setPoolID(e.target.value)} style={{ minWidth: 220 }}>
+                      {remotePools.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.active_workers} worker{p.active_workers === 1 ? "" : "s"}</option>)}
+                    </select>
+                  </div>
+                )}
+                {!remotePools.length && <div className="hint">No pool has an active worker.</div>}
+              </span>
+            </label>
+          </div>
+        )}
+        <div className="hint muted" style={{ marginTop: 10 }}>
+          The first run starts within a minute of saving. If a run cannot start — the VPN config was
+          removed, the pool emptied — the reason is shown in this table and it tries again next cadence.
+        </div>
+      </Modal>
     </div>
   );
 }

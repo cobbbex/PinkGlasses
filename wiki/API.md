@@ -125,6 +125,25 @@ needs `pool_id`. There is no "direct from this host". A `passive` run needs
 neither. Refusals are `400` (nothing chosen, bad ids) or `409` (no VPN config in
 this company, empty pool). See [Where scans run from](VPN-Scanning).
 
+## Recurring scans
+
+A schedule starts a run on a cadence through the very same code the launch
+dialog uses, so it is refused for exactly the same reasons — and the refusal is
+written on the schedule (`last_error`) where the UI shows it, then retried next
+cadence. A company whose previous run is still going is skipped, never stacked.
+`next_run_at` advances from the planned time, not from when the run actually
+started, so a slow run does not drift the cadence.
+
+| Route | Role | Purpose |
+|---|---|---|
+| `GET /scopes/{scopeID}/schedules` | viewer | `[{profile, exit, vpn_config_id, pool_id, worker_count, every_hours, enabled, next_run_at, last_run_id, last_run_at, last_error}]` |
+| `POST /scopes/{scopeID}/schedules` | operator | `{profile, exit, vpn_config_id \| pool_id, worker_count, every_hours, enabled}` — the first run is due at once |
+| `PATCH /schedules/{scheduleID}` | operator | any of the same fields; disabling stops it without losing it |
+| `DELETE /schedules/{scheduleID}` | operator | |
+| `PATCH /scopes/{scopeID}` | operator | `{default_exit, default_vpn_config_id, default_pool_id}` — the exit the launch dialog pre-selects |
+
+Runs a schedule starts carry `trigger: "scheduled"`.
+
 ## Inventory and search
 
 | Route | Role | Purpose |
