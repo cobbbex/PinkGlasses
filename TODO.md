@@ -426,6 +426,12 @@ what had happened rather than reading what the code intended.
       it never was. `wiki/API.md` is the hand-written reference, held to the router by
       `TestAPIDocCoversEveryRoute`. Generating a spec from the same walk would let clients be
       typed from it.
+- [ ] **Passive discovery stores every name it hears about, resolving or not.** example.com
+      holds 24,950 domains of which 3 resolve; the other 24,947 all came from subfinder — dead
+      CT-log and archive entries for a famous domain. The Hosts view hides them ("non-resolving
+      names hidden") but the dashboard counts them, and every run re-plans dns_resolve for all
+      of them. Decide: keep them (dangling names are takeover candidates) but count and rank
+      resolving names first, and stop re-resolving a name that has failed N runs in a row.
 - [ ] How to save and then show user historical data ?
 - [x] **A worker whose row is reaped never re-enrols.** Fixed 2026-09-05. Mechanism: the
       gateway's dispatch loop reloaded the worker row every 2 s and, when it was gone, did
@@ -492,7 +498,7 @@ entrypoint. The planner, the dispatcher and the worker all read one fact —
 separately is what broke the first version. Documented in architecture.md §7.6,
 the README, and `wiki/VPN-Scanning.md`.
 
-- [ ] Add to .env file file all subfinder supported survices list then i could put there API tokens to them.
+- [x] Add to .env file file all subfinder supported survices list then i could put there API tokens to them. Done 2026-09-04 (commit 58ba5e8): all 40 key-taking sources, kept in step with compose and the worker by a test.
 
 ## UI tuninnig
 Write here new UI features.
