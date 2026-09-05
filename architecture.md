@@ -885,6 +885,11 @@ stages and needs no exit at all.
  └──────────────────────────────┘
 ```
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/scan-fork-dark.svg">
+  <img src="assets/diagrams/scan-fork.svg" alt="One run's tasks fork by stage class: passive stages to the standing local pool, active stages to the run's exit pool; a worker leases a task only when the pools match." width="960">
+</picture>
+
 **Routing is per task, not per run.** `scan_task.pool_id` is set by the planner
 from the stage class (`routeTasks`), and the lease query is strict equality:
 `t.pool_id = worker.pool_id`. The previous filter allowed `r.pool_id IS NULL` for
@@ -903,6 +908,11 @@ time the fleet is up. What passive egress *does* affect is which address forty
 API providers see, so `ASM_PASSIVE_PROXY` puts one hop in front of subfinder.
 DNS stages speak UDP and cannot use an HTTP proxy.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/scan-exits-dark.svg">
+  <img src="assets/diagrams/scan-exits.svg" alt="The two exits side by side: local is a gateway container holding the tunnel with the run's workers sharing its network namespace; remote is an existing pool of enrolled workers." width="960">
+</picture>
+
 **Why the tunnel is not in the worker.** The worker runs nmap, chromium, nuclei
 and gobuster over hostile input; it is the container most likely to be
 exploited, and it should hold the least. The gateway holds `NET_ADMIN` and
@@ -919,6 +929,11 @@ differs from the address it recorded before connecting. A worker therefore never
 exists in an untunnelled namespace. If the tunnel never comes up, no worker
 starts, the containers are removed, and the run fails carrying the gateway's own
 last log lines.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/scan-timeline-dark.svg">
+  <img src="assets/diagrams/scan-timeline.svg" alt="Timeline of a local run: passive stages start at once on the standing pool while the fleet is requested, built, runs the active stages, and is torn down." width="960">
+</picture>
 
 **Lifecycle and the queue.** The API records the intent (`run_fleet`, status
 `requested`); the scheduler (`internal/fleet`) builds, supervises and tears down

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" role="img" aria-label="Timeline of a local run: passive stages start immediately on the standing pool while the fleet is requested and possibly waiting for a slot; the gateway comes up, workers enrol, active stages run on the fleet, the run completes and the fleet is torn down.">
+<style>
+  text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 12px; fill: #1d1a26; }
+  .t-title { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; }
+  .t-muted { fill: #6b6680; font-size: 11px; }  .t-lbl { font-size: 11px; fill: #6b6680; letter-spacing: 0.06em; }
+  .bx { fill: #ffffff; stroke: #1d1a26; stroke-width: 1.2; }  .bx-soft { fill: #eeebf3; stroke: #cfcadb; stroke-width: 1; }
+  .region { fill: none; stroke: #6b6680; stroke-width: 1; stroke-dasharray: 5 4; }
+  .ln { stroke: #1d1a26; stroke-width: 1.4; fill: none; }  .ln-p { stroke: #2f6fd1; stroke-width: 1.8; fill: none; }
+  .ln-a { stroke: #c93f78; stroke-width: 1.8; fill: none; }  .ln-x { stroke: #6b6680; stroke-width: 1; stroke-dasharray: 3 4; fill: none; }
+  .tag-p { fill: #ffffff; stroke: #2f6fd1; stroke-width: 1.2; }  .tag-a { fill: #ffffff; stroke: #c93f78; stroke-width: 1.2; }
+  .tx-p { fill: #2f6fd1; }  .tx-a { fill: #c93f78; }
+  .bar-p { fill: #2f6fd1; opacity: 0.85; }  .bar-a { fill: #c93f78; opacity: 0.85; }
+  .bar-wait { fill: #e4e0ec; stroke: #6b6680; stroke-width: 1; stroke-dasharray: 4 3; }
+  .bar-build { fill: #eeebf3; stroke: #6b6680; stroke-width: 1; }  .bar-down { fill: none; stroke: #6b6680; stroke-width: 1; }
+  .guide { stroke: #cfcadb; stroke-width: 1; stroke-dasharray: 2 4; }
+  .head { fill: #1d1a26; }  .head-p { fill: #2f6fd1; }  .head-a { fill: #c93f78; }
+</style>
+      <!-- event guides -->
+      <line class="guide" x1="120" y1="56" x2="120" y2="250"/>
+      <line class="guide" x1="330" y1="56" x2="330" y2="250"/>
+      <line class="guide" x1="500" y1="56" x2="500" y2="250"/>
+      <line class="guide" x1="810" y1="56" x2="810" y2="250"/>
+      <text class="t-muted" x="120" y="46" text-anchor="middle">run created</text>
+      <text class="t-muted" x="330" y="46" text-anchor="middle">slot frees</text>
+      <text class="t-muted" x="500" y="46" text-anchor="middle">gateway healthy</text>
+      <text class="t-muted" x="810" y="46" text-anchor="middle">run completes</text>
+
+      <!-- lane: standing pool -->
+      <text class="t-lbl" x="20" y="98">STANDING POOL</text>
+      <rect class="bar-p" x="120" y="86" width="370" height="26" rx="3"/>
+      <text x="130" y="104" fill="#ffffff" font-size="11">passive_enum · dns_brute · dns_resolve · ip_enrich</text>
+      <text class="t-muted" x="502" y="104">done — addresses ready before the fleet is</text>
+
+      <!-- lane: the run's fleet -->
+      <text class="t-lbl" x="20" y="188">RUN'S FLEET</text>
+      <rect class="bar-wait" x="120" y="176" width="210" height="26" rx="3"/>
+      <text class="t-muted" x="130" y="194" font-size="11">requested · waiting for slot</text>
+      <rect class="bar-build" x="330" y="176" width="170" height="26" rx="3"/>
+      <text class="t-muted" x="340" y="194" font-size="11">gateway up · verified</text>
+      <rect class="bar-a" x="520" y="176" width="290" height="26" rx="3"/>
+      <text x="530" y="194" fill="#ffffff" font-size="11.5">port_scan → … → vuln_check</text>
+      <rect class="bar-down" x="822" y="176" width="90" height="26" rx="3"/>
+      <text class="t-muted" x="832" y="194" font-size="11">torn down</text>
+      <text class="t-muted" x="508" y="166" font-size="10.5">workers enrol</text>
+
+      <!-- between the lanes -->
+      <text class="t-muted" x="120" y="140">active tasks already planned — pending on the fleet's pool, leasable by nobody else, until its workers exist</text>
+
+      <!-- axis -->
+      <line class="ln" x1="100" y1="250" x2="930" y2="250" marker-end="url(#h3)"/>
+      <defs><marker id="h3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><polygon class="head" points="0,0 10,5 0,10"/></marker></defs>
+      <text class="t-muted" x="930" y="270" text-anchor="end">time</text>
+    </svg>

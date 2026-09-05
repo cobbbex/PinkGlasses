@@ -348,6 +348,11 @@ target, so the launch dialog asks where they should leave from. Two choices:
 | **Local workers behind a VPN** | containers created for this run, sharing a gateway container's network namespace | the VPN's address |
 | **Remote workers** | a pool of workers you enrolled — a VPS | those workers' addresses |
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/scan-fork-dark.svg">
+  <img src="assets/diagrams/scan-fork.svg" alt="One run's tasks fork by stage class: passive stages to the standing local pool, active stages to the run's exit pool; a worker leases a task only when the pools match." width="960">
+</picture>
+
 There is deliberately no "from this host". **Local requires a VPN configuration**;
 a company with none cannot start a local active scan, and the dialog says so. A
 **passive** scan needs no exit at all.
@@ -358,6 +363,11 @@ vpn gateway ──── tun0, default route ──── the internet
      └── network namespace shared by ──── run worker 0, run worker 1, …
                                           (nmap, chromium, nuclei, gobuster)
 ```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/scan-exits-dark.svg">
+  <img src="assets/diagrams/scan-exits.svg" alt="The two exits side by side: local is a gateway container holding the tunnel with the run's workers sharing its network namespace; remote is an existing pool of enrolled workers." width="960">
+</picture>
 
 Three things follow from that shape, and they are the reasons for it:
 
@@ -372,6 +382,11 @@ Three things follow from that shape, and they are the reasons for it:
 - **No other worker can take the run's active work.** Routing is per task and the
   lease is strict: a run's active tasks are leased only by its own fleet or its
   chosen remote pool, and a fleet worker cannot pick up anyone else's.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/diagrams/scan-timeline-dark.svg">
+  <img src="assets/diagrams/scan-timeline.svg" alt="Timeline of a local run: passive stages start at once on the standing pool while the fleet is requested, built, runs the active stages, and is torn down." width="960">
+</picture>
 
 Up to 8 workers per local run; at most 3 runs hold their own containers at once
 (`ASM_MAX_RUN_FLEETS`). A run over that limit waits — its discovery runs meanwhile

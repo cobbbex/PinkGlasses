@@ -16,6 +16,11 @@ so discovery for any run starts at once — even a run whose tunnel is still
 coming up. Set `ASM_PASSIVE_PROXY` (http or socks5) to put one hop in front of
 subfinder's API calls; DNS stages speak UDP and cannot use an HTTP proxy.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/cobbbex/PinkGlasses/main/assets/diagrams/scan-fork-dark.svg">
+  <img src="https://raw.githubusercontent.com/cobbbex/PinkGlasses/main/assets/diagrams/scan-fork.svg" alt="One run's tasks fork by stage class: passive stages to the standing local pool, active stages to the run's exit pool; a worker leases a task only when the pools match." width="960">
+</picture>
+
 Active stages send packets at the target, so the launch dialog asks where they
 should leave from, and a run cannot be created without an answer:
 
@@ -73,6 +78,11 @@ repository gets bitten.
                      gateway ── leases only this run's active tasks
 ```
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/cobbbex/PinkGlasses/main/assets/diagrams/scan-exits-dark.svg">
+  <img src="https://raw.githubusercontent.com/cobbbex/PinkGlasses/main/assets/diagrams/scan-exits.svg" alt="The two exits side by side: local is a gateway container holding the tunnel with the run's workers sharing its network namespace; remote is an existing pool of enrolled workers." width="960">
+</picture>
+
 ## The guarantees
 
 **A worker cannot exist outside the tunnel.** Workers are created only after
@@ -115,6 +125,11 @@ the ceiling **waits**: its passive stages run meanwhile on the standing pool, it
 active tasks sit pending on a pool nothing else can lease from, and the run view
 says *"Waiting to start a VPN gateway and 2 workers: waiting for a slot: 3 of 3
 runs already hold their own workers"*. It is built when a slot frees.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/cobbbex/PinkGlasses/main/assets/diagrams/scan-timeline-dark.svg">
+  <img src="https://raw.githubusercontent.com/cobbbex/PinkGlasses/main/assets/diagrams/scan-timeline.svg" alt="Timeline of a local run: passive stages start at once on the standing pool while the fleet is requested, built, runs the active stages, and is torn down." width="960">
+</picture>
 
 Teardown keeps attribution: a worker's name and kind are stamped on each task
 when it is leased, so a finished run still says which worker ran what.

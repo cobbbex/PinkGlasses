@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 965 430" role="img" aria-label="One scan run's tasks fork by stage class: passive stages route to the standing local pool, active stages route to the run's exit pool; each pool is leased only by workers whose pool matches.">
+<style>
+  text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 12px; fill: #e8e6ef; }
+  .t-title { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; }
+  .t-muted { fill: #9a95ab; font-size: 11px; }  .t-lbl { font-size: 11px; fill: #9a95ab; letter-spacing: 0.06em; }
+  .bx { fill: #1c1925; stroke: #e8e6ef; stroke-width: 1.2; }  .bx-soft { fill: #221f2b; stroke: #302b3d; stroke-width: 1; }
+  .region { fill: none; stroke: #9a95ab; stroke-width: 1; stroke-dasharray: 5 4; }
+  .ln { stroke: #e8e6ef; stroke-width: 1.4; fill: none; }  .ln-p { stroke: #8ab6ff; stroke-width: 1.8; fill: none; }
+  .ln-a { stroke: #f2a5c4; stroke-width: 1.8; fill: none; }  .ln-x { stroke: #9a95ab; stroke-width: 1; stroke-dasharray: 3 4; fill: none; }
+  .tag-p { fill: #1c1925; stroke: #8ab6ff; stroke-width: 1.2; }  .tag-a { fill: #1c1925; stroke: #f2a5c4; stroke-width: 1.2; }
+  .tx-p { fill: #8ab6ff; }  .tx-a { fill: #f2a5c4; }
+  .bar-p { fill: #8ab6ff; opacity: 0.85; }  .bar-a { fill: #f2a5c4; opacity: 0.85; }
+  .bar-wait { fill: #26222f; stroke: #9a95ab; stroke-width: 1; stroke-dasharray: 4 3; }
+  .bar-build { fill: #221f2b; stroke: #9a95ab; stroke-width: 1; }  .bar-down { fill: none; stroke: #9a95ab; stroke-width: 1; }
+  .guide { stroke: #302b3d; stroke-width: 1; stroke-dasharray: 2 4; }
+  .head { fill: #e8e6ef; }  .head-p { fill: #8ab6ff; }  .head-a { fill: #f2a5c4; }
+</style>
+      <defs>
+        <marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><polygon class="head" points="0,0 10,5 0,10"/></marker>
+        <marker id="hp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><polygon class="head-p" points="0,0 10,5 0,10"/></marker>
+        <marker id="ha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><polygon class="head-a" points="0,0 10,5 0,10"/></marker>
+      </defs>
+
+      <!-- the run -->
+      <rect class="bx" x="20" y="30" width="300" height="370" rx="4"/>
+      <text class="t-title" x="36" y="56">one scan run</text>
+      <text class="t-muted" x="36" y="75">profile standard · exit local (VPN) · 1 target</text>
+
+      <text class="t-lbl" x="36" y="112">PASSIVE · never touches the target</text>
+      <rect class="tag-p" x="36" y="122" width="128" height="24" rx="12"/><text class="tx-p" x="100" y="138" text-anchor="middle">passive_enum</text>
+      <rect class="tag-p" x="174" y="122" width="128" height="24" rx="12"/><text class="tx-p" x="238" y="138" text-anchor="middle">dns_brute</text>
+      <rect class="tag-p" x="36" y="154" width="128" height="24" rx="12"/><text class="tx-p" x="100" y="170" text-anchor="middle">dns_resolve</text>
+      <rect class="tag-p" x="174" y="154" width="128" height="24" rx="12"/><text class="tx-p" x="238" y="170" text-anchor="middle">ip_enrich</text>
+
+      <text class="t-lbl" x="36" y="228">ACTIVE · sends traffic at the target</text>
+      <rect class="tag-a" x="36" y="238" width="128" height="24" rx="12"/><text class="tx-a" x="100" y="254" text-anchor="middle">port_scan</text>
+      <rect class="tag-a" x="174" y="238" width="128" height="24" rx="12"/><text class="tx-a" x="238" y="254" text-anchor="middle">service_probe</text>
+      <rect class="tag-a" x="36" y="270" width="128" height="24" rx="12"/><text class="tx-a" x="100" y="286" text-anchor="middle">tech_detect</text>
+      <rect class="tag-a" x="174" y="270" width="128" height="24" rx="12"/><text class="tx-a" x="238" y="286" text-anchor="middle">screenshot</text>
+      <rect class="tag-a" x="36" y="302" width="128" height="24" rx="12"/><text class="tx-a" x="100" y="318" text-anchor="middle">dir_brute</text>
+      <rect class="tag-a" x="174" y="302" width="128" height="24" rx="12"/><text class="tx-a" x="238" y="318" text-anchor="middle">vuln_check</text>
+
+      <text class="t-muted" x="36" y="372">planner: routeTasks(stage class)</text>
+      <text class="t-muted" x="36" y="388">sets scan_task.pool_id on every task</text>
+
+      <!-- fork arrows -->
+      <path class="ln-p" d="M 320 150 C 370 150, 380 110, 430 110" marker-end="url(#hp)"/>
+      <text class="tx-p" x="378" y="92" text-anchor="middle" font-size="11">pool_id = local</text>
+      <path class="ln-a" d="M 320 282 C 370 282, 380 310, 430 310" marker-end="url(#ha)"/>
+      <text class="tx-a" x="378" y="340" text-anchor="middle" font-size="11">pool_id = exit</text>
+
+      <!-- pools -->
+      <rect class="bx" x="430" y="60" width="230" height="110" rx="4"/>
+      <text class="t-title" x="446" y="86">pool · local</text>
+      <text x="446" y="106">the standing workers</text>
+      <text class="t-muted" x="446" y="126">always — whatever the exit</text>
+      <text class="t-muted" x="446" y="144">+ ASM_PASSIVE_PROXY, optional</text>
+
+      <rect class="bx" x="430" y="250" width="230" height="130" rx="4"/>
+      <text class="t-title" x="446" y="276">pool · the run's exit</text>
+      <text x="446" y="298">fleet behind a VPN gateway</text>
+      <text class="t-muted" x="446" y="316">— or —</text>
+      <text x="446" y="334">a pool of remote workers</text>
+      <text class="t-muted" x="446" y="362">no exit chosen → run refused</text>
+
+      <!-- lease arrows -->
+      <path class="ln" d="M 660 115 L 740 115" marker-end="url(#h)"/>
+      <path class="ln" d="M 660 315 L 740 315" marker-end="url(#h)"/>
+      <text class="t-muted" x="545" y="203" text-anchor="middle">a worker leases a task only when</text>
+      <text x="545" y="222" text-anchor="middle" font-size="11.5">task.pool_id = worker.pool_id</text>
+
+      <!-- the closed leak: the two paths that no longer exist -->
+      <path class="ln-x" d="M 662 160 L 738 270"/>
+      <path class="ln-x" d="M 662 270 L 738 160"/>
+      <text class="t-muted" x="700" y="188" text-anchor="middle" font-size="12">✕</text>
+      <text class="t-muted" x="700" y="248" text-anchor="middle" font-size="12">✕</text>
+
+      <!-- workers -->
+      <rect class="bx" x="740" y="60" width="205" height="110" rx="4"/>
+      <text class="t-title" x="756" y="86">standing worker</text>
+      <text x="756" y="106">b25170665236</text>
+      <text class="t-muted" x="756" y="126">pool local · kind local</text>
+      <text class="t-muted" x="756" y="144">discovery for every run</text>
+
+      <rect class="bx" x="740" y="250" width="205" height="130" rx="4"/>
+      <text class="t-title" x="756" y="276">exit workers</text>
+      <text x="756" y="298">run-18235b2a-0</text>
+      <text x="756" y="316">run-18235b2a-1</text>
+      <text class="t-muted" x="756" y="336">— or — remote-vps-1</text>
+      <text class="t-muted" x="756" y="362">this run's active only</text>
+    </svg>
