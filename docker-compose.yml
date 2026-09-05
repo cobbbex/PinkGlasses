@@ -81,6 +81,10 @@ services:
     ports: ["8090:8090"]  # the only internet-facing service in production
     depends_on:
       postgres: {condition: service_healthy}
+      # The bootstrap-token seed writes columns later migrations add; racing
+      # the migrator left a fresh install with a local worker that could
+      # never enrol.
+      migrate: {condition: service_completed_successfully}
 
   scheduler:
     build: .
@@ -104,6 +108,7 @@ services:
       ASM_S3_SECRET_KEY: "${ASM_S3_SECRET_KEY:-minioadmin}"
     depends_on:
       postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
 
   # Provisioner: the ONLY container with the Docker socket. It exists so the
   # fleet UI can create local workers without the api ever holding a

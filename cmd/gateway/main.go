@@ -29,10 +29,27 @@ func main() {
 
 	gw := agentapi.New(st, cfg)
 	// Register the shared local-worker bootstrap token so containers on the
-	// internal network self-enroll (docker compose --scale worker=N).
-	if err := gw.SeedBootstrapToken(ctx); err != nil {
-		slog.Warn("could not seed local bootstrap token", "err", err)
-	}
+	// internal network self-enroll (docker compose --scale worker=N). Retried
+	// until it lands: on a fresh install the gateway can come up while the
+	// migrator is still adding the columns this write needs, and a seed that
+	// gave up once left every local worker refused with 401 forever.
+	go func() {
+		for attempt := 1; ; attempt++ {
+			err := gw.SeedBootstrapToken(ctx)
+			if err == nil {
+				if attempt > 1 {
+					slog.Info("local bootstrap token seeded", "attempts", attempt)
+				}
+				return
+			}
+			slog.Warn("could not seed local bootstrap token; retrying", "err", err, "attempt", attempt)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+		}
+	}()
 	srv := &http.Server{Addr: cfg.Addr, Handler: gw.Routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		slog.Info("gateway listening", "addr", cfg.Addr)

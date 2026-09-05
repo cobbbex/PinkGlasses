@@ -702,3 +702,11 @@ Two things the tests turned up, both fixed in the same change:
       Workers, Alerts, Accounts.
 - [x] 23.6 **Account footer:** "Change password" and "Sign out", capitalised; the first-boot
       banner and the api startup warning point at "Change password" too.
+
+Found 2026-09-06 by wiping the data volumes for a first-boot check: the gateway seeded
+the local bootstrap token once at start and did not wait for the migrator, so on a fresh
+install the write raced migration 00005 (`kind` column), failed, and every local worker
+was refused with 401 forever. On a long-lived database the token predated the race and
+nothing showed. Fixed: gateway and scheduler `depends_on` the migrator like the api, and
+the seed retries every 5 s until it lands. A clone that is run for the first time now
+comes up with an enrolled local worker; verified on empty volumes.
