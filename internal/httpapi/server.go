@@ -30,6 +30,7 @@ type Server struct {
 	obj      *obj.Store // wordlist uploads land here, not in the database
 	logins   *loginLimiter
 	launcher *launch.Launcher
+	routes   []RouteInfo // filled by Routes(), see RouteTable
 }
 
 // New builds the API server.
@@ -48,6 +49,7 @@ func New(st *store.Store) *Server {
 
 // Routes returns the HTTP handler for the api binary.
 func (s *Server) Routes() http.Handler {
+	s.routes = nil
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -60,9 +62,10 @@ func (s *Server) Routes() http.Handler {
 		// The only unauthenticated endpoints. `status` says whether the install
 		// needs its first administrator; `setup` creates that one account and
 		// refuses once any account exists; `login` is the front door.
-		r.Get("/auth/status", s.authStatus)
-		r.Post("/auth/setup", s.setup)
-		r.Post("/auth/login", s.login)
+		pub := roled(r, RolePublic, s)
+		pub.Get("/auth/status", s.authStatus)
+		pub.Post("/auth/setup", s.setup)
+		pub.Post("/auth/login", s.login)
 
 		// Everything past here needs an identity. The whole surface is wrapped
 		// at once rather than endpoint by endpoint, so an endpoint somebody
@@ -70,106 +73,110 @@ func (s *Server) Routes() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAuth)
 
-			r.Post("/auth/logout", s.logout)
-			r.Get("/auth/me", s.me)
-			r.Post("/auth/password", s.changePassword)
+			any := roled(r, RoleAnySignedIn, s)
+			any.Post("/auth/logout", s.logout)
+			any.Get("/auth/me", s.me)
+			any.Post("/auth/password", s.changePassword)
 
 			// --- viewer: read everything, change nothing ---
 			r.Group(func(r chi.Router) {
 				r.Use(require(auth.RoleViewer))
+				v := roled(r, "viewer", s)
 
-				r.Get("/scopes", s.listScopes)
-				r.Get("/scopes/{scopeID}/summary", s.scopeSummary)
-				r.Get("/scopes/{scopeID}/targets", s.listTargets)
+				v.Get("/scopes", s.listScopes)
+				v.Get("/scopes/{scopeID}/summary", s.scopeSummary)
+				v.Get("/scopes/{scopeID}/targets", s.listTargets)
 
-				r.Get("/scan-params", s.listScanParamSpecs)
-				r.Get("/scopes/{scopeID}/scan-profiles", s.listScanProfiles)
-				r.Get("/scopes/{scopeID}/runs", s.listRuns)
-				r.Get("/scopes/{scopeID}/schedules", s.listSchedules)
-				r.Get("/runs/{runID}", s.getRun)
-				r.Get("/runs/{runID}/targets", s.runTargets)
-				r.Get("/runs/{runID}/events", s.runEvents)
-				r.Get("/runs/{runID}/activity", s.runActivity)
-				r.Get("/runs/{runID}/diff", s.runDiff)
+				v.Get("/scan-params", s.listScanParamSpecs)
+				v.Get("/scopes/{scopeID}/scan-profiles", s.listScanProfiles)
+				v.Get("/scopes/{scopeID}/runs", s.listRuns)
+				v.Get("/scopes/{scopeID}/schedules", s.listSchedules)
+				v.Get("/runs/{runID}", s.getRun)
+				v.Get("/runs/{runID}/targets", s.runTargets)
+				v.Get("/runs/{runID}/events", s.runEvents)
+				v.Get("/runs/{runID}/activity", s.runActivity)
+				v.Get("/runs/{runID}/diff", s.runDiff)
 
-				r.Get("/scopes/{scopeID}/domains", s.listDomains)
-				r.Get("/scopes/{scopeID}/graph", s.domainGraph)
-				r.Get("/scopes/{scopeID}/hosts", s.listHosts)
-				r.Get("/scopes/{scopeID}/hostrows", s.listHostRows)
-				r.Get("/hosts/{ipID}", s.hostDetail)
-				r.Get("/hosts/{ipID}/services", s.hostServices)
-				r.Get("/services/{serviceID}/screenshot", s.serviceScreenshot)
-				r.Get("/scopes/{scopeID}/search", s.search)
-				r.Get("/search", s.searchGlobal)
-				r.Get("/scopes/{scopeID}/findings", s.listFindings)
+				v.Get("/scopes/{scopeID}/domains", s.listDomains)
+				v.Get("/scopes/{scopeID}/graph", s.domainGraph)
+				v.Get("/scopes/{scopeID}/hosts", s.listHosts)
+				v.Get("/scopes/{scopeID}/hostrows", s.listHostRows)
+				v.Get("/hosts/{ipID}", s.hostDetail)
+				v.Get("/hosts/{ipID}/services", s.hostServices)
+				v.Get("/services/{serviceID}/screenshot", s.serviceScreenshot)
+				v.Get("/scopes/{scopeID}/search", s.search)
+				v.Get("/search", s.searchGlobal)
+				v.Get("/scopes/{scopeID}/findings", s.listFindings)
 
-				r.Get("/scopes/{scopeID}/notifications", s.listChannels)
-				r.Get("/scopes/{scopeID}/notifications/deliveries", s.listDeliveries)
-				r.Get("/wordlists", s.listWordlists)
-				r.Get("/wordlists/{wordlistID}/content", s.getWordlistContent)
-				r.Get("/workers", s.listWorkers)
+				v.Get("/scopes/{scopeID}/notifications", s.listChannels)
+				v.Get("/scopes/{scopeID}/notifications/deliveries", s.listDeliveries)
+				v.Get("/wordlists", s.listWordlists)
+				v.Get("/wordlists/{wordlistID}/content", s.getWordlistContent)
+				v.Get("/workers", s.listWorkers)
 				// Where a run may scan from: every pool that is not a run's own.
-				r.Get("/pools", s.listPools)
+				v.Get("/pools", s.listPools)
 
 				// A tunnel's name and last egress, never its body. Reading
 				// which exits exist is not the same as being able to use one.
-				r.Get("/scopes/{scopeID}/vpn-configs", s.listVPNConfigs)
+				v.Get("/scopes/{scopeID}/vpn-configs", s.listVPNConfigs)
 
 				// Your own tokens; an administrator sees everyone's.
-				r.Get("/tokens", s.listTokens)
-				r.Post("/tokens", s.createToken)
-				r.Delete("/tokens/{tokenID}", s.revokeToken)
+				v.Get("/tokens", s.listTokens)
+				v.Post("/tokens", s.createToken)
+				v.Delete("/tokens/{tokenID}", s.revokeToken)
 			})
 
 			// --- operator: everything about finding things ---
 			r.Group(func(r chi.Router) {
 				r.Use(require(auth.RoleOperator))
+				o := roled(r, "operator", s)
 
-				r.Post("/scopes", s.createScope)
-				r.Post("/scopes/{scopeID}/targets", s.addTarget)
-				r.Post("/scopes/{scopeID}/scan-profiles", s.saveScanProfile)
+				o.Post("/scopes", s.createScope)
+				o.Post("/scopes/{scopeID}/targets", s.addTarget)
+				o.Post("/scopes/{scopeID}/scan-profiles", s.saveScanProfile)
 				// Starting a run sends packets at somebody's infrastructure,
 				// which is why it is the boundary between reading and acting.
-				r.Post("/scopes/{scopeID}/runs", s.createRun)
-				r.Post("/runs/{runID}/cancel", s.cancelRun)
+				o.Post("/scopes/{scopeID}/runs", s.createRun)
+				o.Post("/runs/{runID}/cancel", s.cancelRun)
 				// Recurring scans, and the company default exit they use.
-				r.Post("/scopes/{scopeID}/schedules", s.createSchedule)
-				r.Patch("/schedules/{scheduleID}", s.patchSchedule)
-				r.Delete("/schedules/{scheduleID}", s.deleteSchedule)
-				r.Patch("/scopes/{scopeID}", s.patchScope)
+				o.Post("/scopes/{scopeID}/schedules", s.createSchedule)
+				o.Patch("/schedules/{scheduleID}", s.patchSchedule)
+				o.Delete("/schedules/{scheduleID}", s.deleteSchedule)
+				o.Patch("/scopes/{scopeID}", s.patchScope)
 
-				r.Post("/scopes/{scopeID}/notifications", s.createChannel)
-				r.Patch("/notifications/{channelID}", s.patchChannel)
-				r.Delete("/notifications/{channelID}", s.deleteChannel)
-				r.Post("/notifications/{channelID}/test", s.testChannel)
-				r.Patch("/findings/{findingID}", s.patchFinding)
+				o.Post("/scopes/{scopeID}/notifications", s.createChannel)
+				o.Patch("/notifications/{channelID}", s.patchChannel)
+				o.Delete("/notifications/{channelID}", s.deleteChannel)
+				o.Post("/notifications/{channelID}/test", s.testChannel)
+				o.Patch("/findings/{findingID}", s.patchFinding)
 
-				r.Post("/wordlists", s.uploadWordlist)
-				r.Patch("/wordlists/{wordlistID}", s.patchWordlist)
-				r.Put("/wordlists/{wordlistID}/content", s.putWordlistContent)
-				r.Delete("/wordlists/{wordlistID}", s.deleteWordlist)
+				o.Post("/wordlists", s.uploadWordlist)
+				o.Patch("/wordlists/{wordlistID}", s.patchWordlist)
+				o.Put("/wordlists/{wordlistID}/content", s.putWordlistContent)
+				o.Delete("/wordlists/{wordlistID}", s.deleteWordlist)
 			})
 
 			// --- admin: everything that changes what the system can do ---
 			r.Group(func(r chi.Router) {
 				r.Use(require(auth.RoleAdmin))
+				a := roled(r, "admin", s)
 
-				r.Get("/users", s.listUsers)
-				r.Post("/users", s.createUser)
-				r.Patch("/users/{userID}", s.patchUser)
-				r.Delete("/users/{userID}", s.deleteUser)
+				a.Get("/users", s.listUsers)
+				a.Post("/users", s.createUser)
+				a.Patch("/users/{userID}", s.patchUser)
+				a.Delete("/users/{userID}", s.deleteUser)
 
 				// Credentials for somebody else's network.
-				r.Post("/scopes/{scopeID}/vpn-configs", s.createVPNConfig)
-				r.Delete("/vpn-configs/{vpnID}", s.deleteVPNConfig)
+				a.Post("/scopes/{scopeID}/vpn-configs", s.createVPNConfig)
+				a.Delete("/vpn-configs/{vpnID}", s.deleteVPNConfig)
 
 				// Enrolling a worker hands out a credential; scaling them
 				// creates containers on the host.
-				r.Post("/workers/enrollment-tokens", s.createEnrollmentToken)
-				r.Get("/workers/provision", s.getProvisionStatus)
-				r.Post("/workers/provision", s.scaleLocalWorkers)
-				r.Post("/workers/{workerID}/{action}", s.workerAction)
-				r.Delete("/workers/{workerID}", s.deleteWorker)
+				a.Post("/workers/enrollment-tokens", s.createEnrollmentToken)
+				a.Get("/workers/provision", s.getProvisionStatus)
+				a.Post("/workers/provision", s.scaleLocalWorkers)
+				a.Post("/workers/{workerID}/{action}", s.workerAction)
+				a.Delete("/workers/{workerID}", s.deleteWorker)
 			})
 		})
 	})
@@ -243,3 +250,43 @@ func readJSONLimit(r *http.Request, v any, max int64) error {
 var _ = slog.Default
 var _ = time.Now
 var _ = domain.RunQueued
+
+// RouteInfo is one registered route and the least role that may call it —
+// recorded at registration, so the API reference and the OpenAPI document can
+// be generated from the router rather than maintained beside it.
+type RouteInfo struct {
+	Method, Path, Role string
+}
+
+const (
+	RolePublic      = "public"
+	RoleAnySignedIn = "any"
+)
+
+// roleRouter registers routes exactly like chi.Router and records each one.
+type roleRouter struct {
+	r    chi.Router
+	role string
+	s    *Server
+}
+
+func roled(r chi.Router, role string, s *Server) roleRouter {
+	return roleRouter{r: r, role: role, s: s}
+}
+
+func (rr roleRouter) rec(method, pattern string) {
+	rr.s.routes = append(rr.s.routes, RouteInfo{Method: method, Path: "/api/v1" + pattern, Role: rr.role})
+}
+func (rr roleRouter) Get(p string, h http.HandlerFunc)    { rr.rec("GET", p); rr.r.Get(p, h) }
+func (rr roleRouter) Post(p string, h http.HandlerFunc)   { rr.rec("POST", p); rr.r.Post(p, h) }
+func (rr roleRouter) Put(p string, h http.HandlerFunc)    { rr.rec("PUT", p); rr.r.Put(p, h) }
+func (rr roleRouter) Patch(p string, h http.HandlerFunc)  { rr.rec("PATCH", p); rr.r.Patch(p, h) }
+func (rr roleRouter) Delete(p string, h http.HandlerFunc) { rr.rec("DELETE", p); rr.r.Delete(p, h) }
+
+// RouteTable returns every route with its role, in registration order. It
+// builds the router on a bare server, which touches no store.
+func RouteTable() []RouteInfo {
+	s := &Server{logins: newLoginLimiter()}
+	s.Routes()
+	return s.routes
+}

@@ -217,7 +217,7 @@ Each step is `.1` implement · `.2` image + reporting · `.3` **GATE** (must pas
 ### Step 14 — Close-out
 - [x] 13.14.1 End-to-end run — passive run on example.com populated 1 domain + 4 IPs through worker->ingest->API. Fixed two lease-query bugs found here. over a scope you own with every tool enabled; confirm the full
       `Tools.md` sequence executes in order and the asset graph is populated at each stage.
-- [ ] 13.14.2 Update `worker-pipeline.md` to match what is actually implemented.
+- [x] 13.14.2 Update `worker-pipeline.md` to match what is actually implemented. (22.5)
 
 ## Phase 14 — Global search across all companies
 
@@ -422,7 +422,7 @@ what had happened rather than reading what the code intended.
       callers anywhere — found 2026-09-05 while writing the API reference. Nothing is broken
       only because the UI also polls every 4 s. Either publish from ingest and the planner
       (task done, stage advanced, run finished) and lengthen the poll, or remove the stream.
-- [ ] **No OpenAPI document.** architecture.md claimed one was generated from the handlers;
+- [x] **No OpenAPI document.** Done as 22.5: `docs/openapi.yaml` from the router, guarded by `TestOpenAPIDocIsCurrent`. Original: architecture.md claimed one was generated from the handlers;
       it never was. `wiki/API.md` is the hand-written reference, held to the router by
       `TestAPIDocCoversEveryRoute`. Generating a spec from the same walk would let clients be
       typed from it.
@@ -663,5 +663,5 @@ Two things the tests turned up, both fixed in the same change:
       dangling ones are takeover candidates.
 - [x] 22.4 **Wildcard DNS detection** (13.5): detect a wildcard before brute force and flag
       the domain rather than explode it into thousands of fake subdomains.
-- [ ] 22.5 **Docs debt.** An OpenAPI document generated from the same router walk the
+- [x] 22.5 **Docs debt.** An OpenAPI document generated from the same router walk the
       reference test uses; `worker-pipeline.md` updated to what runs (13.14.2).

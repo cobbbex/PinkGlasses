@@ -1280,9 +1280,12 @@ What holds across the whole surface:
   agent protocol to workers (§8) and is the only public component; the
   provisioner (`:8091`) speaks a fixed vocabulary to the control plane alone and
   holds the Docker socket (§7.4).
-- **Not yet:** an OpenAPI document, cursor pagination, an export endpoint, and
-  a server-sent events stream that actually carries events — the hub exists and
-  nothing publishes to it. All recorded in TODO.
+- **Generated, not maintained.** `docs/openapi.yaml` comes from the same router
+  walk (`go run ./tools/openapi`), with each route's role recorded at
+  registration; `TestOpenAPIDocIsCurrent` fails the build when the committed
+  file is stale. It types paths, methods, roles and authentication; bodies are
+  described in the reference.
+- **Not yet:** cursor pagination and an export endpoint. Both in TODO.
 
 ---
 

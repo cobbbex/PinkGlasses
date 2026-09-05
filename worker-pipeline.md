@@ -14,11 +14,14 @@ flowchart TB
     B --> C["3 · Technologies + versions"]
     C --> D["4 · Screenshots"]
     C --> E["5 · Directory / content brute"]
+    C --> V["6 · Vulnerability templates"]
     D --> F[normalize -> ingest]
     E --> F
+    V --> F
 
     subgraph A_
-      a1[subfinder<br/>passive enum] --> a3[dnsx<br/>resolve + wildcard filter]
+      a1[subfinder<br/>passive enum] --> a3[dnsx<br/>resolve]
+      a0[wildcard probe<br/>two random labels per apex] --> a3
       a4[shuffledns<br/>one task per wordlist] --> a3
       a3 --> a5[Team Cymru<br/>ASN + prefix]
     end
@@ -38,6 +41,11 @@ flowchart TB
 
 Stages 4 and 5 both consume stage 3's live-HTTP host list and run **in parallel** — a
 screenshot and a directory brute don't depend on each other.
+
+**Where the stages run.** Stages 1 and the resolution/enrichment behind it never send a
+packet at the target and run on the standing local workers. Everything from stage 2 on
+sends traffic at the target and runs from the run's chosen exit — an ephemeral fleet
+behind a VPN gateway, or a pool of enrolled remote workers (`architecture.md` §7.6).
 
 **Resolution feeds stage 2 incrementally, not through a barrier.** Addresses are handed
 forward as they appear, deduplicated so a shared address behind twenty names is scanned
@@ -213,7 +221,7 @@ entire output to that gap more than once — so the column that matters is the l
 | Stage | Tools wired | Verified end to end |
 |---|---|---|
 | Subdomains | subfinder (keys via provider-config.yaml), shuffledns | names recorded, per-wordlist tasks |
-| Resolution | **dnsx** primary, stdlib fallback | addresses + PTR, wildcard-filtered |
+| Resolution | **dnsx** primary, stdlib fallback; a wildcard probe per apex | addresses + PTR; a wildcard apex is flagged and names resolving only to its address are dropped |
 | Enrichment | Team Cymru DNS TXT | ASN, AS name, announcing prefix |
 | Ports | nmap alone at `top-100`; naabu → nmap when wider | 22/tcp and 80/tcp on scanme.nmap.org |
 | Service versions | nmap `-sV` (`-A -vvv` on deep) | `OpenSSH 6.6.1p1`, `Apache 2.4.7` |
@@ -232,5 +240,9 @@ results the gateway refuses is reported by both ends rather than silently droppe
 three checks are what make "the stage ran" and "the stage recorded something"
 distinguishable.
 
-Not yet implemented: `gobuster dns` wildcard/vhost bruteforce (13.5); `urlfinder`
-stalls without API keys and is hard-capped/optional (13.9).
+Wildcard handling (13.5) is done by probing rather than by `gobuster dns`: two random
+labels per apex, the union of their addresses is the wildcard set. Still optional:
+`urlfinder` stalls without API keys and is hard-capped (13.9).
+
+Passive names are stored whether or not they resolve — for a famous domain most do not
+— so the dashboard leads with the names that resolve and gives the rest as a sub-line.

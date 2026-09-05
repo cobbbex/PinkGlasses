@@ -6,7 +6,9 @@ scripted. Base path `/api/v1`, JSON in and out, same host as the UI.
 This page lists every route the server actually registers. A test
 (`TestAPIDocCoversEveryRoute`) walks the live router and fails the build if a
 route is added without a line here, so the list below is not a sketch of intent
-— it is what the binary serves.
+— it is what the binary serves. The same router generates
+[`docs/openapi.yaml`](https://github.com/cobbbex/PinkGlasses/blob/main/docs/openapi.yaml)
+for tooling; the summaries in it are the sentences on this page.
 
 ## Authentication
 
@@ -94,7 +96,7 @@ asset route is under a scope.
 | `GET /scopes/{scopeID}/scan-profiles` | viewer | saved parameter presets |
 | `POST /scopes/{scopeID}/scan-profiles` | operator | `{name, params, global, default}` |
 | `GET /scopes/{scopeID}/runs` | viewer | runs with progress counters |
-| `POST /scopes/{scopeID}/runs` | operator | start a run — body below |
+| `POST /scopes/{scopeID}/runs` | operator | start a run; the fields are under *Starting a run* |
 | `GET /runs/{runID}` | viewer | `{run, progress, fleet?}` — `fleet` is present when the run has its own containers, and carries the reason if it is waiting or failed |
 | `GET /runs/{runID}/targets` | viewer | per-target status, counters, skip reasons |
 | `GET /runs/{runID}/activity` | viewer | `{tasks, stages, workers}` — what is running where, right now |
@@ -266,8 +268,10 @@ socket. Never exposed; every call carries `X-Provisioner-Token`.
   exist, and the UI subscribes to it — but nothing in the codebase publishes to
   the hub, so no event is ever sent. The UI works because it also polls every
   four seconds; the stream is decoration. Recorded in TODO.
-- **No OpenAPI document.** architecture.md once said one was generated from the
-  handlers; it never was. This page is the reference, kept honest by the test
-  that walks the router.
+- **The OpenAPI document is paths-and-auth only.** `docs/openapi.yaml` is
+  generated from the router (`go run ./tools/openapi > docs/openapi.yaml`) and a
+  test fails the build when it is stale; it carries every path, method, role and
+  security scheme, with this page's sentences as summaries. Request and response
+  bodies are not typed in it — those live in the tables above.
 - **No cursor pagination, no export endpoint.** Both were in the original sketch
   and neither exists.

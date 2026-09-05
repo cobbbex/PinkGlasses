@@ -1,0 +1,1212 @@
+openapi: 3.1.0
+info:
+  title: PinkGlasses API
+  version: "1"
+  description: |
+    Every route the server registers, generated from the router (go run ./tools/openapi).
+    Paths, methods, roles and authentication are exact; request and response bodies are
+    described in wiki/API.md rather than typed here. Errors are {"error": "<sentence>"}.
+servers:
+  - url: /
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: pg_session
+    token:
+      type: http
+      scheme: bearer
+      description: An API token, pgt_… — may be narrower than its owner, never wider.
+    proxy:
+      type: apiKey
+      in: header
+      name: X-Forwarded-User
+      description: Honoured only alongside X-Proxy-Secret when ASM_TRUSTED_PROXY_SECRET is set.
+  responses:
+    e400:
+      description: malformed or missing input
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: {type: string}
+    e401:
+      description: not signed in, or the credential is no longer valid
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: {type: string}
+    e403:
+      description: signed in, but the route needs a higher role
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: {type: string}
+    e404:
+      description: no such thing
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: {type: string}
+    e409:
+      description: conflicts with state — last administrator, username taken, empty pool
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: {type: string}
+paths:
+  /api/v1/auth/status:
+    get:
+      operationId: getAuthStatus
+      summary: "{setup_required, user?} — whether the install still needs its first administrator, and who you are if signed in"
+      x-required-role: public
+      security: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/auth/setup:
+    post:
+      operationId: postAuthSetup
+      summary: "create the first administrator — {username, display_name, password}; refuses once any account exists"
+      x-required-role: public
+      security: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/auth/login:
+    post:
+      operationId: postAuthLogin
+      summary: "{username, password} → sets the session cookie, returns {user}"
+      x-required-role: public
+      security: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/auth/logout:
+    post:
+      operationId: postAuthLogout
+      summary: "end this session"
+      x-required-role: any
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/auth/me:
+    get:
+      operationId: getAuthMe
+      summary: "{user, via, must_change_password}"
+      x-required-role: any
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/auth/password:
+    post:
+      operationId: postAuthPassword
+      summary: "{current_password, new_password} — signs your other sessions out"
+      x-required-role: any
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes:
+    get:
+      operationId: getScopes
+      summary: "all companies; ?mine=true narrows to ones you created"
+      x-required-role: viewer
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postScopes
+      summary: "{name}"
+      x-required-role: operator
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/summary:
+    get:
+      operationId: getScopesByScopeIDSummary
+      summary: "dashboard counters: domains, ips, services, open_findings"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/targets:
+    get:
+      operationId: getScopesByScopeIDTargets
+      summary: "?tag= filters"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postScopesByScopeIDTargets
+      summary: "{value} or {values:[…]}, kind (domain, cidr, ip, asn — inferred if omitted), tags, mode (passive_only default, active, exclude), authorize: true to record active authorization"
+      x-required-role: operator
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scan-params:
+    get:
+      operationId: getScanParams
+      summary: "every tunable a run accepts, with type, range, default and help"
+      x-required-role: viewer
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/scan-profiles:
+    get:
+      operationId: getScopesByScopeIDScanProfiles
+      summary: "saved parameter presets"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postScopesByScopeIDScanProfiles
+      summary: "{name, params, global, default}"
+      x-required-role: operator
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/runs:
+    get:
+      operationId: getScopesByScopeIDRuns
+      summary: "runs with progress counters"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postScopesByScopeIDRuns
+      summary: "start a run; the fields are under *Starting a run*"
+      x-required-role: operator
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/schedules:
+    get:
+      operationId: getScopesByScopeIDSchedules
+      summary: "[{profile, exit, vpn_config_id, pool_id, worker_count, every_hours, enabled, next_run_at, last_run_id, last_run_at, last_error}]"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postScopesByScopeIDSchedules
+      summary: "pool_id, worker_count, every_hours, enabled}` — the first run is due at once"
+      x-required-role: operator
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/runs/{runID}:
+    get:
+      operationId: getRunsByRunID
+      summary: "{run, progress, fleet?} — fleet is present when the run has its own containers, and carries the reason if it is waiting or failed"
+      x-required-role: viewer
+      parameters:
+        - {name: runID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/runs/{runID}/targets:
+    get:
+      operationId: getRunsByRunIDTargets
+      summary: "per-target status, counters, skip reasons"
+      x-required-role: viewer
+      parameters:
+        - {name: runID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/runs/{runID}/events:
+    get:
+      operationId: getRunsByRunIDEvents
+      summary: "server-sent events stream; see the note under *Known gaps*"
+      x-required-role: viewer
+      parameters:
+        - {name: runID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/runs/{runID}/activity:
+    get:
+      operationId: getRunsByRunIDActivity
+      summary: "{tasks, stages, workers} — what is running where, right now"
+      x-required-role: viewer
+      parameters:
+        - {name: runID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/runs/{runID}/diff:
+    get:
+      operationId: getRunsByRunIDDiff
+      summary: "change events this run produced: {kind, asset_kind, asset_id, before, after, created_at}"
+      x-required-role: viewer
+      parameters:
+        - {name: runID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/domains:
+    get:
+      operationId: getScopesByScopeIDDomains
+      summary: "?q= substring"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/graph:
+    get:
+      operationId: getScopesByScopeIDGraph
+      summary: "{nodes, edges} for the name→address map"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/hosts:
+    get:
+      operationId: getScopesByScopeIDHosts
+      summary: "addresses with ASN, PTR, country, cloud"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/hostrows:
+    get:
+      operationId: getScopesByScopeIDHostrows
+      summary: "the Hosts table: one row per name→address pair, ?q= and ?unresolved=true to include names that resolve to nothing. Returns {rows, unresolved_hidden}"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/hosts/{ipID}:
+    get:
+      operationId: getHostsByIpID
+      summary: "everything about one address: {host, names, services, findings}. Each name carries history (one entry per run that resolved it) and also_resolved_to; each service carries history (one entry per run that port-scanned the address), the latest banner/HTTP/TLS, technologies, and cookie names"
+      x-required-role: viewer
+      parameters:
+        - {name: ipID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/hosts/{ipID}/services:
+    get:
+      operationId: getHostsByIpIDServices
+      summary: "open ports only"
+      x-required-role: viewer
+      parameters:
+        - {name: ipID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/services/{serviceID}/screenshot:
+    get:
+      operationId: getServicesByServiceIDScreenshot
+      summary: "image/png, the most recent capture"
+      x-required-role: viewer
+      parameters:
+        - {name: serviceID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/search:
+    get:
+      operationId: getScopesByScopeIDSearch
+      summary: "?q= in the query language, one company"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/search:
+    get:
+      operationId: getSearch
+      summary: "?q= across every company; ?scope= narrows"
+      x-required-role: viewer
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/findings:
+    get:
+      operationId: getScopesByScopeIDFindings
+      summary: "with per-run history, presence (active/gone) and gone_since"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/notifications:
+    get:
+      operationId: getScopesByScopeIDNotifications
+      summary: "{channels, events} — the second lists the event kinds a channel may subscribe to"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postScopesByScopeIDNotifications
+      summary: "webhook, url, events, min_severity}`"
+      x-required-role: operator
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/notifications/deliveries:
+    get:
+      operationId: getScopesByScopeIDNotificationsDeliveries
+      summary: "every delivery attempt, with status and error"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/wordlists:
+    get:
+      operationId: getWordlists
+      summary: "resolvers`"
+      x-required-role: viewer
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postWordlists
+      summary: "multipart: file, name (defaults to the filename), kind (default dns)"
+      x-required-role: operator
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/wordlists/{wordlistID}/content:
+    get:
+      operationId: getWordlistsByWordlistIDContent
+      summary: "the list, up to 4 MB"
+      x-required-role: viewer
+      parameters:
+        - {name: wordlistID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    put:
+      operationId: putWordlistsByWordlistIDContent
+      summary: "{content} — resolver lists are validated line by line"
+      x-required-role: operator
+      parameters:
+        - {name: wordlistID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/workers:
+    get:
+      operationId: getWorkers
+      summary: "every worker: status, egress, load, tools, run_scoped for a run's own containers"
+      x-required-role: viewer
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/pools:
+    get:
+      operationId: getPools
+      summary: "pools a run may choose as its remote exit, with active_workers"
+      x-required-role: viewer
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/vpn-configs:
+    get:
+      operationId: getScopesByScopeIDVpnConfigs
+      summary: "name, kind, endpoint host, last egress — never the body"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postScopesByScopeIDVpnConfigs
+      summary: "multipart file + name, or JSON {name, config}; kind (wireguard/openvpn) and endpoint are detected from the body; a WireGuard config without a default route is refused"
+      x-required-role: admin
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/tokens:
+    get:
+      operationId: getTokens
+      summary: "yours; an administrator sees everyone's"
+      x-required-role: viewer
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postTokens
+      summary: "{name, role, ttl_days} → {token, secret} — the only time the secret is returned; role may not exceed yours"
+      x-required-role: viewer
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/tokens/{tokenID}:
+    delete:
+      operationId: deleteTokensByTokenID
+      summary: "revoke yours; an administrator, anyone's"
+      x-required-role: viewer
+      parameters:
+        - {name: tokenID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/runs/{runID}/cancel:
+    post:
+      operationId: postRunsByRunIDCancel
+      x-required-role: operator
+      parameters:
+        - {name: runID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/schedules/{scheduleID}:
+    delete:
+      operationId: deleteSchedulesByScheduleID
+      x-required-role: operator
+      parameters:
+        - {name: scheduleID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    patch:
+      operationId: patchSchedulesByScheduleID
+      summary: "any of the same fields; disabling stops it without losing it"
+      x-required-role: operator
+      parameters:
+        - {name: scheduleID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}:
+    patch:
+      operationId: patchScopesByScopeID
+      summary: "{default_exit, default_vpn_config_id, default_pool_id} — the exit the launch dialog pre-selects"
+      x-required-role: operator
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/notifications/{channelID}:
+    delete:
+      operationId: deleteNotificationsByChannelID
+      x-required-role: operator
+      parameters:
+        - {name: channelID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    patch:
+      operationId: patchNotificationsByChannelID
+      summary: "{enabled}"
+      x-required-role: operator
+      parameters:
+        - {name: channelID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/notifications/{channelID}/test:
+    post:
+      operationId: postNotificationsByChannelIDTest
+      summary: "sends a test digest → {sent, error?}"
+      x-required-role: operator
+      parameters:
+        - {name: channelID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/findings/{findingID}:
+    patch:
+      operationId: patchFindingsByFindingID
+      summary: "{status}: open, acknowledged, resolved, accepted_risk"
+      x-required-role: operator
+      parameters:
+        - {name: findingID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/wordlists/{wordlistID}:
+    delete:
+      operationId: deleteWordlistsByWordlistID
+      summary: "built-in lists refuse"
+      x-required-role: operator
+      parameters:
+        - {name: wordlistID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    patch:
+      operationId: patchWordlistsByWordlistID
+      summary: "{is_default}"
+      x-required-role: operator
+      parameters:
+        - {name: wordlistID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/users:
+    get:
+      operationId: getUsers
+      x-required-role: admin
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postUsers
+      summary: "{username, display_name, password, role}; an empty password makes a proxy-only account"
+      x-required-role: admin
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/users/{userID}:
+    delete:
+      operationId: deleteUsersByUserID
+      summary: "not yourself; not the last administrator"
+      x-required-role: admin
+      parameters:
+        - {name: userID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    patch:
+      operationId: patchUsersByUserID
+      summary: "any of {username, display_name, role, disabled, password}; role and disabled changes end that user's sessions; the last enabled administrator cannot be demoted or disabled"
+      x-required-role: admin
+      parameters:
+        - {name: userID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/vpn-configs/{vpnID}:
+    delete:
+      operationId: deleteVpnConfigsByVpnID
+      x-required-role: admin
+      parameters:
+        - {name: vpnID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/workers/enrollment-tokens:
+    post:
+      operationId: postWorkersEnrollmentTokens
+      summary: "local, name, pool_id, ttl_mins, max_uses} → for vps: {token, install_command, expires_in}; for local`: the compose command"
+      x-required-role: admin
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/workers/provision:
+    get:
+      operationId: getWorkersProvision
+      summary: "{enabled, count} — whether a provisioner is configured and how many standing workers it runs"
+      x-required-role: admin
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postWorkersProvision
+      summary: "{count} — scale the standing local workers"
+      x-required-role: admin
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/workers/{workerID}/{action}:
+    post:
+      operationId: postWorkersByWorkerIDByAction
+      summary: "approve, drain, resume, quarantine"
+      x-required-role: admin
+      parameters:
+        - {name: workerID, in: path, required: true, schema: {type: string}}
+        - {name: action, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/workers/{workerID}:
+    delete:
+      operationId: deleteWorkersByWorkerID
+      summary: "a local worker's container is removed first"
+      x-required-role: admin
+      parameters:
+        - {name: workerID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
