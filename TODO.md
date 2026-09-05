@@ -665,3 +665,22 @@ Two things the tests turned up, both fixed in the same change:
       the domain rather than explode it into thousands of fake subdomains.
 - [x] 22.5 **Docs debt.** An OpenAPI document generated from the same router walk the
       reference test uses; `worker-pipeline.md` updated to what runs (13.14.2).
+
+## Phase 23 — Run controls, one launch dialog, UI wording
+
+- [ ] 23.1 **Stop, pause, resume and rerun a scan.** Stop is the existing cancel. Pause holds
+      a run: no task is leased for it (the lease already requires `status='running'`), tasks
+      in flight finish and report, the run's own fleet stays up; resume lets it continue.
+      Rerun starts a new run with the same profile, parameters, wordlists and exit as an old
+      one, through the same `Launcher.Start` a fresh click uses.
+- [ ] 23.2 **Schedules live in the Start-a-scan dialog.** One dialog: the profile, exit and
+      manual setup chosen there apply whether the scan runs now, once at a chosen time, or on
+      a cadence from hourly to yearly. `every_hours = 0` is a one-off at `next_run_at`, which
+      disables itself after starting. The separate "Schedule a recurring scan" dialog goes;
+      the schedules table stays for pause/resume/remove.
+- [ ] 23.3 **"Manual setup" becomes "Customize scanning"**, with a chevron that reads as
+      expand/collapse rather than a triangle.
+- [ ] 23.4 **Search: "All companies" → "Global search".**
+- [ ] 23.5 **Sidebar order:** Dashboard, Hosts, Scan runs, Findings, Search, Wordlists, VPN,
+      Workers, Alerts, Accounts.
+- [ ] 23.6 **Account footer:** "Change password" and "Sign out", capitalised.
