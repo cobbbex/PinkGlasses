@@ -120,6 +120,6 @@ func seedDefaultAdmin(ctx context.Context, st *store.Store) {
 	}
 	if n, err := st.CountMustChangePassword(ctx); err == nil && n > 0 {
 		slog.Warn("an account still has the password it was created with; change it in the UI "+
-			"(password, at the foot of the sidebar)", "accounts", n)
+			"(Change password, at the foot of the sidebar)", "accounts", n)
 	}
 }

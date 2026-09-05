@@ -156,7 +156,19 @@ the reasons a manual one would be, and the refusal is written on the schedule
 where the UI shows it. A company with a run still going is skipped rather than
 stacked; `next_run_at` advances from the planned time so a slow run does not
 drift the cadence. There is deliberately no second implementation of "start a
-run": the handler is a thin wrapper over the same package.
+run": the handler is a thin wrapper over the same package. A schedule carries the
+same choices a run does — preset, parameters, wordlists, exit — because both are
+made in one dialog; `every_hours = 0` is a one-off that disables itself once its
+run has started (00027).
+
+**Pause** is a run status. The lease query only hands out tasks of a `running`
+run, so setting `paused` stops leasing from the next request without touching the
+workers; tasks in flight complete and report as usual, and the planner does not
+advance a paused run. The run's fleet is kept: `LiveFleets` and `FleetsToTearDown`
+treat `paused` as still going, so resuming is immediate and a paused run still
+holds its company against schedules. **Rerun** reads the launch choices back off
+the run row and its fleet record (`RerunSpec`) and goes through `launch.Start`,
+so it is refused for the same reasons a fresh start would be.
 
 ### 3.4 `differ`
 

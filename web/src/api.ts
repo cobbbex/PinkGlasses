@@ -15,7 +15,9 @@ export interface Scope {
 export interface Schedule {
   id: string; scope_id: string; profile: string; exit: "" | "local" | "remote";
   vpn_config_id?: string | null; pool_id?: string | null; worker_count: number;
+  /** Cadence in hours; 0 is a one-off at next_run_at that disables itself once started. */
   every_hours: number; enabled: boolean; next_run_at: string;
+  profile_id?: string | null; params?: Record<string, string>; wordlist_ids?: string[];
   last_run_id?: string | null; last_run_at?: string | null;
   /** Why the last attempt did not start a run — shown until one does. */
   last_error?: string | null; created_at: string;
@@ -353,6 +355,9 @@ export const api = {
     })),
   runTargets: (id: string) => req<RunTarget[] | null>(`/runs/${id}/targets`).then((x) => x ?? []),
   cancelRun: (id: string) => req(`/runs/${id}/cancel`, { method: "POST" }),
+  pauseRun: (id: string) => req(`/runs/${id}/pause`, { method: "POST" }),
+  resumeRun: (id: string) => req(`/runs/${id}/resume`, { method: "POST" }),
+  rerunRun: (id: string) => req<Run>(`/runs/${id}/rerun`, { method: "POST" }),
   schedules: (s: string) => req<Schedule[] | null>(`/scopes/${s}/schedules`).then((x) => x ?? []),
   createSchedule: (s: string, body: unknown) =>
     req<Schedule>(`/scopes/${s}/schedules`, { method: "POST", body: JSON.stringify(body) }),

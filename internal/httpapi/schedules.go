@@ -2,10 +2,12 @@ package httpapi
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/benlik386/pinkglasses/internal/scanparams"
 	"github.com/benlik386/pinkglasses/internal/store"
 )
 
@@ -18,9 +20,19 @@ type scheduleInput struct {
 	VPNConfigID *string `json:"vpn_config_id"`
 	PoolID      *string `json:"pool_id"`
 	WorkerCount int     `json:"worker_count"`
-	EveryHours  int     `json:"every_hours"`
-	Enabled     *bool   `json:"enabled"`
+	// EveryHours: 1..8784 is a cadence; 0 is once, at StartAt. A pointer so a
+	// patch that leaves it out keeps the current value.
+	EveryHours *int `json:"every_hours"`
+	// StartAt is when the first (or only) run is due; unset means now.
+	StartAt     *time.Time        `json:"start_at"`
+	Enabled     *bool             `json:"enabled"`
+	ProfileID   *string           `json:"profile_id"`
+	Params      map[string]string `json:"params"`
+	WordlistIDs []string          `json:"wordlist_ids"`
 }
+
+// maxEveryHours is a leap year: the longest cadence the dialog offers is yearly.
+const maxEveryHours = 366 * 24
 
 func (in scheduleInput) apply(sc *store.Schedule) *exitErr {
 	if in.Profile != "" {
@@ -68,14 +80,42 @@ func (in scheduleInput) apply(sc *store.Schedule) *exitErr {
 	if sc.WorkerCount > 8 {
 		return &exitErr{http.StatusBadRequest, "worker_count is at most 8"}
 	}
-	if in.EveryHours > 0 {
-		sc.EveryHours = in.EveryHours
+	if in.EveryHours != nil {
+		sc.EveryHours = *in.EveryHours
 	}
-	if sc.EveryHours < 1 {
-		return &exitErr{http.StatusBadRequest, "every_hours must be at least 1"}
+	if sc.EveryHours < 0 || sc.EveryHours > maxEveryHours {
+		return &exitErr{http.StatusBadRequest, "every_hours is 0 for a one-off, or a cadence of 1 to 8784 hours (a year)"}
 	}
 	if in.Enabled != nil {
 		sc.Enabled = *in.Enabled
+	}
+	// Scan settings, validated as a set the way a run's are.
+	if in.ProfileID != nil {
+		sc.ProfileID = nil
+		if *in.ProfileID != "" {
+			id, err := uuid.Parse(*in.ProfileID)
+			if err != nil {
+				return &exitErr{http.StatusBadRequest, "bad profile id"}
+			}
+			sc.ProfileID = &id
+		}
+	}
+	if in.Params != nil {
+		clean, err := scanparams.Validate(in.Params)
+		if err != nil {
+			return &exitErr{http.StatusBadRequest, "invalid scan parameter: " + err.Error()}
+		}
+		sc.Params = clean
+	}
+	if in.WordlistIDs != nil {
+		sc.WordlistIDs = []uuid.UUID{}
+		for _, raw := range in.WordlistIDs {
+			id, err := uuid.Parse(raw)
+			if err != nil {
+				return &exitErr{http.StatusBadRequest, "bad wordlist id " + raw}
+			}
+			sc.WordlistIDs = append(sc.WordlistIDs, id)
+		}
 	}
 	return nil
 }
@@ -110,9 +150,16 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad body")
 		return
 	}
-	sc := store.Schedule{ScopeID: scopeID, Enabled: true}
+	sc := store.Schedule{ScopeID: scopeID, Enabled: true, EveryHours: 24}
 	if e := in.apply(&sc); e != nil {
 		writeErr(w, e.status, e.msg)
+		return
+	}
+	if in.StartAt != nil {
+		sc.NextRunAt = *in.StartAt
+	}
+	if sc.EveryHours == 0 && in.StartAt == nil {
+		writeErr(w, http.StatusBadRequest, "a one-off needs start_at; to scan right now, start a run instead")
 		return
 	}
 	saved, err := s.st.CreateSchedule(r.Context(), sc, userIDOf(r))
@@ -157,7 +204,7 @@ func (s *Server) patchSchedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, e.status, e.msg)
 		return
 	}
-	saved, err := s.st.UpdateSchedule(r.Context(), sc)
+	saved, err := s.st.UpdateSchedule(r.Context(), sc, in.StartAt)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

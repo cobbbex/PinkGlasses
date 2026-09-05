@@ -75,12 +75,12 @@ func (s *Store) FleetsToBuild(ctx context.Context) ([]RunFleet, error) {
 // are still around.
 func (s *Store) FleetsToTearDown(ctx context.Context) ([]RunFleet, error) {
 	return s.fleetsWhere(ctx,
-		`f.status IN ('up','failed','requested') AND r.status NOT IN ('queued','planning','running')`)
+		`f.status IN ('up','failed','requested') AND r.status NOT IN ('queued','planning','running','paused')`)
 }
 
 // LiveFleets returns fleets whose run is still going, for supervision.
 func (s *Store) LiveFleets(ctx context.Context) ([]RunFleet, error) {
-	return s.fleetsWhere(ctx, `f.status='up' AND r.status IN ('queued','planning','running')`)
+	return s.fleetsWhere(ctx, `f.status='up' AND r.status IN ('queued','planning','running','paused')`)
 }
 
 func (s *Store) fleetsWhere(ctx context.Context, cond string) ([]RunFleet, error) {

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, Run, RunTarget, RunActivity, RunFleet, Schedule } from "../api";
 import { Badge, useToast, Modal } from "../components/ui";
@@ -29,7 +29,6 @@ const PROFILES = [
 ];
 
 export default function Runs({ scopeID }: { scopeID: string }) {
-  const toast = useToast();
   const { data: runs, refetch } = useQuery({
     queryKey: ["runs", scopeID], queryFn: () => api.runs(scopeID), refetchInterval: 5000,
   });
@@ -72,13 +71,8 @@ export default function Runs({ scopeID }: { scopeID: string }) {
                     </td>
                     <td><RunProgress run={r} /></td>
                     <td><Badge status={r.status} /></td>
-                    <td style={{ textAlign: "right" }}>
-                      {["queued", "planning", "running"].includes(r.status) && (
-                        <button className="danger sm" onClick={(e) => {
-                          e.stopPropagation();
-                          api.cancelRun(r.id).then(() => { toast("ok", "Run cancelled"); refetch(); });
-                        }}>cancel</button>
-                      )}
+                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      <RunControls run={r} onChange={refetch} />
                       <span className="muted" style={{ marginLeft: 10 }}>{open === r.id ? "▾" : "▸"}</span>
                     </td>
                   </tr>
@@ -100,9 +94,49 @@ export default function Runs({ scopeID }: { scopeID: string }) {
 }
 
 /**
- * Recurring scans for this company. A schedule starts a run through the same
- * code the button above uses, so it is refused for the same reasons — and the
- * refusal is shown here rather than lost in a log.
+ * What a person can do to a run, by where it is. Pause holds it — nothing more
+ * is leased, what is in flight finishes, its own fleet stays up — and Resume
+ * lets it go on. Stop ends it. Rerun starts a fresh run with the same choices,
+ * through the same checks as a new one.
+ */
+function RunControls({ run, onChange }: { run: Run; onChange: () => void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const act = (label: string, fn: () => Promise<unknown>, done: string) => (e: MouseEvent) => {
+    e.stopPropagation();
+    setBusy(true);
+    fn().then(() => { toast("ok", done); onChange(); })
+      .catch((err) => toast("err", `${label}: ${String(err).replace(/^Error:\s*/, "")}`))
+      .finally(() => setBusy(false));
+  };
+  const live = ["queued", "planning", "running", "paused"].includes(run.status);
+  return (
+    <span className="run-controls">
+      {run.status === "running" && (
+        <button className="ghost sm" disabled={busy} title="Hold this run: nothing more is handed out, what is in flight finishes"
+          onClick={act("Pause", () => api.pauseRun(run.id), "Run paused")}>Pause</button>
+      )}
+      {run.status === "paused" && (
+        <button className="sm" disabled={busy} title="Continue where it stopped"
+          onClick={act("Resume", () => api.resumeRun(run.id), "Run resumed")}>Resume</button>
+      )}
+      {live && (
+        <button className="danger sm" disabled={busy} title="End this run; unfinished tasks are cancelled"
+          onClick={act("Stop", () => api.cancelRun(run.id), "Run stopped")}>Stop</button>
+      )}
+      {!live && (
+        <button className="ghost sm" disabled={busy} title="Start a new run with the same profile, settings, wordlists and exit"
+          onClick={act("Rerun", () => api.rerunRun(run.id), "Scan started again with the same settings")}>Rerun</button>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Scheduled scans for this company — one-offs and recurring. They are made in
+ * the Start-a-scan dialog (When → once / repeat), with the same profile, exit
+ * and settings a run gets; this table is where they are paused, resumed and
+ * removed, and where a refusal is shown rather than lost in a log.
  */
 function Schedules({ scopeID }: { scopeID: string }) {
   const toast = useToast();
@@ -113,35 +147,7 @@ function Schedules({ scopeID }: { scopeID: string }) {
   const { data: vpn } = useQuery({ queryKey: ["vpn", scopeID], queryFn: () => api.vpnConfigs(scopeID) });
   const { data: pools } = useQuery({ queryKey: ["pools"], queryFn: () => api.pools() });
   const vpnConfigs = vpn?.configs ?? [];
-  const remotePools = (pools ?? []).filter((p) => p.active_workers > 0);
 
-  const [open, setOpen] = useState(false);
-  const [profile, setProfile] = useState("standard");
-  const [exit, setExit] = useState<"local" | "remote">(vpnConfigs.length || !remotePools.length ? "local" : "remote");
-  const [vpnID, setVpnID] = useState("");
-  const [poolID, setPoolID] = useState("");
-  const [hours, setHours] = useState(24);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => { if (!vpnID && vpnConfigs.length) setVpnID(vpnConfigs[0].id); }, [vpnConfigs.length]);
-  useEffect(() => { if (!poolID && remotePools.length) setPoolID(remotePools[0].id); }, [remotePools.length]);
-
-  const passive = profile === "passive";
-  const ready = passive || (exit === "local" ? !!vpnID : !!poolID);
-
-  async function create() {
-    setBusy(true);
-    try {
-      await api.createSchedule(scopeID, {
-        profile, every_hours: hours,
-        ...(passive ? {} : exit === "local" ? { exit, vpn_config_id: vpnID, worker_count: 2 } : { exit, pool_id: poolID }),
-      });
-      toast("ok", `Every ${hours}h ${profile} scan scheduled — first run starts within a minute`);
-      setOpen(false); refetch();
-    } catch (e) {
-      toast("err", String(e).replace(/^Error:\s*/, ""));
-    } finally { setBusy(false); }
-  }
   async function toggle(sc: Schedule) {
     try { await api.patchSchedule(sc.id, { enabled: !sc.enabled }); refetch(); }
     catch (e) { toast("err", String(e).replace(/^Error:\s*/, "")); }
@@ -154,23 +160,30 @@ function Schedules({ scopeID }: { scopeID: string }) {
     sc.profile === "passive" ? "no exit needed"
     : sc.exit === "local" ? `local · ${vpnConfigs.find((c) => c.id === sc.vpn_config_id)?.name ?? "VPN config missing"}`
     : `remote · ${(pools ?? []).find((p) => p.id === sc.pool_id)?.name ?? "pool missing"}`;
+  const settings = (sc: Schedule) => {
+    const n = Object.keys(sc.params ?? {}).length, w = (sc.wordlist_ids ?? []).length;
+    if (!n && !w && !sc.profile_id) return "defaults";
+    return [sc.profile_id && "preset", n > 0 && `${n} setting${n === 1 ? "" : "s"}`, w > 0 && `${w} wordlist${w === 1 ? "" : "s"}`]
+      .filter(Boolean).join(" · ");
+  };
+  const when = (d: string) => new Date(d).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
 
   return (
     <div style={{ marginTop: 26 }}>
       <div className="page-head" style={{ marginBottom: 6 }}>
         <div>
-          <div className="section-title" style={{ margin: 0 }}>Recurring scans</div>
+          <div className="section-title" style={{ margin: 0 }}>Scheduled scans</div>
           <div className="sub">
-            A run starts on the cadence, from the exit you choose here. If the last run is still
-            going when the next is due, that slot is skipped rather than stacked.
+            Made from <strong>+ New scan</strong> → <em>When</em>: once at a time you pick, or repeating
+            from hourly to yearly. If the last run is still going when the next is due, that slot
+            is skipped rather than stacked.
           </div>
         </div>
-        <button onClick={() => setOpen(true)}>+ Schedule</button>
       </div>
 
       {(list ?? []).length === 0 ? (
         <div className="empty">
-          <p style={{ marginTop: 0 }}>No recurring scans. Every run so far was started by hand.</p>
+          <p style={{ marginTop: 0 }}>Nothing scheduled. Every run so far was started by hand.</p>
           <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
             History — findings, resolutions, ports — only accumulates if scans recur.
           </p>
@@ -178,101 +191,75 @@ function Schedules({ scopeID }: { scopeID: string }) {
       ) : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Every</th><th>Profile</th><th>Scan from</th><th>Last run</th><th>Next run</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>When</th><th>Profile</th><th>Scan from</th><th>Settings</th><th>Last run</th><th>Next run</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              {(list ?? []).map((sc) => (
+              {(list ?? []).map((sc) => {
+                const once = sc.every_hours === 0;
+                const spent = once && !sc.enabled && !!sc.last_run_at;
+                return (
                 <tr key={sc.id} style={sc.enabled ? undefined : { opacity: 0.55 }}>
-                  <td className="mono">{sc.every_hours}h</td>
+                  <td className="mono">{once ? `once · ${when(sc.next_run_at)}` : cadenceLabel(sc.every_hours)}</td>
                   <td>{sc.profile}</td>
                   <td className="muted" style={{ fontSize: 12.5 }}>{exitLabel(sc)}</td>
-                  <td className="muted">{sc.last_run_at ? new Date(sc.last_run_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "never"}</td>
-                  <td className="muted">{sc.enabled ? new Date(sc.next_run_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                  <td className="muted" style={{ fontSize: 12.5 }}>{settings(sc)}</td>
+                  <td className="muted">{sc.last_run_at ? when(sc.last_run_at) : "never"}</td>
+                  <td className="muted">{sc.enabled ? when(sc.next_run_at) : "—"}</td>
                   <td>
                     {sc.last_error
                       ? <span className="sev-high" title={sc.last_error}>did not start</span>
+                      : spent ? <span className="muted">ran</span>
                       : sc.enabled ? <span className="badge b-open">on</span> : <span className="muted">paused</span>}
                     {sc.last_error && <div className="muted wrap" style={{ fontSize: 11.5, marginTop: 3, maxWidth: 420 }}>{sc.last_error}</div>}
                   </td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                    <button className="ghost sm" onClick={() => toggle(sc)}>{sc.enabled ? "pause" : "resume"}</button>
-                    <button className="ghost sm" onClick={() => remove(sc)}>remove</button>
+                    {!spent && <button className="ghost sm" onClick={() => toggle(sc)}>{sc.enabled ? "Pause" : "Resume"}</button>}
+                    <button className="ghost sm" onClick={() => remove(sc)}>Remove</button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
-
-      <Modal
-        title="Schedule a recurring scan" open={open} onClose={() => setOpen(false)} wide
-        footer={<>
-          <button className="ghost" onClick={() => setOpen(false)}>Cancel</button>
-          <button onClick={create} disabled={busy || !ready}>{busy ? "Saving…" : "Schedule"}</button>
-        </>}
-      >
-        <div className="row" style={{ marginTop: 0 }}>
-          <label className="param-label" style={{ minWidth: 0 }}>Every</label>
-          <input type="number" min={1} max={720} value={hours} style={{ width: 70 }}
-            onChange={(e) => setHours(Math.max(1, Number(e.target.value) || 1))} />
-          <span className="muted" style={{ fontSize: 12 }}>hours · 24 is daily, 168 weekly</span>
-        </div>
-        <div className="row">
-          <label className="param-label" style={{ minWidth: 0 }}>Profile</label>
-          <select value={profile} onChange={(e) => setProfile(e.target.value)}>
-            <option value="passive">passive</option>
-            <option value="standard">standard</option>
-            <option value="deep">deep</option>
-          </select>
-        </div>
-        {!passive && (
-          <div style={{ marginTop: 10 }}>
-            <div className="param-label" style={{ minWidth: 0, marginBottom: 6 }}>Scan from</div>
-            <label className="check" style={{ cursor: vpnConfigs.length ? "pointer" : "default" }}>
-              <input type="radio" name="sexit" checked={exit === "local"} disabled={!vpnConfigs.length} onChange={() => setExit("local")} />
-              <span style={{ flex: 1 }}>
-                <strong>Local workers behind a VPN</strong>
-                {exit === "local" && vpnConfigs.length > 0 && (
-                  <div style={{ marginTop: 6 }}>
-                    <select value={vpnID} onChange={(e) => setVpnID(e.target.value)} style={{ minWidth: 220 }}>
-                      {vpnConfigs.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind})</option>)}
-                    </select>
-                  </div>
-                )}
-                {!vpnConfigs.length && <div className="hint">Needs a VPN configuration under VPN.</div>}
-              </span>
-            </label>
-            <label className="check" style={{ cursor: remotePools.length ? "pointer" : "default" }}>
-              <input type="radio" name="sexit" checked={exit === "remote"} disabled={!remotePools.length} onChange={() => setExit("remote")} />
-              <span style={{ flex: 1 }}>
-                <strong>Remote workers</strong>
-                {exit === "remote" && remotePools.length > 0 && (
-                  <div style={{ marginTop: 6 }}>
-                    <select value={poolID} onChange={(e) => setPoolID(e.target.value)} style={{ minWidth: 220 }}>
-                      {remotePools.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.active_workers} worker{p.active_workers === 1 ? "" : "s"}</option>)}
-                    </select>
-                  </div>
-                )}
-                {!remotePools.length && <div className="hint">No pool has an active worker.</div>}
-              </span>
-            </label>
-          </div>
-        )}
-        <div className="hint muted" style={{ marginTop: 10 }}>
-          The first run starts within a minute of saving. If a run cannot start — the VPN config was
-          removed, the pool emptied — the reason is shown in this table and it tries again next cadence.
-        </div>
-      </Modal>
     </div>
   );
+}
+
+// The cadences the dialog offers, in hours. Yearly is a plain 365 days: a
+// schedule advances from its planned time, so the date stays put.
+const CADENCES = [
+  { h: 1, label: "every hour" },
+  { h: 24, label: "every day" },
+  { h: 168, label: "every week" },
+  { h: 720, label: "every 30 days" },
+  { h: 2160, label: "every 90 days" },
+  { h: 8760, label: "every year" },
+];
+function cadenceLabel(h: number) {
+  const c = CADENCES.find((x) => x.h === h);
+  if (c) return c.label;
+  return h % 24 === 0 ? `every ${h / 24} days` : `every ${h}h`;
+}
+// A datetime-local value for a Date, in the browser's zone.
+function localInput(d: Date) {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 function LaunchModal({
   scopeID, open, onClose, onDone,
 }: { scopeID: string; open: boolean; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
+  const qc = useQueryClient();
   const [profile, setProfile] = useState("passive");
   const [busy, setBusy] = useState(false);
+  // When: now is a run; once and repeat are schedules carrying the same choices.
+  const [when, setWhen] = useState<"now" | "once" | "repeat">("now");
+  const [startAt, setStartAt] = useState(() => localInput(new Date(Date.now() + 3600e3)));
+  const [startLater, setStartLater] = useState(false);
+  const [every, setEvery] = useState(24);
+  const [customEvery, setCustomEvery] = useState(false);
 
   // Manual setup: per-tool parameter overrides, off by default so the common
   // case stays a two-click scan.
@@ -305,31 +292,47 @@ function LaunchModal({
 
   async function start() {
     setBusy(true);
+    const choices = {
+      profile,
+      ...(presetID ? { profile_id: presetID } : {}),
+      ...(Object.keys(params).length ? { params } : {}),
+      ...(wordlistIDs.length ? { wordlist_ids: wordlistIDs } : {}),
+      ...(profile !== "passive"
+        ? exit === "local"
+          ? { exit, vpn_config_id: vpnID, worker_count: workerCount }
+          : { exit, pool_id: poolID }
+        : {}),
+    };
     try {
-      await api.createRun(scopeID, {
-        profile,
-        all: true,
-        ...(presetID ? { profile_id: presetID } : {}),
-        ...(Object.keys(params).length ? { params } : {}),
-        ...(wordlistIDs.length ? { wordlist_ids: wordlistIDs } : {}),
-        ...(profile !== "passive"
-          ? exit === "local"
-            ? { exit, vpn_config_id: vpnID, worker_count: workerCount }
-            : { exit, pool_id: poolID }
-          : {}),
-      });
-      toast("ok", `${profile} scan started`);
+      if (when === "now") {
+        await api.createRun(scopeID, { ...choices, all: true });
+        toast("ok", `${profile} scan started`);
+      } else {
+        const at = when === "once" || startLater ? new Date(startAt) : null;
+        await api.createSchedule(scopeID, {
+          ...choices,
+          every_hours: when === "once" ? 0 : every,
+          ...(at ? { start_at: at.toISOString() } : {}),
+        });
+        qc.invalidateQueries({ queryKey: ["schedules", scopeID] });
+        toast("ok", when === "once"
+          ? `${profile} scan scheduled for ${at!.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`
+          : `${profile} scan ${cadenceLabel(every)}${at ? `, first on ${at.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : ", first run within a minute"}`);
+      }
       onDone();
-      onClose();
+      close();
     } catch (e) {
-      toast("err", String(e));
+      toast("err", String(e).replace(/^Error:\s*/, ""));
     } finally {
       setBusy(false);
     }
   }
+  const startValid = when === "now" || (!(when === "repeat" && !startLater) && !isNaN(new Date(startAt).getTime()) && new Date(startAt).getTime() > Date.now() - 60e3) || (when === "repeat" && !startLater);
+  const verb = when === "now" ? "Start scan" : when === "once" ? "Schedule scan" : "Schedule recurring scan";
 
   function close() {
     setManual(false);
+    setWhen("now");
     onClose();
   }
 
@@ -362,8 +365,8 @@ function LaunchModal({
       title="Start a scan" open={open} onClose={close} wide xl={manual}
       footer={<>
         <button className="ghost" onClick={close}>Cancel</button>
-        <button onClick={start} disabled={busy || usable.length === 0 || !exitReady}>
-          {busy ? "Starting…" : `Start scan${usable.length ? ` (${usable.length} target${usable.length === 1 ? "" : "s"})` : ""}`}
+        <button onClick={start} disabled={busy || usable.length === 0 || !exitReady || !startValid}>
+          {busy ? (when === "now" ? "Starting…" : "Saving…") : `${verb}${usable.length ? ` (${usable.length} target${usable.length === 1 ? "" : "s"})` : ""}`}
         </button>
       </>}
     >
@@ -478,9 +481,63 @@ function LaunchModal({
         </div>
       )}
 
+      <div className="when-block">
+        <div className="param-label" style={{ minWidth: 0, marginBottom: 6 }}>When</div>
+        <label className="check" style={{ cursor: "pointer" }}>
+          <input type="radio" name="when" checked={when === "now"} onChange={() => setWhen("now")} />
+          <span><strong>Now</strong><div className="hint" style={{ marginTop: 2 }}>One run, starting as soon as its workers are ready.</div></span>
+        </label>
+        <label className="check" style={{ cursor: "pointer" }}>
+          <input type="radio" name="when" checked={when === "once"} onChange={() => setWhen("once")} />
+          <span style={{ flex: 1 }}>
+            <strong>Once, at a time I pick</strong>
+            <div className="hint" style={{ marginTop: 2 }}>A single run, started for you at that time — overnight, say, or after a maintenance window.</div>
+            {when === "once" && (
+              <div className="row" style={{ marginTop: 8 }}>
+                <input type="datetime-local" value={startAt} min={localInput(new Date())} onChange={(e) => setStartAt(e.target.value)} />
+              </div>
+            )}
+          </span>
+        </label>
+        <label className="check" style={{ cursor: "pointer" }}>
+          <input type="radio" name="when" checked={when === "repeat"} onChange={() => setWhen("repeat")} />
+          <span style={{ flex: 1 }}>
+            <strong>Repeat</strong>
+            <div className="hint" style={{ marginTop: 2 }}>
+              Runs again on the cadence with these same settings. A slot whose previous run is still going
+              is skipped, never stacked; the next time is counted from the planned time, so it does not drift.
+            </div>
+            {when === "repeat" && (
+              <div className="row" style={{ marginTop: 8, gap: 10, flexWrap: "wrap" }}>
+                <select value={customEvery ? "custom" : String(every)}
+                  onChange={(e) => { if (e.target.value === "custom") setCustomEvery(true); else { setCustomEvery(false); setEvery(Number(e.target.value)); } }}>
+                  {CADENCES.map((c) => <option key={c.h} value={c.h}>{c.label}</option>)}
+                  <option value="custom">custom…</option>
+                </select>
+                {customEvery && (
+                  <span className="row" style={{ margin: 0, gap: 6 }}>
+                    <input type="number" min={1} max={8784} value={every} style={{ width: 80 }}
+                      onChange={(e) => setEvery(Math.min(8784, Math.max(1, Number(e.target.value) || 1)))} />
+                    <span className="muted" style={{ fontSize: 12 }}>hours</span>
+                  </span>
+                )}
+                <label className="check" style={{ margin: 0, cursor: "pointer" }}>
+                  <input type="checkbox" checked={startLater} onChange={(e) => setStartLater(e.target.checked)} />
+                  <span>first run at</span>
+                </label>
+                {startLater
+                  ? <input type="datetime-local" value={startAt} min={localInput(new Date())} onChange={(e) => setStartAt(e.target.value)} />
+                  : <span className="muted" style={{ fontSize: 12 }}>within a minute of saving</span>}
+              </div>
+            )}
+          </span>
+        </label>
+      </div>
+
       <div className="manual-bar">
-        <button className="ghost sm" onClick={() => setManual((m) => !m)}>
-          {manual ? "▾ Hide manual setup" : "▸ Manual setup"}
+        <button className="ghost sm chev-btn" onClick={() => setManual((m) => !m)} aria-expanded={manual}>
+          <span className={"chev" + (manual ? " open" : "")} aria-hidden="true" />
+          {manual ? "Hide customization" : "Customize scanning"}
         </button>
         <span className="muted" style={{ fontSize: 12 }}>
           {overrides > 0 || listChoices > 0

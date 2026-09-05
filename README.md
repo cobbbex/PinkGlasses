@@ -542,29 +542,33 @@ size of that list is the main thing deciding how loud a scan is — it is the on
 that fires thousands of requests at a single host. A run with no `dir` list falls back to
 the small list baked into the worker image.
 
-## Recurring scans
+## Scheduled scans
 
-**Runs → Recurring scans → + Schedule.** Pick a cadence in hours (24 is daily),
-a profile, and — for anything but passive — where the scan runs from, exactly as
-in the launch dialog. The first run starts within a minute; every later one on
-the cadence.
+**Runs → + New scan → When.** The same dialog starts a scan now, once at a time
+you pick, or on a repeat — and whatever it runs carries the profile, exit and
+customized settings chosen in that dialog. *Now* is a run. *Once* is a single
+run started for you at that time (overnight, after a maintenance window). *Repeat*
+offers hourly, daily, weekly, every 30 or 90 days, yearly, or a custom number of
+hours, with the first run within a minute or at a time you set.
 
-Three behaviours are worth knowing:
+Scheduled scans are listed under the runs table, where they are paused, resumed
+and removed. Four behaviours are worth knowing:
 
 - **A schedule starts a run through the same code the button does**, so it is
   refused for exactly the same reasons — VPN configuration removed, pool emptied,
   no targets. The refusal is shown in the schedule's row as *did not start*, with
-  the sentence, and it tries again next cadence. A broken schedule is visible, not
-  silent.
+  the sentence, and a repeating schedule tries again next cadence. A broken
+  schedule is visible, not silent.
 - **A company with a run still going is skipped, never stacked.** The slot is
   re-checked five minutes later; a slow run is not treated as a broken schedule.
 - **The cadence does not drift.** The next time is computed from the planned
-  time, not from when the run actually started.
+  time, not from when the run actually started. Yearly is a plain 365 days.
+- **A one-off does its job and stops.** Once it has started its run it disables
+  itself and shows *ran*; the row stays as the record of what was asked for.
 
-Runs a schedule started carry a **scheduled** label in the run list. Pause and
-resume keep the schedule; remove deletes it. History — finding, resolution and
-port dots, the differ, alert digests — is what recurring scans are for: it only
-accumulates if scans recur.
+Runs a schedule started carry a **scheduled** label in the run list. History —
+finding, resolution and port dots, the differ, alert digests — is what recurring
+scans are for: it only accumulates if scans recur.
 
 ## Watching a scan
 
@@ -574,6 +578,16 @@ rest; the progress bar counts failed tasks as finished — the run has dealt wit
 but marks them separately, because a full bar should not hide whether everything worked.
 A run's task total climbs while it is running: the planner adds stages as it discovers
 work, so 5/9 can become 5/12 without anything being wrong.
+
+**Stop, pause, resume, rerun.** Each row offers what fits its state. *Pause* holds a
+running scan: no further task is handed to any worker, the tasks already in flight finish
+and report, and the run's own workers and VPN gateway stay up so *Resume* continues at
+once. *Stop* ends it; unfinished tasks are cancelled and the run's containers come down.
+A finished, failed or stopped run offers *Rerun*: a new run with the same profile,
+settings, wordlists and exit, through the same checks as a fresh start — so a rerun whose
+VPN configuration has since been removed is refused with that reason rather than started
+from somewhere else. A paused run still counts as "going" for a schedule, which skips its
+slot rather than stacking a second run.
 
 Expanding a run shows, refreshed every few seconds:
 

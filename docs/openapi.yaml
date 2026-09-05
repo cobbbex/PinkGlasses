@@ -324,7 +324,7 @@ paths:
   /api/v1/scopes/{scopeID}/schedules:
     get:
       operationId: getScopesByScopeIDSchedules
-      summary: "[{profile, exit, vpn_config_id, pool_id, worker_count, every_hours, enabled, next_run_at, last_run_id, last_run_at, last_error}]"
+      summary: "[{profile, exit, vpn_config_id, pool_id, worker_count, every_hours, enabled, next_run_at, last_run_id, last_run_at, last_error, profile_id, params, wordlist_ids}]"
       x-required-role: viewer
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}
@@ -341,7 +341,7 @@ paths:
         "409": {$ref: "#/components/responses/e409"}
     post:
       operationId: postScopesByScopeIDSchedules
-      summary: "pool_id, worker_count, every_hours, enabled}` — the first run is due at once"
+      summary: "pool_id, worker_count, every_hours, start_at, profile_id, params, wordlist_ids, enabled} — every_hours 1…8784 repeats from start_at (default now); 0 runs once at start_at`, then disables itself"
       x-required-role: operator
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}
@@ -867,6 +867,64 @@ paths:
   /api/v1/runs/{runID}/cancel:
     post:
       operationId: postRunsByRunIDCancel
+      summary: "stop: unfinished tasks are cancelled, the run ends as cancelled; works on a paused run too"
+      x-required-role: operator
+      parameters:
+        - {name: runID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/runs/{runID}/pause:
+    post:
+      operationId: postRunsByRunIDPause
+      summary: "hold a running run: nothing more is leased, tasks in flight finish, its own fleet stays up; 409 unless running"
+      x-required-role: operator
+      parameters:
+        - {name: runID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/runs/{runID}/resume:
+    post:
+      operationId: postRunsByRunIDResume
+      summary: "continue a paused run; 409 unless paused"
+      x-required-role: operator
+      parameters:
+        - {name: runID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/runs/{runID}/rerun:
+    post:
+      operationId: postRunsByRunIDRerun
+      summary: "start a new run with this one's profile, parameters, wordlists and exit, through the same checks as a fresh start; 201 with the new run"
       x-required-role: operator
       parameters:
         - {name: runID, in: path, required: true, schema: {type: string}}
@@ -901,7 +959,7 @@ paths:
         "409": {$ref: "#/components/responses/e409"}
     patch:
       operationId: patchSchedulesByScheduleID
-      summary: "any of the same fields; disabling stops it without losing it"
+      summary: "any of the same fields; disabling stops it without losing it; start_at moves the next run"
       x-required-role: operator
       parameters:
         - {name: scheduleID, in: path, required: true, schema: {type: string}}

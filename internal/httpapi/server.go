@@ -138,6 +138,9 @@ func (s *Server) Routes() http.Handler {
 				// which is why it is the boundary between reading and acting.
 				o.Post("/scopes/{scopeID}/runs", s.createRun)
 				o.Post("/runs/{runID}/cancel", s.cancelRun)
+				o.Post("/runs/{runID}/pause", s.pauseRun)
+				o.Post("/runs/{runID}/resume", s.resumeRun)
+				o.Post("/runs/{runID}/rerun", s.rerunRun)
 				// Recurring scans, and the company default exit they use.
 				o.Post("/scopes/{scopeID}/schedules", s.createSchedule)
 				o.Patch("/schedules/{scheduleID}", s.patchSchedule)

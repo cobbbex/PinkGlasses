@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,6 +67,70 @@ func (s *Store) SetRunStatus(ctx context.Context, id uuid.UUID, status domain.Ru
 	}
 	_, err := s.Pool.Exec(ctx, `UPDATE scan_run SET status=$2`+ts+` WHERE id=$1`, id, status)
 	return err
+}
+
+// PauseRun holds a running run. Leasing already requires status='running', so
+// from the next lease onward no worker is handed one of its tasks; the ones in
+// flight finish and report as usual. Returns false when the run was not running.
+func (s *Store) PauseRun(ctx context.Context, id uuid.UUID) (bool, error) {
+	ct, err := s.Pool.Exec(ctx, `UPDATE scan_run SET status='paused' WHERE id=$1 AND status='running'`, id)
+	if err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() > 0, nil
+}
+
+// ResumeRun lets a paused run continue. Returns false when it was not paused.
+func (s *Store) ResumeRun(ctx context.Context, id uuid.UUID) (bool, error) {
+	ct, err := s.Pool.Exec(ctx, `UPDATE scan_run SET status='running' WHERE id=$1 AND status='paused'`, id)
+	if err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() > 0, nil
+}
+
+// RerunSpec is what it takes to start a run like an old one: the choices a
+// person made in the launch dialog, read back from where the run recorded them.
+type RerunSpec struct {
+	ScopeID     uuid.UUID
+	Profile     string
+	ProfileID   *uuid.UUID
+	Params      map[string]string
+	WordlistIDs []uuid.UUID
+	// Exit is "local" when the run had its own fleet (VPNConfigID and Workers
+	// come from it), "remote" when it was bound to a standing pool, "" for a
+	// passive run.
+	Exit        string
+	VPNConfigID *uuid.UUID
+	PoolID      *uuid.UUID
+	Workers     int
+}
+
+// RerunSpec reads the launch choices back off a run.
+func (s *Store) RerunSpec(ctx context.Context, id uuid.UUID) (RerunSpec, error) {
+	var sp RerunSpec
+	var raw []byte
+	var hadFleet bool
+	err := s.Pool.QueryRow(ctx, `
+		SELECT r.scope_id, r.profile, r.profile_id, r.params, r.pool_id,
+		       f.run_id IS NOT NULL, f.vpn_config_id, COALESCE(f.workers, 0),
+		       COALESCE((SELECT array_agg(wordlist_id) FROM run_wordlist WHERE run_id=r.id), '{}')
+		FROM scan_run r LEFT JOIN run_fleet f ON f.run_id = r.id
+		WHERE r.id=$1`, id).Scan(&sp.ScopeID, &sp.Profile, &sp.ProfileID, &raw, &sp.PoolID,
+		&hadFleet, &sp.VPNConfigID, &sp.Workers, &sp.WordlistIDs)
+	if err != nil {
+		return sp, err
+	}
+	_ = json.Unmarshal(raw, &sp.Params)
+	switch {
+	case sp.Profile == "passive":
+		sp.Exit = ""
+	case hadFleet:
+		sp.Exit = "local"
+	case sp.PoolID != nil:
+		sp.Exit = "remote"
+	}
+	return sp, nil
 }
 
 // ListRunTargets returns the per-target progress rows of a run.

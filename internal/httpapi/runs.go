@@ -187,6 +187,87 @@ func (s *Server) runDiff(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, events)
 }
 
+// pauseRun holds a running run: nothing more is leased, what is in flight
+// finishes, the run's own containers stay up. Only a running run can pause.
+func (s *Server) pauseRun(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "runID"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad run id")
+		return
+	}
+	ok, err := s.st.PauseRun(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusConflict, "only a running run can be paused")
+		return
+	}
+	s.auditReq(r, "run.pause", id.String(), nil)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "paused"})
+}
+
+// resumeRun lets a paused run continue where it stopped.
+func (s *Server) resumeRun(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "runID"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad run id")
+		return
+	}
+	ok, err := s.st.ResumeRun(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusConflict, "only a paused run can be resumed")
+		return
+	}
+	s.auditReq(r, "run.resume", id.String(), nil)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "running"})
+}
+
+// rerunRun starts a new run with an old one's choices — profile, parameters,
+// wordlists, exit — through the same path a fresh click takes, so it is
+// refused for the same reasons (a VPN config since removed, an emptied pool).
+func (s *Server) rerunRun(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "runID"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad run id")
+		return
+	}
+	sp, err := s.st.RerunSpec(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
+	o := launch.Options{Profile: sp.Profile, All: true, Params: sp.Params, Exit: sp.Exit, WorkerCount: sp.Workers, Trigger: "manual"}
+	if sp.ProfileID != nil {
+		o.ProfileID = sp.ProfileID.String()
+	}
+	for _, w := range sp.WordlistIDs {
+		o.WordlistIDs = append(o.WordlistIDs, w.String())
+	}
+	switch sp.Exit {
+	case "local":
+		if sp.VPNConfigID == nil {
+			writeErr(w, http.StatusConflict, "that run scanned through a VPN configuration that has since been removed; start a new scan and pick another")
+			return
+		}
+		o.VPNConfigID = sp.VPNConfigID.String()
+	case "remote":
+		o.PoolID = sp.PoolID.String()
+	}
+	run, ref := s.launcher.Start(r.Context(), sp.ScopeID, o)
+	if ref != nil {
+		writeErr(w, ref.Status, ref.Msg)
+		return
+	}
+	s.auditReq(r, "run.rerun", run.ID.String(), map[string]any{"of": id.String(), "profile": run.Profile})
+	writeJSON(w, http.StatusCreated, run)
+}
+
 func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(chi.URLParam(r, "runID"))
 	if err != nil {

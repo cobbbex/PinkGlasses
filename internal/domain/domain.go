@@ -23,9 +23,12 @@ const (
 type RunStatus string
 
 const (
-	RunQueued    RunStatus = "queued"
-	RunPlanning  RunStatus = "planning"
-	RunRunning   RunStatus = "running"
+	RunQueued   RunStatus = "queued"
+	RunPlanning RunStatus = "planning"
+	RunRunning  RunStatus = "running"
+	// Paused: no task is leased for the run; tasks already in flight finish and
+	// report. Its own fleet stays up so resuming is immediate.
+	RunPaused    RunStatus = "paused"
 	RunCompleted RunStatus = "completed"
 	RunFailed    RunStatus = "failed"
 	RunCancelled RunStatus = "cancelled"

@@ -47,7 +47,7 @@ export default function Search({ scopeID }: { scopeID: string }) {
           placeholder={global ? "port:443 product:nginx company:acme" : "port:443 product:nginx"} />
         <div className="toggle">
           <button className={global ? "ghost sm" : "sm"} onClick={() => { setGlobal(false); run(q, false); }}>This company</button>
-          <button className={global ? "sm" : "ghost sm"} onClick={() => { setGlobal(true); run(q, true); }}>All companies</button>
+          <button className={global ? "sm" : "ghost sm"} onClick={() => { setGlobal(true); run(q, true); }}>Global search</button>
         </div>
         <button onClick={() => run()} disabled={busy}>{busy ? <Spinner /> : "Search"}</button>
       </div>

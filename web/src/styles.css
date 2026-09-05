@@ -104,6 +104,8 @@ button.sm { padding: 5px 10px; font-size: 12px; }
 .b-running, .b-pending, .b-planning, .b-queued, .b-draining, .b-stale { color: var(--warn); border-color: #5c4a1a; background: #211c0f; }
 .b-failed, .b-quarantined, .b-revoked, .b-incomplete { color: var(--crit); border-color: #6b2020; background: #24100f; }
 .b-skipped, .b-cancelled { color: var(--muted); }
+.b-paused { color: var(--warn); border-color: #5c4a1a; border-style: dashed; }
+.run-controls { display: inline-flex; gap: 6px; }
 .sev-critical { color: var(--crit); font-weight: 600; } .sev-high { color: var(--high); font-weight: 600; }
 .sev-medium { color: var(--med); } .sev-low { color: var(--low); } .sev-info { color: var(--muted); }
 
@@ -246,6 +248,15 @@ h2 { margin: 0 0 16px; } h3 { margin: 0; font-size: 15px; }
   margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--border);
 }
 .manual-panel { margin-top: 14px; }
+.when-block { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--border); }
+/* A chevron drawn from a border, so it rotates cleanly: › when closed, ˅ when open. */
+.chev-btn { display: inline-flex; align-items: center; gap: 8px; }
+.chev {
+  width: 7px; height: 7px; margin-left: 2px;
+  border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg); transition: transform .15s ease;
+}
+.chev.open { transform: rotate(45deg); }
 
 .tool-group {
   border: 1px solid var(--border); border-radius: 9px;

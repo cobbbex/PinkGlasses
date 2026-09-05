@@ -102,7 +102,10 @@ asset route is under a scope.
 | `GET /runs/{runID}/activity` | viewer | `{tasks, stages, workers}` — what is running where, right now |
 | `GET /runs/{runID}/diff` | viewer | change events this run produced: `{kind, asset_kind, asset_id, before, after, created_at}` |
 | `GET /runs/{runID}/events` | viewer | server-sent events stream; see the note under *Known gaps* |
-| `POST /runs/{runID}/cancel` | operator | |
+| `POST /runs/{runID}/cancel` | operator | stop: unfinished tasks are cancelled, the run ends as `cancelled`; works on a paused run too |
+| `POST /runs/{runID}/pause` | operator | hold a running run: nothing more is leased, tasks in flight finish, its own fleet stays up; 409 unless `running` |
+| `POST /runs/{runID}/resume` | operator | continue a paused run; 409 unless `paused` |
+| `POST /runs/{runID}/rerun` | operator | start a new run with this one's profile, parameters, wordlists and exit, through the same checks as a fresh start; 201 with the new run |
 
 **Starting a run:**
 
@@ -138,9 +141,9 @@ started, so a slow run does not drift the cadence.
 
 | Route | Role | Purpose |
 |---|---|---|
-| `GET /scopes/{scopeID}/schedules` | viewer | `[{profile, exit, vpn_config_id, pool_id, worker_count, every_hours, enabled, next_run_at, last_run_id, last_run_at, last_error}]` |
-| `POST /scopes/{scopeID}/schedules` | operator | `{profile, exit, vpn_config_id \| pool_id, worker_count, every_hours, enabled}` — the first run is due at once |
-| `PATCH /schedules/{scheduleID}` | operator | any of the same fields; disabling stops it without losing it |
+| `GET /scopes/{scopeID}/schedules` | viewer | `[{profile, exit, vpn_config_id, pool_id, worker_count, every_hours, enabled, next_run_at, last_run_id, last_run_at, last_error, profile_id, params, wordlist_ids}]` |
+| `POST /scopes/{scopeID}/schedules` | operator | `{profile, exit, vpn_config_id \| pool_id, worker_count, every_hours, start_at, profile_id, params, wordlist_ids, enabled}` — `every_hours` 1…8784 repeats from `start_at` (default now); `0` runs once at `start_at`, then disables itself |
+| `PATCH /schedules/{scheduleID}` | operator | any of the same fields; disabling stops it without losing it; `start_at` moves the next run |
 | `DELETE /schedules/{scheduleID}` | operator | |
 | `PATCH /scopes/{scopeID}` | operator | `{default_exit, default_vpn_config_id, default_pool_id}` — the exit the launch dialog pre-selects |
 

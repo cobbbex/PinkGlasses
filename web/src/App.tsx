@@ -19,13 +19,13 @@ import Users from "./pages/Users";
 const NAV = [
   { to: "/", label: "Dashboard", ic: "◆" },
   { to: "/hosts", label: "Hosts", ic: "▣" },
-  { to: "/search", label: "Search", ic: "⌕" },
-  { to: "/findings", label: "Findings", ic: "!" },
-  { to: "/alerts", label: "Alerts", ic: "◎" },
   { to: "/runs", label: "Scan runs", ic: "▶" },
-  { to: "/workers", label: "Workers", ic: "⬢" },
+  { to: "/findings", label: "Findings", ic: "!" },
+  { to: "/search", label: "Search", ic: "⌕" },
   { to: "/wordlists", label: "Wordlists", ic: "≡" },
   { to: "/vpn", label: "VPN", ic: "⇄" },
+  { to: "/workers", label: "Workers", ic: "⬢" },
+  { to: "/alerts", label: "Alerts", ic: "◎" },
   { to: "/accounts", label: "Accounts", ic: "☺", admin: true },
 ];
 
@@ -320,8 +320,8 @@ function AccountMenu({ me, collapsed, onSignedOut }: {
           </div>
           <div className="row" style={{ margin: 0, gap: 6 }}>
             {me.has_password &&
-              <button className="ghost sm" onClick={() => setPwOpen(true)}>password</button>}
-            <button className="ghost sm" onClick={signOut}>sign out</button>
+              <button className="ghost sm" onClick={() => setPwOpen(true)}>Change password</button>}
+            <button className="ghost sm" onClick={signOut}>Sign out</button>
           </div>
         </>
       )}
@@ -382,7 +382,7 @@ function DefaultPasswordBanner() {
       <strong>This account still has the password it was created with.</strong>{" "}
       That is the one printed in the api log at first boot, or one an administrator set
       for you — either way it has been seen by someone other than you. Change it under{" "}
-      <strong>password</strong> at the foot of the sidebar.
+      <strong>Change password</strong> at the foot of the sidebar.
     </div>
   );
 }

@@ -57,13 +57,17 @@ with the reason. That class of silent breakage — the stage runs, the results
 evaporate — has cost real debugging time here, and each of those three checks
 was added after it had already happened.
 
-## Recurring scans
+## Scheduled scans
 
-A schedule per company starts a run on a cadence, from the exit you choose,
-through the same code the launch button uses — so it is refused for the same
-reasons, and the refusal is shown on the schedule rather than lost in a log. A
-run still going when the next is due is skipped, never stacked. See the README's
-*Recurring scans* and `architecture.md` §3.3.
+The Start-a-scan dialog runs a scan now, once at a chosen time, or on a repeat
+from hourly to yearly, with the same profile, exit and settings either way. A
+schedule starts its runs through the same code the button uses — so it is refused
+for the same reasons, and the refusal is shown on the schedule rather than lost
+in a log. A run still going when the next is due is skipped, never stacked; a
+one-off disables itself once it has started. Runs can be paused (nothing more is
+leased, in-flight tasks finish, the fleet stays up), resumed, stopped and rerun
+with the same choices. See the README's *Scheduled scans* and *Watching a scan*,
+and `architecture.md` §3.3.
 
 ## Who can do what
 

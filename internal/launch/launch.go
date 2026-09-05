@@ -373,7 +373,13 @@ func (l *Launcher) Due(ctx context.Context) {
 		}
 		o := Options{
 			Profile: sc.Profile, All: true, Exit: sc.Exit, WorkerCount: sc.WorkerCount,
-			Trigger: "scheduled",
+			Params: sc.Params, Trigger: "scheduled",
+		}
+		if sc.ProfileID != nil {
+			o.ProfileID = sc.ProfileID.String()
+		}
+		for _, w := range sc.WordlistIDs {
+			o.WordlistIDs = append(o.WordlistIDs, w.String())
 		}
 		if sc.VPNConfigID != nil {
 			o.VPNConfigID = sc.VPNConfigID.String()

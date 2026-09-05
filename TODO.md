@@ -668,19 +668,37 @@ Two things the tests turned up, both fixed in the same change:
 
 ## Phase 23 — Run controls, one launch dialog, UI wording
 
-- [ ] 23.1 **Stop, pause, resume and rerun a scan.** Stop is the existing cancel. Pause holds
+- [x] 23.1 **Stop, pause, resume and rerun a scan.** Stop is the existing cancel. Pause holds
       a run: no task is leased for it (the lease already requires `status='running'`), tasks
       in flight finish and report, the run's own fleet stays up; resume lets it continue.
       Rerun starts a new run with the same profile, parameters, wordlists and exit as an old
       one, through the same `Launcher.Start` a fresh click uses.
-- [ ] 23.2 **Schedules live in the Start-a-scan dialog.** One dialog: the profile, exit and
+      Tested 2026-09-05 on scanme.nmap.org through the WireGuard exit, one fleet worker:
+      paused mid-run with 4 leases taken, 45 s later still 4, fleet `up` with both containers,
+      the company counted as busy for schedules; resume → 10 leases within 15 s; a second
+      pause/resume in the wrong state → 409. Rerun of the completed run produced a run with
+      byte-identical params, the same VPN config and worker count, the same wordlist set
+      (201); stop on it → `cancelled`, 0 unfinished tasks, fleet `torn_down`, 0 containers.
+      Audit log carries run.pause/resume/rerun/cancel.
+- [x] 23.2 **Schedules live in the Start-a-scan dialog.** One dialog: the profile, exit and
       manual setup chosen there apply whether the scan runs now, once at a chosen time, or on
       a cadence from hourly to yearly. `every_hours = 0` is a one-off at `next_run_at`, which
       disables itself after starting. The separate "Schedule a recurring scan" dialog goes;
       the schedules table stays for pause/resume/remove.
-- [ ] 23.3 **"Manual setup" becomes "Customize scanning"**, with a chevron that reads as
-      expand/collapse rather than a triangle.
-- [ ] 23.4 **Search: "All companies" → "Global search".**
-- [ ] 23.5 **Sidebar order:** Dashboard, Hosts, Scan runs, Findings, Search, Wordlists, VPN,
+      Migration 00027 (every_hours ≥ 0; profile_id, params, wordlist_ids on the schedule;
+      `launch.Due` hands them to `Start`). Tested 2026-09-05 on example.com (passive): a
+      one-off due in 60 s with one parameter and one chosen wordlist started a run 70 s later
+      (`trigger=scheduled`, `params.subfinder_max_time=1`, the wordlist on `run_wordlist`),
+      disabled itself, kept its time, and did not fire again; a yearly schedule with a start
+      date kept that date, `start_at` patches moved it, disabling kept it, shortening the
+      cadence pulled it in. Refusals: 9000 h, a one-off without `start_at`, an unknown
+      parameter, an active profile without an exit — all 400 with the reason. Found and fixed
+      on the way: a schedule created without `wordlist_ids` wrote NULL into a NOT NULL array
+      (nil slice); the store now writes an empty array.
+- [x] 23.3 **"Manual setup" becomes "Customize scanning"**, with a chevron that reads as
+      expand/collapse rather than a triangle. A border-drawn chevron: › closed, rotates to ˅ open.
+- [x] 23.4 **Search: "All companies" → "Global search".**
+- [x] 23.5 **Sidebar order:** Dashboard, Hosts, Scan runs, Findings, Search, Wordlists, VPN,
       Workers, Alerts, Accounts.
-- [ ] 23.6 **Account footer:** "Change password" and "Sign out", capitalised.
+- [x] 23.6 **Account footer:** "Change password" and "Sign out", capitalised; the first-boot
+      banner and the api startup warning point at "Change password" too.
