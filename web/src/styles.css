@@ -181,7 +181,7 @@ h2 { margin: 0 0 16px; } h3 { margin: 0; font-size: 15px; }
 }
 .combo-btn:hover { border-color: var(--accent); filter: none; }
 .combo-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.combo-caret { color: var(--muted); font-size: 11px; flex: none; }
+.combo-caret { color: var(--muted); flex: none; margin-right: 3px; }
 .combo-panel {
   position: absolute; top: calc(100% + 5px); left: 0; right: 0; z-index: 40;
   background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
@@ -257,6 +257,9 @@ h2 { margin: 0 0 16px; } h3 { margin: 0; font-size: 15px; }
   transform: rotate(-45deg); transition: transform .15s ease;
 }
 .chev.open { transform: rotate(45deg); }
+/* The dropdown variant points down at rest and flips up while the list is open. */
+.chev.down { transform: rotate(45deg); margin-bottom: 3px; }
+.chev.down.open { transform: rotate(-135deg); margin-bottom: -3px; }
 
 .tool-group {
   border: 1px solid var(--border); border-radius: 9px;

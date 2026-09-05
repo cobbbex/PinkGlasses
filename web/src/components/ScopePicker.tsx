@@ -97,7 +97,7 @@ export default function ScopePicker({
             title="Select company"
           >
             <span className="combo-label">{current?.name ?? (scopes.length ? "Select…" : "No companies")}</span>
-            <span className="combo-caret">▾</span>
+            <span className={"chev down combo-caret" + (open ? " open" : "")} aria-hidden="true" />
           </button>
           <button className="ghost" onClick={onNew} title="Add a company">+</button>
         </div>
