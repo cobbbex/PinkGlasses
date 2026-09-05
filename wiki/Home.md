@@ -23,6 +23,8 @@ rationale, `architecture.md` in the repository.
   workers, active stages from a chosen exit: an ephemeral fleet behind a VPN
   gateway, or a pool of remote workers. Why the privilege is not in the worker,
   why routing is per task, and what happens when the tunnel drops.
+- **[API](API)** — every route the server serves, grouped by the role it needs,
+  with request and response shapes; kept in step with the code by a test.
 - **[Wordlists](Wordlists)** — the three kinds of list, how a run picks them,
   how they reach a worker, and which one decides how loud a scan is.
 

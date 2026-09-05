@@ -1248,50 +1248,32 @@ the very content it is scanning. Therefore:
 
 ---
 
-## 11. API surface (sketch)
+## 11. API surface
 
-```
-# scopes & targets
-POST   /api/v1/scopes
-GET    /api/v1/scopes/{id}/summary            -> dashboard counters + deltas
-POST   /api/v1/scopes/{id}/targets            -> single or bulk import (CSV/newline list)
+The full reference is [`wiki/API.md`](wiki/API.md): every route the server
+registers, grouped by the role it needs, with request and response shapes. It is
+kept honest by `TestAPIDocCoversEveryRoute`, which walks the live router and
+fails the build if a route is served without a line describing it — or
+described without being served. The sketch that used to sit here had drifted
+into fiction in both directions and nobody noticed for months.
 
-# runs (multi-target)
-POST   /api/v1/scopes/{id}/runs               -> {profile, targets|tag|"all", pool_id?}
-GET    /api/v1/runs/{id}                      -> status + per-target progress array
-GET    /api/v1/runs/{id}/targets              -> per-domain status, counters, skip reasons
-GET    /api/v1/runs/{id}/events               -> SSE live progress (run + per-target)
-GET    /api/v1/runs/{id}/diff                 -> change_events, filterable by target
-POST   /api/v1/runs/{id}/cancel
+What holds across the whole surface:
 
-# assets
-GET    /api/v1/domains?scope=&q=&cursor=
-GET    /api/v1/domains/{id}                   -> DNS records, IPs, findings, timeline
-GET    /api/v1/domains/{id}/graph             -> nodes+edges for the map
-GET    /api/v1/hosts?scope=&q=&cursor=
-GET    /api/v1/hosts/{id}                     -> ASN/geo/PTR, services, domains, history
-GET    /api/v1/services/{id}                  -> banner, TLS, HTTP, screenshot, tech
-GET    /api/v1/search?q=port:443+tech:nginx
-GET    /api/v1/findings?severity=&status=
-PATCH  /api/v1/findings/{id}
-GET    /api/v1/export?scope=&format=csv|json
-
-# fleet
-GET    /api/v1/workers                        -> status, egress IP, load, version, tools
-POST   /api/v1/workers/enrollment-tokens      -> returns the one-line install command
-POST   /api/v1/workers/{id}/approve | drain | resume | quarantine | rotate-credential
-DELETE /api/v1/workers/{id}
-GET    /api/v1/pools ; POST /api/v1/pools
-
-# agent-facing (separate hostname, separate binary)
-POST   /agent/v1/enroll                       -> enrollment token -> worker credential
-GET    /agent/v1/connect                      -> WSS control channel
-POST   /agent/v1/results                      -> batched observations (lease-token auth)
-POST   /agent/v1/artifacts/presign
-```
-
-Cursor pagination everywhere (keyset on `(last_seen, id)`); OpenAPI 3.1 generated from the
-handlers and used to generate the TypeScript client.
+- **One router, three groups.** Everything under `/api/v1` sits inside
+  `requireAuth`, with exactly three public exceptions (`auth/status`,
+  `auth/setup`, `auth/login`), and is then narrowed by role group — viewer,
+  operator, admin — rather than per handler (§10.2). A route added in the wrong
+  place fails `TestEveryRouteRequiresAuth` rather than becoming public.
+- **Errors are sentences.** `{"error": "…"}` written for a person, naming the
+  fix where there is one. Status codes carry the class: 400 malformed, 401 not
+  signed in, 403 wrong role, 409 conflicts with state, 429 rate limited.
+- **Two other routers, two other audiences.** The gateway (`:8090`) speaks the
+  agent protocol to workers (§8) and is the only public component; the
+  provisioner (`:8091`) speaks a fixed vocabulary to the control plane alone and
+  holds the Docker socket (§7.4).
+- **Not yet:** an OpenAPI document, cursor pagination, an export endpoint, and
+  a server-sent events stream that actually carries events — the hub exists and
+  nothing publishes to it. All recorded in TODO.
 
 ---
 

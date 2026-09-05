@@ -417,6 +417,15 @@ what had happened rather than reading what the code intended.
       somebody's attack surface is still the weakest thing in the auth design. Better:
       generate a random password on first boot and print it once, which keeps the
       zero-config start without publishing anything.
+- [ ] **The run events stream carries nothing.** `GET /runs/{id}/events` opens a
+      server-sent events stream and the UI subscribes to it, but `SSEHub.Publish` has no
+      callers anywhere — found 2026-09-05 while writing the API reference. Nothing is broken
+      only because the UI also polls every 4 s. Either publish from ingest and the planner
+      (task done, stage advanced, run finished) and lengthen the poll, or remove the stream.
+- [ ] **No OpenAPI document.** architecture.md claimed one was generated from the handlers;
+      it never was. `wiki/API.md` is the hand-written reference, held to the router by
+      `TestAPIDocCoversEveryRoute`. Generating a spec from the same walk would let clients be
+      typed from it.
 - [ ] How to save and then show user historical data ?
 - [x] **A worker whose row is reaped never re-enrols.** Fixed 2026-09-05. Mechanism: the
       gateway's dispatch loop reloaded the worker row every 2 s and, when it was gone, did

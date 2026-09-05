@@ -22,6 +22,7 @@ a fleet of workers you own, including VPS boxes you enroll from the UI.
 </p>
 
 Design docs: [`architecture.md`](architecture.md) · [`worker-pipeline.md`](worker-pipeline.md)
+· API reference: [`wiki/API.md`](wiki/API.md)
 · build plan: [`TODO.md`](TODO.md)
 
 ## Architecture at a glance
