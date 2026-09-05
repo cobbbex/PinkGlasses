@@ -21,6 +21,10 @@ type TaskSpec struct {
 	// the task's target JSON so the gateway can presign the right file when the
 	// task is finally dispatched, which may be long after planning.
 	Wordlist string
+	// PoolID is the one pool whose workers may run this task. Set by the
+	// planner from the stage class: passive stages go to the standing local
+	// pool, active stages to the run's exit pool. Never nil once planned.
+	PoolID *uuid.UUID
 }
 
 // InsertTasks inserts a batch of tasks and their task_origin edges in one
@@ -44,10 +48,9 @@ func (s *Store) InsertTasks(ctx context.Context, runID uuid.UUID, specs []TaskSp
 		tgt, _ := json.Marshal(target)
 		var id uuid.UUID
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO scan_task (run_id, stage, target, requires, priority, status)
-			VALUES ($1,$2,$3,$4,$5,'pending') RETURNING id`,
-			runID, sp.Stage, tgt, sp.Requires, sp.Priority,
-		).Scan(&id); err != nil {
+			INSERT INTO scan_task (run_id, stage, target, requires, priority, status, pool_id)
+			VALUES ($1,$2,$3,$4,$5,'pending',$6) RETURNING id`,
+			runID, sp.Stage, tgt, sp.Requires, sp.Priority, sp.PoolID).Scan(&id); err != nil {
 			return nil, err
 		}
 		ids = append(ids, id)
@@ -95,7 +98,12 @@ func (s *Store) LeaseTasks(ctx context.Context, workerID uuid.UUID, caps []strin
 		  JOIN scan_run r ON r.id = t.run_id
 		  WHERE t.status='pending'
 		    AND t.requires <@ $2::text[]
-		    AND (r.pool_id IS NULL OR $3::uuid IS NULL OR r.pool_id = $3)
+		    -- Strict equality on the task's pool. The old form allowed
+		    -- r.pool_id IS NULL for any worker, so a fleet worker inside a VPN
+		    -- gateway's namespace could lease an unrelated run's task and scan
+		    -- it through the tunnel. A worker with no pool counts as the default
+		    -- pool; a task with no pool (pre-00022, never leased) matches nothing.
+		    AND t.pool_id = COALESCE($3::uuid, (SELECT id FROM worker_pool WHERE is_default LIMIT 1))
 		    AND r.status='running'
 		  ORDER BY
 		    -- fairness: prefer tasks whose run_target has the fewest in-flight

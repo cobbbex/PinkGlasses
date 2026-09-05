@@ -114,15 +114,16 @@ function LaunchModal({
   // Explicitly chosen lists. Empty is the normal case and means "whatever the
   // registry marks default", so a plain scan needs no wordlist knowledge.
   const [wordlistIDs, setWordlistIDs] = useState<string[]>([]);
-  // Which tunnel this run leaves through. Empty means the worker's own address.
+  // Where the run's active stages leave from. Passive stages never touch the
+  // target and always run on the standing workers, so a passive profile needs
+  // no exit. Anything else needs exactly one: "local" builds this run its own
+  // workers behind a VPN gateway; "remote" binds it to a pool of enrolled
+  // workers. There is deliberately no "from this host".
+  const [exit, setExit] = useState<"local" | "remote">("local");
   const [vpnID, setVpnID] = useState("");
-  // Whether the run brings up workers of its own for the duration. Choosing a
-  // tunnel implies it: the tunnel lives in a gateway container the run's own
-  // workers share a network namespace with, so there is nothing to share it
-  // with unless the run has workers of its own.
-  const [ownWorkers, setOwnWorkers] = useState(false);
+  const [poolID, setPoolID] = useState("");
   const [workerCount, setWorkerCount] = useState(2);
-  const fleet = ownWorkers || !!vpnID;
+  const { data: pools } = useQuery({ queryKey: ["pools"], queryFn: () => api.pools() });
   const { data: vpn } = useQuery({
     queryKey: ["vpn", scopeID], queryFn: () => api.vpnConfigs(scopeID),
   });
@@ -136,8 +137,11 @@ function LaunchModal({
         ...(presetID ? { profile_id: presetID } : {}),
         ...(Object.keys(params).length ? { params } : {}),
         ...(wordlistIDs.length ? { wordlist_ids: wordlistIDs } : {}),
-        ...(vpnID ? { vpn_config_id: vpnID } : {}),
-        ...(fleet ? { own_workers: true, worker_count: workerCount } : {}),
+        ...(profile !== "passive"
+          ? exit === "local"
+            ? { exit, vpn_config_id: vpnID, worker_count: workerCount }
+            : { exit, pool_id: poolID }
+          : {}),
       });
       toast("ok", `${profile} scan started`);
       onDone();
@@ -154,14 +158,25 @@ function LaunchModal({
     onClose();
   }
 
-  // Standing workers cannot pick up a fleet run's tasks, so the modal says what
-  // will actually run the scan rather than leaving it to be discovered.
-  const fleetNote = vpnID
-    ? `This run brings up a VPN gateway and ${workerCount} worker${workerCount === 1 ? "" : "s"} of its own, ` +
-      "and destroys them when it finishes. The gateway holds the tunnel; the workers share its network, " +
-      "so everything the scan sends leaves through the VPN. No other worker takes work from this run."
-    : `This run brings up ${workerCount} worker${workerCount === 1 ? "" : "s"} of its own and destroys them ` +
-      "when it finishes. They take work from this run only, so a long scan cannot occupy the standing fleet.";
+  // What can actually run this scan. Both lists drive the picker and its
+  // disabled states, so the reason a scan cannot start is on the screen
+  // before the request is refused.
+  const vpnConfigs = vpn?.configs ?? [];
+  const remotePools = (pools ?? []).filter((p) => p.active_workers > 0);
+  const passive = profile === "passive";
+  const exitReady = passive
+    || (exit === "local" && !!vpnID)
+    || (exit === "remote" && !!poolID);
+
+  // Default each list to its first usable entry so the common case is one click.
+  useEffect(() => {
+    if (!vpnID && vpnConfigs.length) setVpnID(vpnConfigs[0].id);
+  }, [vpnConfigs.length]);
+  useEffect(() => {
+    if (!poolID && remotePools.length) setPoolID(remotePools[0].id);
+    // With no VPN but a usable remote pool, remote is the only thing that works.
+    if (!vpnConfigs.length && remotePools.length) setExit("remote");
+  }, [remotePools.length, vpnConfigs.length]);
 
   const listChoices = wordlistIDs.length;
 
@@ -172,7 +187,7 @@ function LaunchModal({
       title="Start a scan" open={open} onClose={close} wide={manual}
       footer={<>
         <button className="ghost" onClick={close}>Cancel</button>
-        <button onClick={start} disabled={busy || usable.length === 0}>
+        <button onClick={start} disabled={busy || usable.length === 0 || !exitReady}>
           {busy ? "Starting…" : `Start scan${usable.length ? ` (${usable.length} target${usable.length === 1 ? "" : "s"})` : ""}`}
         </button>
       </>}
@@ -204,47 +219,87 @@ function LaunchModal({
         </label>
       ))}
 
-      {(vpn?.configs.length ?? 0) > 0 && (
-        <div className="row" style={{ marginTop: 10 }}>
-          <label className="param-label" style={{ minWidth: 0 }}>Scan from</label>
-          <select value={vpnID} onChange={(e) => setVpnID(e.target.value)} style={{ minWidth: 220 }}>
-            <option value="">The worker's own address</option>
-            {vpn!.configs.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.kind}{c.endpoint ? ` · ${c.endpoint}` : ""})
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      {!passive && (
+        <div style={{ marginTop: 12 }}>
+          <div className="param-label" style={{ minWidth: 0, marginBottom: 6 }}>Scan from</div>
 
-      <label className="check" style={{ cursor: vpnID ? "default" : "pointer", marginTop: 4 }}>
-        <input
-          type="checkbox"
-          checked={fleet}
-          disabled={!!vpnID}
-          onChange={(e) => setOwnWorkers(e.target.checked)}
-        />
-        <span>
-          <strong>Give this run its own workers</strong>
-          <div className="hint" style={{ marginTop: 2 }}>
-            {vpnID
-              ? "Required when scanning through a VPN — the tunnel lives in a gateway container these workers share."
-              : "Containers created for this scan and destroyed when it ends."}
+          <label className="check" style={{ cursor: vpnConfigs.length ? "pointer" : "default" }}>
+            <input
+              type="radio" name="exit" checked={exit === "local"}
+              disabled={!vpnConfigs.length}
+              onChange={() => setExit("local")}
+            />
+            <span style={{ flex: 1 }}>
+              <strong>Local workers behind a VPN</strong>
+              <div className="hint" style={{ marginTop: 2 }}>
+                {vpnConfigs.length
+                  ? "This run gets its own workers and a gateway holding the tunnel; all three are " +
+                    "destroyed when it finishes. Everything the scan sends leaves through the VPN."
+                  : "Needs a VPN configuration, so the scan never leaves from this host's own address. " +
+                    "Add one under VPN."}
+              </div>
+              {exit === "local" && vpnConfigs.length > 0 && (
+                <div className="row" style={{ marginTop: 8, gap: 10 }}>
+                  <select value={vpnID} onChange={(e) => setVpnID(e.target.value)} style={{ minWidth: 220 }}>
+                    {vpnConfigs.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.kind}{c.endpoint ? ` · ${c.endpoint}` : ""})
+                      </option>
+                    ))}
+                  </select>
+                  <label className="param-label" style={{ minWidth: 0 }}>Workers</label>
+                  <input
+                    type="number" min={1} max={8} value={workerCount} style={{ width: 64 }}
+                    onChange={(e) => setWorkerCount(Math.min(8, Math.max(1, Number(e.target.value) || 1)))}
+                  />
+                </div>
+              )}
+            </span>
+          </label>
+
+          <label className="check" style={{ cursor: remotePools.length ? "pointer" : "default" }}>
+            <input
+              type="radio" name="exit" checked={exit === "remote"}
+              disabled={!remotePools.length}
+              onChange={() => setExit("remote")}
+            />
+            <span style={{ flex: 1 }}>
+              <strong>Remote workers</strong>
+              <div className="hint" style={{ marginTop: 2 }}>
+                {remotePools.length
+                  ? "A pool of workers you enrolled — a VPS, say. The scan leaves from their addresses."
+                  : "No pool has an active worker. Enrol one under Workers → Add VPS worker."}
+              </div>
+              {exit === "remote" && remotePools.length > 0 && (
+                <div className="row" style={{ marginTop: 8 }}>
+                  <select value={poolID} onChange={(e) => setPoolID(e.target.value)} style={{ minWidth: 220 }}>
+                    {remotePools.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} · {p.active_workers} worker{p.active_workers === 1 ? "" : "s"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </span>
+          </label>
+
+          {!vpnConfigs.length && !remotePools.length && (
+            <div className="empty" style={{ textAlign: "left", marginTop: 8, borderColor: "var(--warn)" }}>
+              <p style={{ marginTop: 0 }}>
+                This scan sends traffic at its targets, and there is nowhere for it to leave from.
+              </p>
+              <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
+                Add a VPN configuration under <strong>VPN</strong> to scan from local workers, or
+                enrol a remote worker under <strong>Workers</strong>. A <strong>passive</strong> scan
+                needs neither — it never touches the target.
+              </p>
+            </div>
+          )}
+          <div className="hint muted" style={{ marginTop: 8 }}>
+            Passive stages — subdomain discovery, DNS, enrichment — run on the standing workers
+            either way; they talk to third-party sources, never to the target.
           </div>
-        </span>
-      </label>
-
-      {fleet && (
-        <div className="row" style={{ marginTop: 6 }}>
-          <label className="param-label" style={{ minWidth: 0 }}>Workers</label>
-          <input
-            type="number" min={1} max={8} value={workerCount}
-            style={{ width: 70 }}
-            onChange={(e) =>
-              setWorkerCount(Math.min(8, Math.max(1, Number(e.target.value) || 1)))}
-          />
-          <span className="hint muted" style={{ flex: 1 }}>{fleetNote}</span>
         </div>
       )}
 
@@ -345,7 +400,7 @@ function FleetBanner({ runID }: { runID: string }) {
     ? `a VPN gateway and ${f.workers} worker${f.workers === 1 ? "" : "s"}`
     : `${f.workers} worker${f.workers === 1 ? "" : "s"}`;
   const line: Record<RunFleet["status"], string> = {
-    requested: `Starting ${what} for this run…`,
+    requested: f.error ? `Waiting to start ${what}: ${f.error}` : `Starting ${what} for this run…`,
     up: `Running on ${what} brought up for this run.`,
     failed: `This run could not get ${what} of its own.`,
     torn_down: `Ran on ${what} of its own, since destroyed.`,
@@ -363,7 +418,7 @@ function FleetBanner({ runID }: { runID: string }) {
       {f.egress_ip && (
         <span className="muted"> Scanning from <span className="mono">{f.egress_ip}</span>.</span>
       )}
-      {f.error && (
+      {f.error && f.status !== "requested" && (
         <div className="mono wrap" style={{ marginTop: 6, fontSize: 12 }}>{f.error}</div>
       )}
     </div>

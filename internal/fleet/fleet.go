@@ -87,16 +87,28 @@ func (m *Manager) buildPending(ctx context.Context) {
 	}
 	holding := live
 	for _, f := range pending {
-		if holding >= m.maxLive {
-			m.fail(ctx, f, fmt.Sprintf(
-				"%d runs already have their own workers, which is the limit; "+
-					"wait for one to finish or raise ASM_MAX_RUN_FLEETS", m.maxLive))
+		if wait, note := ceilingDecision(holding, m.maxLive); wait {
+			_ = m.st.SetFleetStatus(ctx, f.RunID, "requested", &note, nil)
 			continue
 		}
 		if m.build(ctx, f) {
 			holding++
 		}
 	}
+}
+
+// ceilingDecision says whether a pending fleet must wait, and why.
+//
+// Every active run needs a fleet now, so the ceiling is a queue rather than an
+// error: the run stays 'running' with its active tasks pending — nothing else
+// can lease them — and is built when a slot frees. The reason is written where
+// the run view shows it, so a run that sits at "Starting…" says why.
+func ceilingDecision(holding, max int) (wait bool, note string) {
+	if holding < max {
+		return false, ""
+	}
+	return true, fmt.Sprintf("waiting for a slot: %d of %d runs already hold their own workers "+
+		"(ASM_MAX_RUN_FLEETS)", holding, max)
 }
 
 // build brings up one fleet, reporting whether it now holds containers.

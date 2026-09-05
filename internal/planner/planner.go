@@ -61,7 +61,10 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 	// this path too. It was not, and a run bound to a VPN sent its port scan
 	// from an ordinary worker's own address — the one outcome this feature
 	// exists to prevent.
-	vpnReq := p.vpnRequirement(ctx, run)
+	rt, rtErr := p.routingFor(ctx, run)
+	if rtErr != nil {
+		return rtErr
+	}
 
 	var specs []store.TaskSpec
 	for _, t := range targets {
@@ -110,7 +113,7 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 	if len(specs) == 0 {
 		return p.st.SetRunStatus(ctx, run.ID, domain.RunCompleted)
 	}
-	_, err := p.st.InsertTasks(ctx, run.ID, withVPN(specs, vpnReq))
+	_, err := p.st.InsertTasks(ctx, run.ID, routeTasks(specs, rt))
 	return err
 }
 
@@ -198,65 +201,43 @@ const scanBatchSize = 64
 // Scanning incrementally starts as soon as the first names resolve, while
 // deduplicating against what is already queued keeps the property the barrier
 // existed for: a host that two sources both found is still scanned once.
-// withVPN adds the tunnel requirement to every spec whose stage sends traffic
-// to the target. Applied once per batch, immediately before insertion, so a
-// planning site cannot forget it.
-func withVPN(specs []store.TaskSpec, req []string) []store.TaskSpec {
-	if len(req) == 0 {
-		return specs
-	}
+// routeTasks assigns every spec the one pool whose workers may run it.
+//
+// Passive stages — the ones that never send a packet at the target — go to the
+// standing local pool whatever exit the run chose, so discovery starts before
+// the run's fleet is even up. Active stages go to the run's exit pool: an
+// ephemeral fleet behind a VPN gateway, or a pool of enrolled remote workers.
+//
+// Applied once per batch, immediately before insertion, so a planning site
+// cannot forget it. Replaces the old `vpn` capability requirement, which routed
+// by what a worker could build rather than where a task should run — and which
+// the planner and the dispatcher once disagreed about.
+func routeTasks(specs []store.TaskSpec, rt routing) []store.TaskSpec {
 	for i := range specs {
-		if !specs[i].Stage.SendsTrafficToTarget() {
-			continue
-		}
-		for _, r := range req {
-			if !containsStr(specs[i].Requires, r) {
-				specs[i].Requires = append(specs[i].Requires, r)
-			}
+		if specs[i].Stage.SendsTrafficToTarget() {
+			specs[i].PoolID = rt.active
+		} else {
+			specs[i].PoolID = rt.passive
 		}
 	}
 	return specs
 }
 
-func containsStr(list []string, v string) bool {
-	for _, s := range list {
-		if s == v {
-			return true
-		}
-	}
-	return false
+// routing is where a run's two classes of task go.
+type routing struct {
+	passive *uuid.UUID // the standing local pool
+	active  *uuid.UUID // the run's exit pool; nil for a run with no active stages
 }
 
-// vpnRequirement returns the capability a run's traffic-sending tasks must
-// demand. A run bound to a tunnel may only be executed by a worker that can
-// build one: routing it to an ordinary worker would scan from the wrong
-// address, which is the precise thing choosing a VPN was meant to prevent.
-func (p *Planner) vpnRequirement(ctx context.Context, run domain.ScanRun) []string {
-	id, err := p.st.RunVPNConfigID(ctx, run.ID)
+// routingFor resolves a run's pools. A run with no exit pool has no active
+// stages to plan (the API refuses to create one otherwise), so nil is fine
+// there — but the passive pool must exist, or discovery has nowhere to run.
+func (p *Planner) routingFor(ctx context.Context, run domain.ScanRun) (routing, error) {
+	passive, err := p.st.PassivePool(ctx)
 	if err != nil {
-		// Saying "no tunnel" here would plan the run as though none was chosen
-		// and send its traffic out of the worker's own address. Loud, and no
-		// requirement is added, so the tasks simply do not get planned yet.
-		slog.Error("could not read the run's VPN configuration; not planning traffic tasks",
-			"run", run.ID, "err", err)
-		return []string{string(scanproto.CapVPN)}
+		return routing{}, fmt.Errorf("no pool for passive stages: %w", err)
 	}
-	if id == nil {
-		return nil
-	}
-	// A run with its own containers carries the tunnel in its gateway, and its
-	// workers reach it by sharing that gateway's network namespace rather than
-	// by building anything. Demanding `vpn` of them would route the run's work
-	// to a capability none of its workers report, and the pool the tasks are
-	// already bound to means no other worker can take them either — so the run
-	// would simply never move.
-	if fleet, err := p.st.RunHasFleet(ctx, run.ID); err != nil {
-		slog.Error("could not tell whether this run has its own workers; "+
-			"keeping the tunnel requirement", "run", run.ID, "err", err)
-	} else if fleet {
-		return nil
-	}
-	return []string{string(scanproto.CapVPN)}
+	return routing{passive: &passive, active: run.PoolID}, nil
 }
 
 func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) error {
@@ -295,7 +276,10 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 	if err != nil {
 		return err
 	}
-	vpnReq := p.vpnRequirement(ctx, run)
+	rt, rtErr := p.routingFor(ctx, run)
+	if rtErr != nil {
+		return rtErr
+	}
 
 	already, err := p.st.ScannedAddresses(ctx, run.ID)
 	if err != nil {
@@ -381,7 +365,7 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 		return nil
 	}
 	slog.Info("queued port scans", "run", run.ID, "addresses", len(fresh), "tasks", len(specs))
-	_, err = p.st.InsertTasks(ctx, run.ID, withVPN(specs, vpnReq))
+	_, err = p.st.InsertTasks(ctx, run.ID, routeTasks(specs, rt))
 	return err
 }
 
@@ -400,7 +384,10 @@ func (p *Planner) probeNewServices(ctx context.Context, run domain.ScanRun) erro
 		return err
 	}
 
-	vpnReq := p.vpnRequirement(ctx, run)
+	rt, rtErr := p.routingFor(ctx, run)
+	if rtErr != nil {
+		return rtErr
+	}
 
 	var specs []store.TaskSpec
 	for _, t := range tasks {
@@ -426,7 +413,7 @@ func (p *Planner) probeNewServices(ctx context.Context, run domain.ScanRun) erro
 		return nil
 	}
 	slog.Info("queued service probes", "run", run.ID, "endpoints", len(specs))
-	_, err = p.st.InsertTasks(ctx, run.ID, withVPN(specs, vpnReq))
+	_, err = p.st.InsertTasks(ctx, run.ID, routeTasks(specs, rt))
 	return err
 }
 
@@ -459,7 +446,10 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 		}
 	}
 
-	vpnReq := p.vpnRequirement(ctx, run)
+	rt, rtErr := p.routingFor(ctx, run)
+	if rtErr != nil {
+		return rtErr
+	}
 
 	var specs []store.TaskSpec
 	for _, t := range tasks {
@@ -486,7 +476,7 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 	if len(specs) == 0 {
 		return nil
 	}
-	_, err = p.st.InsertTasks(ctx, run.ID, withVPN(specs, vpnReq))
+	_, err = p.st.InsertTasks(ctx, run.ID, routeTasks(specs, rt))
 	return err
 }
 

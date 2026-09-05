@@ -100,25 +100,3 @@ func (s *Store) SetRunVPN(ctx context.Context, runID, vpnID uuid.UUID) error {
 	_, err := s.Pool.Exec(ctx, `UPDATE scan_run SET vpn_config_id=$2 WHERE id=$1`, runID, vpnID)
 	return err
 }
-
-// RunVPNConfigID returns the tunnel a run is using, if any.
-//
-// The column is read as text and parsed rather than scanned straight into a
-// pointer: a NULL uuid does not scan into **uuid.UUID, and the resulting error
-// was being swallowed by the caller's "no tunnel" branch — so a run bound to a
-// VPN planned its tasks as though it were not.
-func (s *Store) RunVPNConfigID(ctx context.Context, runID uuid.UUID) (*uuid.UUID, error) {
-	var raw string
-	if err := s.Pool.QueryRow(ctx,
-		`SELECT COALESCE(vpn_config_id::text, '') FROM scan_run WHERE id=$1`, runID).Scan(&raw); err != nil {
-		return nil, err
-	}
-	if raw == "" {
-		return nil, nil
-	}
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		return nil, err
-	}
-	return &id, nil
-}

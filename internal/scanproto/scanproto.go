@@ -66,13 +66,8 @@ func (s Stage) SendsTrafficToTarget() bool {
 type Capability string
 
 const (
-	CapRawSocket Capability = "raw_socket" // naabu SYN scan (CAP_NET_RAW)
-	CapBrowser   Capability = "browser"    // headless chromium for screenshots
-	// CapVPN marks a worker that can actually build a tunnel: /dev/net/tun
-	// present, NET_ADMIN held, and wg-quick or openvpn installed. It is
-	// detected, never declared, so a container missing any of those
-	// advertises nothing and is simply never offered VPN work.
-	CapVPN           Capability = "vpn"
+	CapRawSocket     Capability = "raw_socket"     // naabu SYN scan (CAP_NET_RAW)
+	CapBrowser       Capability = "browser"        // headless chromium for screenshots
 	CapIPv6          Capability = "ipv6"           // routable v6 egress
 	CapUDP           Capability = "udp"            // outbound UDP permitted
 	CapHighBandwidth Capability = "high_bandwidth" // operator-declared
@@ -201,12 +196,6 @@ type Params struct {
 	// Tool carries validated per-tool overrides (Phase 15). Keys and values are
 	// whitelisted server-side in internal/scanparams before ever reaching here.
 	Tool map[string]string `json:"tool,omitempty"`
-	// VPNConfigID names the tunnel this task must leave through. Only the id
-	// travels in the job; the worker fetches the body separately, so a
-	// configuration containing a private key is not sitting in every job
-	// envelope. A task carrying this is only ever dispatched to a worker with
-	// the vpn capability.
-	VPNConfigID string `json:"vpn_config_id,omitempty"`
 }
 
 // Constraints bound what the worker may touch and for how long.

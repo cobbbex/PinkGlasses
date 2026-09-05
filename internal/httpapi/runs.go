@@ -25,13 +25,16 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		Params    map[string]string `json:"params"`     // ad-hoc overrides
 		// Lists of any kind. A kind not named here falls back to its defaults.
 		WordlistIDs []string `json:"wordlist_ids"`
-		// VPNConfigID routes this run's traffic through a tunnel.
+		// Exit is where the run's active stages — the ones that send packets at
+		// the target — run from. "local": an ephemeral fleet behind its own VPN
+		// gateway, which needs VPNConfigID. "remote": an existing pool of
+		// enrolled workers, which needs PoolID. Passive stages never touch the
+		// target and always run on the standing local workers, so a
+		// passive-profile run needs no exit at all (architecture.md §7.6).
+		Exit        string `json:"exit"`
 		VPNConfigID string `json:"vpn_config_id"`
-		// OwnWorkers asks for containers brought up for this run alone and
-		// destroyed with it. Implied by choosing a VPN: the tunnel lives in a
-		// gateway container the run's workers share a namespace with.
-		OwnWorkers  bool `json:"own_workers"`
-		WorkerCount int  `json:"worker_count"`
+		PoolID      string `json:"pool_id"`
+		WorkerCount int    `json:"worker_count"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
@@ -153,44 +156,17 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var vpnID *uuid.UUID
-	if in.VPNConfigID != "" {
-		parsed, err := uuid.Parse(in.VPNConfigID)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "bad vpn config id")
-			return
-		}
-		vpnID = &parsed
-		vc, err := s.st.GetVPNConfig(r.Context(), *vpnID)
-		if err != nil || vc.ScopeID != scopeID {
-			writeErr(w, http.StatusBadRequest, "unknown vpn config")
-			return
-		}
-		if err := s.st.SetRunVPN(r.Context(), run.ID, *vpnID); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
-
-	// A run with its own fleet gets a pool nothing else can lease from, and an
-	// enrollment token bound to it. That is all the routing needs: the lease
-	// query already refuses to give a pooled worker another run's tasks.
-	//
-	// A tunnel implies a fleet, because the tunnel lives in a gateway container
-	// the run's own workers share a namespace with — except where there is no
-	// provisioner to build one. There the older path still works: the run's
-	// traffic tasks demand the `vpn` capability and are leased by a worker
-	// privileged to raise the tunnel itself (architecture.md §7.6).
-	prov := newProvisionClient().enabled()
-	if in.OwnWorkers && !prov {
-		writeErr(w, http.StatusBadRequest,
-			"this run asked for workers of its own, but no provisioner is configured "+
-				"to create them: set ASM_PROVISIONER_URL and ASM_PROVISIONER_TOKEN")
-		return
-	}
-	if in.OwnWorkers || (in.VPNConfigID != "" && prov) {
-		if err := s.requestRunFleet(r.Context(), run, in.WorkerCount, vpnID); err != nil {
-			writeErr(w, http.StatusInternalServerError, "could not request workers for this run: "+err.Error())
+	// Where the active stages run from. A run that has none — the passive
+	// profile — needs no exit; every other run needs exactly one, and there is
+	// deliberately no "direct from this host": an active scan always leaves
+	// from an address somebody chose.
+	if profile != domain.ProfilePassive {
+		if err := s.bindExit(r.Context(), run, scopeID, in.Exit, in.VPNConfigID, in.PoolID, in.WorkerCount); err != nil {
+			// The run row already exists; failing it keeps the record of the
+			// attempt and its reason rather than leaving a queued run with no
+			// tasks and no explanation.
+			_ = s.st.SetRunStatus(r.Context(), run.ID, domain.RunFailed)
+			writeErr(w, err.status, err.msg)
 			return
 		}
 	}

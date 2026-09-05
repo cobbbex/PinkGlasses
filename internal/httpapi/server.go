@@ -103,6 +103,8 @@ func (s *Server) Routes() http.Handler {
 				r.Get("/wordlists", s.listWordlists)
 				r.Get("/wordlists/{wordlistID}/content", s.getWordlistContent)
 				r.Get("/workers", s.listWorkers)
+				// Where a run may scan from: every pool that is not a run's own.
+				r.Get("/pools", s.listPools)
 
 				// A tunnel's name and last egress, never its body. Reading
 				// which exits exist is not the same as being able to use one.

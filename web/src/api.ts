@@ -208,6 +208,13 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
+/** A pool a run may choose as its remote exit. */
+export interface WorkerPool {
+  id: string; name: string; description?: string | null; is_default: boolean;
+  /** How many of its workers can take work right now. Zero means "cannot run a scan". */
+  active_workers: number; created_at: string;
+}
+
 /** Role ranking, mirroring internal/auth.Role.AtLeast. */
 const RANK: Record<string, number> = { viewer: 1, operator: 2, admin: 3 };
 export function atLeast(have: Role | undefined, min: Role): boolean {
@@ -320,6 +327,7 @@ export const api = {
   runTargets: (id: string) => req<RunTarget[] | null>(`/runs/${id}/targets`).then((x) => x ?? []),
   cancelRun: (id: string) => req(`/runs/${id}/cancel`, { method: "POST" }),
   workers: () => req<Worker[] | null>("/workers").then((x) => x ?? []),
+  pools: () => req<WorkerPool[] | null>("/pools").then((x) => x ?? []),
   enrollToken: (body: unknown) =>
     req<{ kind: string; token?: string; install_command: string; expires_in?: string; note?: string }>(
       "/workers/enrollment-tokens", { method: "POST", body: JSON.stringify(body) }),

@@ -19,9 +19,10 @@ rationale, `architecture.md` in the repository.
   cost you in noise and accuracy.
 - **Alerts** — per-company Slack or JSON webhooks, fed one digest per scan with the
   changes each channel asked for; every delivery attempt is recorded.
-- **[Scanning through a VPN](VPN-Scanning)** — how a run gets its own tunnel: a
-  gateway container the run's workers share a network namespace with, why the
-  privilege is not in the worker, and what happens when the tunnel drops.
+- **[Where scans run from](VPN-Scanning)** — passive stages on the standing
+  workers, active stages from a chosen exit: an ephemeral fleet behind a VPN
+  gateway, or a pool of remote workers. Why the privilege is not in the worker,
+  why routing is per task, and what happens when the tunnel drops.
 - **[Wordlists](Wordlists)** — the three kinds of list, how a run picks them,
   how they reach a worker, and which one decides how loud a scan is.
 

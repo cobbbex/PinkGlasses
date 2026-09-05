@@ -100,8 +100,6 @@ func (g *Gateway) Routes() http.Handler {
 		r.Get("/connect", g.connect)
 		r.Post("/results", g.results)
 		r.Post("/artifacts/presign", g.presign)
-		r.Get("/vpn-config", g.vpnConfig)
-		r.Post("/vpn-egress", g.vpnEgress)
 	})
 	return r
 }
@@ -237,7 +235,6 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 				job.Ingest = scanproto.IngestInfo{URL: g.cfg.PublicGatewayURL + "/agent/v1/results"}
 				job.Params.Tool = g.paramsForRun(ctx, job.RunID)
 				g.attachWordlist(ctx, job)
-				g.attachVPN(ctx, job)
 				env := scanproto.Envelope{Type: "job", Job: job}
 				if err := conn.WriteJSON(env); err != nil {
 					return
@@ -285,129 +282,6 @@ func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job) {
 	if wl.SHA256 != nil {
 		job.Params.WordlistSHA = *wl.SHA256
 	}
-}
-
-// attachVPN tells a job which tunnel to leave through. Only the id: the body
-// holds a private key, so the worker fetches it over its authenticated channel
-// rather than it riding in every job envelope.
-func (g *Gateway) attachVPN(ctx context.Context, job *scanproto.Job) {
-	// Only stages that send packets at the target go through the tunnel.
-	// Attaching it to discovery jobs sent ordinary workers off to build a
-	// tunnel they cannot build, and failed tasks that had no need of one.
-	if !job.Stage.SendsTrafficToTarget() {
-		return
-	}
-	runID, err := uuid.Parse(job.RunID)
-	if err != nil {
-		return
-	}
-	id, err := g.st.RunVPNConfigID(ctx, runID)
-	if err != nil {
-		// Dispatching without the tunnel would send this task's traffic out of
-		// the worker's own address, so say so rather than failing quietly.
-		slog.Error("could not read the run's tunnel; dispatching without it",
-			"run", job.RunID, "stage", job.Stage, "err", err)
-		return
-	}
-	if id == nil {
-		return
-	}
-	// A run with its own containers is already inside the tunnel: its gateway
-	// raised it before any worker started, and the workers share that
-	// namespace. Handing one the config would send it off to build a tunnel it
-	// has neither the capability nor the device for, and fail the task.
-	if fleet, ferr := g.st.RunHasFleet(ctx, runID); ferr != nil {
-		slog.Error("could not tell whether this run has its own workers; "+
-			"attaching the tunnel", "run", job.RunID, "err", ferr)
-	} else if fleet {
-		slog.Info("dispatching inside the run's own VPN gateway",
-			"run", job.RunID, "stage", job.Stage)
-		return
-	}
-	job.Params.VPNConfigID = id.String()
-	slog.Info("dispatching through tunnel", "run", job.RunID, "stage", job.Stage, "config", id.String())
-}
-
-// vpnConfig hands a worker the body of a tunnel configuration.
-//
-// Guarded three ways: the worker must authenticate, it must currently hold a
-// lease on a task of a run bound to this config, and it must have the vpn
-// capability. A worker that is not about to scan through the tunnel has no
-// reason to hold its private key.
-func (g *Gateway) vpnConfig(w http.ResponseWriter, r *http.Request) {
-	workerID, worker, ok := g.authWorker(r)
-	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	id, err := uuid.Parse(r.URL.Query().Get("id"))
-	if err != nil {
-		http.Error(w, "bad id", http.StatusBadRequest)
-		return
-	}
-	hasVPN := false
-	for _, c := range worker.Capabilities {
-		if c == string(scanproto.CapVPN) {
-			hasVPN = true
-			break
-		}
-	}
-	if !hasVPN {
-		slog.Warn("worker without the vpn capability asked for a tunnel config",
-			"worker", workerID, "config", id)
-		http.Error(w, "this worker cannot build tunnels", http.StatusForbidden)
-		return
-	}
-	var n int
-	err = g.st.Pool.QueryRow(r.Context(), `
-		SELECT count(*) FROM scan_task t
-		JOIN scan_run r ON r.id = t.run_id
-		WHERE t.worker_id=$1 AND t.status IN ('leased','running') AND r.vpn_config_id=$2`,
-		workerID, id).Scan(&n)
-	if err != nil || n == 0 {
-		slog.Warn("tunnel config requested without holding a task that uses it",
-			"worker", workerID, "config", id)
-		http.Error(w, "no leased task uses this configuration", http.StatusForbidden)
-		return
-	}
-	vc, err := g.st.GetVPNConfig(r.Context(), id)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	body, err := g.st.OpenVPNConfigBody(r.Context(), id)
-	if err != nil {
-		slog.Error("could not decrypt a tunnel config", "config", id, "err", err)
-		http.Error(w, "configuration unavailable", http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"kind": vc.Kind, "config": string(body)})
-}
-
-// vpnEgress records the address a worker's tunnel is exiting from, so the UI
-// can show that a configuration works and what it looks like from outside.
-func (g *Gateway) vpnEgress(w http.ResponseWriter, r *http.Request) {
-	workerID, _, ok := g.authWorker(r)
-	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	var in struct{ ID, IP string }
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&in); err != nil {
-		http.Error(w, "bad body", http.StatusBadRequest)
-		return
-	}
-	id, err := uuid.Parse(in.ID)
-	if err != nil || net.ParseIP(in.IP) == nil {
-		http.Error(w, "bad id or ip", http.StatusBadRequest)
-		return
-	}
-	if err := g.st.RecordVPNEgress(r.Context(), id, in.IP); err != nil {
-		http.Error(w, "could not record", http.StatusInternalServerError)
-		return
-	}
-	slog.Info("tunnel egress reported", "worker", workerID, "config", id, "egress", in.IP)
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // paramsForRun returns a run's validated scan params, cached to avoid a DB hit

@@ -49,15 +49,17 @@ export default function VPN({ scopeID }: { scopeID: string }) {
         <div>
           <h2>
             VPN
-            <InfoDot title="Scanning through a tunnel">
+            <InfoDot title="Where active scans leave from">
               <p style={{ marginTop: 0 }}>
-                A run can be sent out through one of these instead of leaving from the
-                worker's own address. Choose one when starting a scan.
+                Stages that send traffic at a target — port scan onward — run either from a pool of
+                remote workers you enrolled, or from <strong>local workers behind one of these
+                tunnels</strong>. Local scanning needs a VPN configuration: there is no option to
+                scan from this host's own address.
               </p>
               <p className="muted" style={{ marginBottom: 0 }}>
-                Only workers that can actually build a tunnel run those scans, and a worker
-                verifies its address really changed before scanning — a tunnel that failed
-                to come up must not quietly fall back to your real address.
+                The tunnel lives in a gateway container the run's workers share a network namespace
+                with; the workers themselves hold no network privilege. Passive stages — discovery,
+                DNS, enrichment — never touch the target and never use a tunnel.
               </p>
             </InfoDot>
           </h2>
@@ -102,7 +104,12 @@ export default function VPN({ scopeID }: { scopeID: string }) {
 
       {configs.length === 0 ? (
         <div className="empty">
-          <p>No VPN configurations. Scans leave from the worker's own address.</p>
+          <p>No VPN configurations yet.</p>
+          <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
+            Until one exists, this company cannot start an active scan from local workers —
+            there is deliberately no way to scan from this host's own address. Passive scans
+            and remote worker pools are unaffected.
+          </p>
         </div>
       ) : (
         <div className="table-wrap">

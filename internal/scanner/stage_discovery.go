@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,6 +52,14 @@ func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanpro
 		}
 		if s.ProviderConfig != "" {
 			args = append(args, "-provider-config", s.ProviderConfig)
+		}
+		// Passive stages never touch the target, so their exit is not a scan
+		// concern — but it is still this host's address at forty third-party
+		// APIs. ASM_PASSIVE_PROXY puts one hop in front of that. DNS stages
+		// (dnsx, shuffledns) speak UDP and cannot use it; they say so in docs.
+		if px := passiveProxy(); px != "" {
+			args = append(args, "-proxy", px)
+			logProxy("passive_enum", "subfinder", px)
 		}
 		// Give the process a minute past its own budget so we read the results
 		// it returns rather than killing it as it finishes.
@@ -387,3 +396,7 @@ func inScope(name, root string) bool {
 	}
 	return name == root || strings.HasSuffix(name, "."+root)
 }
+
+// passiveProxy is the http/socks5 proxy passive-stage tools leave through.
+// Empty means direct.
+func passiveProxy() string { return strings.TrimSpace(os.Getenv("ASM_PASSIVE_PROXY")) }

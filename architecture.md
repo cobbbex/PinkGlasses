@@ -850,107 +850,94 @@ primitive:
   account over unsolicited SYN scanning; this is the operator's responsibility, and the UI
   should say so at enrollment time rather than after the suspension email.
 
-### 7.6 Run fleets: containers a scan brings up for itself
+### 7.6 Where a run's traffic leaves from
 
-A run can bring up its own workers, and — when it scans through a VPN — a
-**gateway container** holding the tunnel, which those workers share a network
-namespace with. Everything is destroyed when the run ends.
+Every task is routed to exactly one pool, chosen by what kind of task it is.
+
+| Stage class | Stages | Who sees the traffic | Runs on |
+|---|---|---|---|
+| **Passive** | `passive_enum`, `dns_brute`, `dns_resolve`, `ip_enrich` | third-party APIs, public resolvers — never the target | the standing `local` pool, optionally through `ASM_PASSIVE_PROXY` |
+| **Active** | `port_scan`, `service_probe`, `tech_detect`, `screenshot`, `dir_brute`, `vuln_check` | **the target** | the run's chosen **exit** |
+
+An active run chooses one of two exits when it is created, and cannot be
+created without one:
+
+- **remote** — an existing pool of enrolled workers (a VPS, say). The run's
+  active tasks are bound to that pool; the scan leaves from those workers'
+  addresses.
+- **local** — an ephemeral fleet the run brings up for itself: a **gateway
+  container** holding a VPN tunnel, and workers sharing its network namespace.
+  Requires a VPN configuration; a scope with none cannot start a local active
+  scan. Everything is destroyed when the run ends.
+
+There is deliberately **no "direct from this host"**. An active scan always
+leaves from an address somebody chose. A passive-profile run has no active
+stages and needs no exit at all.
 
 ```
-             ┌──────────────────────────────────────────┐
-  scheduler  │  pinkglasses-vpn-<run>                   │
-      │      │  vpngw: openvpn/wg → tun0, default route │
-      │ 1    │  healthy only once egress != base        │
-      ▼      └──────────────────────────────────────────┘
- provisioner            ▲ network_mode: container:<gw>
-      │ 2               │
-      │        ┌────────┴────────┬─────────────────┐
-      └───────►│ run worker 0    │ run worker 1    │  no NET_ADMIN,
-               │ nmap, chromium, │ nuclei, httpx…  │  no /dev/net/tun,
-               │ gobuster…       │                 │  no routes to change
-               └─────────────────┴─────────────────┘
-                        │ 3  enrol with a token bound to this run's pool
-                        ▼
-                     gateway ── leases only this run's tasks
+ run (exit = local)                       run (exit = remote)
+ ┌──────────────────────────────┐          ┌──────────────────────────┐
+ │ passive ──► standing `local` │          │ passive ──► standing     │
+ │ active  ──► fleet pool       │          │ active  ──► pool `vps-eu`│
+ │   ┌─ gateway (tunnel) ─────┐ │          │   enrolled remote workers│
+ │   │ worker 0   worker 1    │ │          └──────────────────────────┘
+ │   └── netns shared ────────┘ │
+ └──────────────────────────────┘
 ```
 
-**Why the tunnel is not in the worker.** The worker container is the one running
-nmap, chromium, nuclei and gobuster against hostile input; it is the container
-most likely to be exploited. Giving it `NET_ADMIN` and `/dev/net/tun` so it can
-raise a tunnel hands that privilege to exactly the wrong process. Splitting it
-puts the privilege in a container that runs one small binary, parses no attacker
-input, and makes no outbound request of its own. The workers get the tunnel's
-routing without any of its capability — sharing a namespace is not a capability
-grant.
+**Routing is per task, not per run.** `scan_task.pool_id` is set by the planner
+from the stage class (`routeTasks`), and the lease query is strict equality:
+`t.pool_id = worker.pool_id`. The previous filter allowed `r.pool_id IS NULL` for
+any worker, which meant an idle fleet worker sitting inside a VPN gateway's
+namespace could lease an unrelated run's task and scan it through the tunnel.
+Standing workers could not take fleet work; fleet workers could take standing
+work. Strict equality closes both directions, and a task with no pool matches
+nothing — the fail-closed outcome.
 
-It also makes the tunnel a property of the **run** rather than of a worker. One
-tunnel is raised once and verified once, instead of every worker raising its own
-and each verification being a separate chance to fail open.
+**Why passive is separate.** Discovery talks to Shodan, crt.sh and forty other
+sources with your API keys; the target never sees it. Routing it through a
+per-run tunnel would cost every run a minute of gateway start-up before its
+first subdomain arrived, for no attribution benefit. On the standing pool,
+discovery for a local run begins immediately and its addresses are ready by the
+time the fleet is up. What passive egress *does* affect is which address forty
+API providers see, so `ASM_PASSIVE_PROXY` puts one hop in front of subfinder.
+DNS stages speak UDP and cannot use an HTTP proxy.
 
-**The ordering that makes it safe.** The workers are created only after the
-gateway reports healthy, and the gateway reports healthy only once its observed
-egress address differs from the one it recorded before connecting. A worker
-therefore cannot exist in a namespace that is not tunnelled — not for a moment,
-not while the tunnel is still coming up. If the gateway never gets there, the
-whole fleet is torn down and the run fails with the gateway's last log lines.
+**Why the tunnel is not in the worker.** The worker runs nmap, chromium, nuclei
+and gobuster over hostile input; it is the container most likely to be
+exploited, and it should hold the least. The gateway holds `NET_ADMIN` and
+`/dev/net/tun`, runs one small binary, parses no attacker input, and makes no
+outbound request of its own. Workers inherit its routing by sharing the
+namespace — not a capability grant. The old path where a worker raised its own
+tunnel is gone: `attachVPN`, `/agent/v1/vpn-config`, `ensureTunnel`, the `vpn`
+capability and the `worker-vpn` service were removed rather than left as code
+that looks alive.
 
-**Routing.** A run with a fleet is bound to a **pool created for it alone**
-(§7.5), and the enrollment token the fleet's workers use is bound to that pool.
-Standing workers cannot lease the run's tasks and the run's workers cannot lease
-anyone else's. That is what makes the egress guarantee hold: there is no path by
-which one of this run's tasks runs somewhere outside the tunnel.
+**The ordering that makes local safe.** Workers are created only after the
+gateway reports healthy, and it reports healthy only once its observed egress
+differs from the address it recorded before connecting. A worker therefore never
+exists in an untunnelled namespace. If the tunnel never comes up, no worker
+starts, the containers are removed, and the run fails carrying the gateway's own
+last log lines.
 
-**Who owns the tunnel.** Three components have to agree on this and they all
-read one fact, `run_fleet` (`store.RunHasFleet`):
+**Lifecycle and the queue.** The API records the intent (`run_fleet`, status
+`requested`); the scheduler (`internal/fleet`) builds, supervises and tears down
+through the provisioner, so a control-plane restart between asking and building
+leaves a run that can still finish. At most `ASM_MAX_RUN_FLEETS` runs (default 3)
+hold containers at once; a run over the ceiling **waits** in `requested` with the
+reason written where the run view shows it — its passive stages run meanwhile,
+and its active tasks sit pending on a pool nothing else can lease from — and is
+built when a slot frees. A fleet whose workers all go silent for two minutes
+fails its run; workers in a dead gateway's namespace lose every route including
+the one back here, so they cannot report it themselves. Teardown removes
+containers, worker rows and the pool; task attribution survives because the
+worker's name is stamped at lease time.
 
-| | Run with a fleet | Run with a VPN but no fleet |
-|---|---|---|
-| Planner | no `vpn` requirement | traffic tasks require `vpn` |
-| Dispatcher | no config on the job | config id attached |
-| Worker | `PG_EGRESS_FIXED=1`, builds nothing | fetches the config, raises the tunnel |
-
-All three fail **closed** if they cannot read it — they keep the requirement. A
-wrong "no fleet" stalls tasks visibly; a wrong "has fleet" would scan from the
-worker's own address, which is the one outcome worth avoiding. An earlier
-version of the VPN feature had the planner and the dispatcher deciding this
-separately and disagreeing, which produced discovery tasks that demanded a
-tunnel no worker could build; reading one fact is the fix for that shape of bug.
-
-**Lifecycle.** The API only records the intent; the scheduler does the work,
-because it has to survive a restart of whatever served the request:
-
-| State | Set by | Meaning |
-|---|---|---|
-| `requested` | api, when the run is created | pool and token exist, no containers |
-| `up` | scheduler, after the provisioner returns | containers running, egress recorded |
-| `failed` | scheduler | could not be built, or lost its workers; the run is failed with the same reason |
-| `torn_down` | scheduler | containers and worker rows removed |
-
-The scheduler also **supervises** a live fleet. Workers sharing a dead gateway's
-namespace lose every route, including the one back to the control plane, so they
-cannot report their own failure — silence is the only symptom. A fleet with no
-live worker for two minutes fails its run with a message that says so. Without
-this a dropped tunnel is an indefinite hang.
-
-**Teardown** removes the containers, then the worker rows and the run's pool.
-Task attribution survives it: a worker's name and kind are stamped on each task
-when it is leased (§5.3), so a finished run still says which worker ran what
-long after the container is gone. Containers whose run ended while the control
-plane was down are collected by an orphan sweep at startup and every five
-minutes, which asks the provisioner which run ids still have containers and
-removes any the database no longer wants.
-
-**Ceilings.** A run may ask for at most 8 workers (`maxFleetWorkers`), the
-provisioner enforces `ASM_PROVISIONER_MAX_WORKERS` on top, and at most
-`ASM_MAX_RUN_FLEETS` runs (default 3) may hold containers at once. A run that
-arrives over the limit is failed with the reason rather than queued, because a
-run whose tasks are bound to a pool with no members makes no progress and no
-other worker can rescue it.
-
-**What the scheduler needs.** `ASM_PROVISIONER_URL`, `ASM_PROVISIONER_TOKEN`,
-and `ASM_SECRET_KEY` — it opens the sealed VPN configuration to hand it to the
-gateway. With no provisioner configured the feature is simply off and runs that
-ask for a fleet fail with that reason.
+**Remote pools** are the same routing with no build step: the run binds to a
+non-run-scoped pool that has at least one active worker, and its active tasks
+are leased only there. The API refuses an empty pool rather than binding to it,
+because a run bound to a pool with no members never moves and nothing else can
+rescue it.
 
 ### 7.7 Version skew
 

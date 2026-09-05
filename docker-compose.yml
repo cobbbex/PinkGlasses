@@ -153,6 +153,8 @@ services:
       # info logs every tool invocation and stage summary; debug adds the
       # individual findings behind them (each candidate, port, path).
       ASM_LOG_LEVEL: "${ASM_LOG_LEVEL:-info}"
+      # One hop in front of passive stages' API calls. Empty means direct.
+      ASM_PASSIVE_PROXY: "${ASM_PASSIVE_PROXY:-}"
       # Passive discovery API keys — every source subfinder accepts a
       # credential for. All optional; blanks are skipped and the source is
       # simply not queried. Paste yours into .env, which is git-ignored.
@@ -212,47 +214,6 @@ services:
       - workerspool:/var/cache/asm/spool
     depends_on: [gateway]
 
-  # A worker that raises its own tunnel: same image as `worker`, plus the
-  # privileges one needs (NET_ADMIN for the interface and routes, /dev/net/tun
-  # for the device).
-  #
-  # NOT needed on this compose file, and off by default. A run that scans
-  # through a VPN gets its own gateway container instead, which holds the tunnel
-  # while the run's workers share its network namespace and hold nothing —
-  # architecture.md §7.6. Keeping NET_ADMIN out of the container that parses
-  # nmap, chromium and nuclei output is the whole point of that shape.
-  #
-  # This service is the fallback for a control plane with no provisioner, where
-  # nothing can build a gateway. There a run bound to a tunnel demands the `vpn`
-  # capability, which only this container reports, so it is leased only here.
-  #
-  #   docker compose --profile vpn up -d worker-vpn
-  worker-vpn:
-    profiles: ["vpn"]
-    build: {context: ., dockerfile: deploy/Dockerfile.worker}
-    cap_add: ["NET_RAW", "NET_ADMIN"]
-    devices: ["/dev/net/tun"]
-    # wg-quick sets this unconditionally when it installs a default route, and
-    # /proc/sys is read-only inside a container. Declaring it here has Docker
-    # set it at creation, before the filesystem is sealed.
-    sysctls:
-      net.ipv4.conf.all.src_valid_mark: "1"
-    environment:
-      ASM_GATEWAY_URL: "http://gateway:8090"
-      ASM_ENROLL_TOKEN: "${ASM_LOCAL_BOOTSTRAP_TOKEN:-change-me-local-bootstrap}"
-      ASM_WORKER_MAX_CONCURRENCY: "4"
-      ASM_LOG_LEVEL: "${ASM_LOG_LEVEL:-info}"
-    volumes:
-      - wordlistcache:/var/cache/asm/wordlists
-      - workerspool:/var/cache/asm/spool
-    depends_on: [gateway]
-
-  # A local target that sets appliance-style cookies, for testing the cookie
-  # fingerprinting and `cookie:` search. Behind a profile so it never runs in a
-  # normal deployment:
-  #   docker compose --profile lab up -d cookielab
-  # Scanning it also needs ASM_ALLOW_PRIVATE_TARGETS=true on the scheduler,
-  # since it lives on a private address.
   cookielab:
     profiles: ["lab"]
     build: {context: ., dockerfile: deploy/Dockerfile.cookielab}

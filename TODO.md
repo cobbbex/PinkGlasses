@@ -404,7 +404,7 @@ what had happened rather than reading what the code intended.
       port-scan result intact — the spooled data itself landed, not a re-run.
 - [x] 18.4 Scan through a VPN. A VPN page for WireGuard and OpenVPN configs, sealed with
       AES-256-GCM under ASM_SECRET_KEY and never returned by any endpoint, and a picker on
-      the scan-launch modal. Runs bound to a tunnel demand a `vpn` capability that only a
+      the scan-launch modal. Runs bound to a tunnel demanded (superseded by Phase 20) a `vpn` capability that only a
       worker with /dev/net/tun, NET_ADMIN and the clients reports, so an ordinary worker is
       never offered the work. The worker measures its address before and after connecting
       and refuses the task unless it changed. Verified: a deliberately unusable config gave
@@ -481,6 +481,75 @@ the README, and `wiki/VPN-Scanning.md`.
 ## UI tuninnig
 Write here new UI features.
 
+- [ ] Add date and time to hosts table with when they were got.
 - [ ] Add to detailed host view host cookies names. If we can search by cookies so why don`t show this information in host detailed view.
 - [ ] How to save host ip history and how and where to view it ?
 - [ ] How to save and how to view services and port history ?
+
+## Phase 20 — Every active scan gets its own exit; passive never touches the target
+
+Today a run's own fleet is opt-in, and the lease query has a one-way hole:
+`r.pool_id IS NULL` is true for every worker, so an idle fleet worker sitting
+inside a VPN gateway's namespace can lease an unrelated non-fleet run's task and
+scan it through the tunnel. Standing workers cannot take fleet work; fleet
+workers can take standing work.
+
+New invariant. Stages that send traffic at the target — `port_scan` onward — run
+from one of exactly two exits, chosen per run: **remote**, an existing pool of
+enrolled VPS workers; or **local**, an ephemeral fleet behind its own VPN
+gateway. Local requires a VPN config; with none, active scanning is refused.
+There is no "direct from this host". Stages that never touch the target —
+`passive_enum`, `dns_brute`, `dns_resolve`, `ip_enrich` — always run on the
+standing local workers, optionally through one proxy. Routing is per task, not
+per run, and the lease query is strict equality.
+
+- [x] 20.1 **Per-task routing.** `scan_task.pool_id`, set by the planner from the stage
+      class: passive → the standing `local` pool, active → the run's exit pool. Lease is
+      `pool_id = worker's pool`, no NULL wildcard. Closes the leak above.
+- [x] 20.2 **Exit is required for active runs.** `exit: local|remote`. Local needs a VPN
+      config and a provisioner and always builds a fleet; remote needs a non-run-scoped
+      pool with at least one active worker. A passive-profile run needs neither. A scope
+      with no VPN config cannot start a local active scan — the error names the fix.
+- [x] 20.3 **Ceiling becomes a queue.** A fleet over `ASM_MAX_RUN_FLEETS` waits in
+      `requested` with a visible reason instead of failing; it is built when a slot frees.
+- [x] 20.4 **Remove the per-worker tunnel path.** No worker builds its own tunnel any more:
+      drop `attachVPN`, the `/agent/v1/vpn-config` route, `ensureTunnel`, the `vpn`
+      capability and the `worker-vpn` compose service. The gateway container is the only
+      thing that holds a tunnel. Dead code that looks alive is how this repo gets bitten.
+- [x] 20.5 **Passive proxy.** `ASM_PASSIVE_PROXY` (http/socks5) honoured by subfinder for
+      `passive_enum`. DNS stages cannot use an HTTP proxy and say so in the docs.
+- [x] 20.6 **UI.** The launch dialog asks *where the scan runs from*: local via VPN
+      (choose config, worker count) or remote (choose pool). Passive profile hides it.
+      With no VPN configs and no remote pools, active profiles explain why they are off.
+- [x] 20.7 **Docs + tests.** architecture.md §7.6, README, wiki/VPN-Scanning.md; lease
+      routing verified in both directions against the database; end-to-end local+VPN run
+      with passive tasks on a standing worker and active tasks on the fleet; a remote run;
+      the refusal; and the queue.
+
+Tested 2026-09-05. The lease clause was probed as pure SQL in both directions:
+passive task / fleet worker and fleet task / standing worker both refuse, the
+matching pairs both lease, a NULL-pool task leases to nobody. A remote-exit
+`standard` run on scanme.nmap.org split cleanly — 3 passive tasks on the standing
+worker, 7 active tasks across all six active stages on `remote-vps-1` in pool
+`remote`, zero crossover. A local-exit run's passive stages ran on the standing
+worker before its fleet existed. With the ceiling held at 1, a local run on the
+active target sat `running` with the note "waiting for a slot: 1 of 1 runs
+already hold their own workers (ASM_MAX_RUN_FLEETS)", its discovery complete and
+its `port_scan` pending on its own run-scoped pool; releasing the slot built it.
+The five refusals — no exit, local without a VPN config, remote to an empty pool,
+an unknown exit, and passive needing none — each answer with the fix named.
+
+Not demonstrated end to end: a local fleet actually reaching `up` and running
+active stages through the tunnel. Both VPN configurations were deleted from the
+UI (audit: `vpn.delete` by `admin`, 19:19:40 and 19:19:41 UTC on 2026-09-04) and
+their sealed bodies cannot be recovered, so every local run in this test used a
+throwaway config with an unreachable endpoint and failed at the gateway, as it
+should. The gateway/namespace mechanism itself was proven under Phase 19 with
+real tunnels; what Phase 20 changed — routing, the exit rule, the queue — is
+covered above. Re-add a VPN configuration and run one `standard` scan from local
+workers to close the gap.
+
+Two mistakes worth keeping: the first two attempts to hold the ceiling for the
+queue test forged database state that the scheduler then correctly acted on — a
+`failed` run was torn down, a `pending` task was leased and completed. The hold
+that works is a `running` task with a live lease, the one state nothing touches.
