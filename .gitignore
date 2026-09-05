@@ -21,3 +21,13 @@ credential
 # stray toolchain archives
 *.tar.gz
 *.tar.xz
+
+# Binaries that `go build ./cmd/<name>` drops at the repository root
+/api
+/gateway
+/worker
+/scheduler
+/provisioner
+/migrate
+/pwhash
+/openapi
