@@ -811,3 +811,12 @@ Known rough edges:
   from before the project was renamed, so existing `.env` files and volumes keep working.
   The compose volumes are pinned to their original `scan_tool_*` names for the same
   reason — renaming them would orphan the database.
+
+
+Do you need to set the number of local containers? No, not for a normal setup. Two different things share the word "workers":
+
+- The standing local workers (Workers → Add local worker, or --scale worker=N) now only run the passive stages: subfinder, DNS brute force, resolution, enrichment. They never touch a target. The default single container runs 8 tasks at once, which is plenty for one or a few companies. Adding more only helps when many companies scan simultaneously or you run very large brute-force wordlists, since each wordlist is its own task and spreads across workers.
+
+- The workers that do the active scanning are created per run. When you start a scan from local workers behind a VPN, the dialog's Workers field (1 to 8, default 2) is the count that matters, and those containers are destroyed when the run ends. Remote scanning uses whatever you enrolled in that pool.
+
+So the "Add local worker" control is optional capacity for passive discovery, not something a fresh install has to configure. The README's Workers section still presents scaling as a primary setup step, from before per-run fleets existed. I can rewrite that section to say the above if you want.
