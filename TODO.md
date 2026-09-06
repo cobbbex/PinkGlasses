@@ -710,3 +710,10 @@ was refused with 401 forever. On a long-lived database the token predated the ra
 nothing showed. Fixed: gateway and scheduler `depends_on` the migrator like the api, and
 the seed retries every 5 s until it lands. A clone that is run for the first time now
 comes up with an enrolled local worker; verified on empty volumes.
+
+- [ ] 23.7 **nuclei templates in the worker image.** Every fleet worker starts empty and
+      downloads the default template set on its first `vuln_check`, through the VPN, on
+      every run; `ASM_NUCLEI_TEMPLATES` is not forwarded to provisioner-built workers at
+      all. Bake a pinned template revision into `deploy/Dockerfile.worker` and forward the
+      override from the provisioner. Found 2026-09-06 while correcting the README, which
+      had never listed the vulnerability stage.

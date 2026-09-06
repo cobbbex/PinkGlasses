@@ -29,7 +29,7 @@ flowchart TB
       b1[naabu<br/>fast port discovery] --> b2[nmap -sV<br/>service + version on open ports only]
     end
     subgraph C_
-      c1[httpx<br/>-tech-detect · title · status] --> c2[nuclei<br/>tech/version templates]
+      c1[httpx<br/>-tech-detect · title · status]
     end
     subgraph D_
       d1[httpx -screenshot<br/>headless chromium]
@@ -137,7 +137,7 @@ docker compose --profile lab up -d cookielab
 ASM_ALLOW_PRIVATE_TARGETS=true docker compose up -d api scheduler
 # add its container IP as an authorized ip target, scan, then: cookie:webvpn*
 ```
-| **nuclei** | Runs the **technology-detection and version-fingerprint template set** for products httpx can't version from headers alone (specific CMS versions, framework fingerprints). Pin the template revision. | PD |
+| **nuclei** | Runs only in the `vuln_check` stage, against each live web endpoint the probe found: default templates at severity *low* and above (per-run `nuclei_severity`), `ASM_NUCLEI_TEMPLATES` for a pinned or custom set. Tech detection is httpx alone; nuclei's tech templates were planned here and never wired. | PD |
 
 **Order:** httpx first (it decides which host:port pairs are actually web services), then
 nuclei tech templates against only those. nuclei's broader vuln templates belong to the
@@ -191,7 +191,7 @@ one host, so cap concurrency per target and respect the worker's per-provider ra
 |---|---|---|---|
 | 1 | Subdomains | subfinder, dnsx, shuffledns | massdns *(shuffledns dependency)*, Team Cymru *(ASN, over DNS)* |
 | 2 | Ports & services | naabu | **nmap** (`-sV`) |
-| 3 | Tech & versions | httpx (`-tech-detect`), nuclei, cdncheck | — |
+| 3 | Tech & versions | httpx (`-tech-detect`) | — |
 | 4 | Screenshots | httpx (`-screenshot`) + bundled Chromium | *(gowitness alt.)* |
 | 5 | Directory brute | katana, urlfinder (crawl seed) | **gobuster** (default) or **ffuf** |
 

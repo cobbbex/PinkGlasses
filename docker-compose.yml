@@ -160,6 +160,8 @@ services:
       ASM_LOG_LEVEL: "${ASM_LOG_LEVEL:-info}"
       # One hop in front of passive stages' API calls. Empty means direct.
       ASM_PASSIVE_PROXY: "${ASM_PASSIVE_PROXY:-}"
+      # nuclei templates for vuln_check; empty lets nuclei fetch its defaults.
+      ASM_NUCLEI_TEMPLATES: "${ASM_NUCLEI_TEMPLATES:-}"
       # Passive discovery API keys — every source subfinder accepts a
       # credential for. All optional; blanks are skipped and the source is
       # simply not queried. Paste yours into .env, which is git-ignored.

@@ -12,12 +12,12 @@ const PROFILES = [
     id: "passive",
     label: "Passive",
     desc: "Public sources only — certificate transparency, passive DNS and the API providers you have keys for — then resolution and ASN enrichment. Nothing is sent to the targets themselves, so it runs against any target, authorized or not.",
-    note: "No port scan, no web probing, no brute force.",
+    note: "No port scan, no web probing, no brute force, no vulnerability check.",
   },
   {
     id: "standard",
     label: "Standard",
-    desc: "The whole pipeline at everyday settings: passive discovery and subdomain brute force, the top 100 ports with service versions, web probing and technology detection, screenshots, and directory search.",
+    desc: "The whole pipeline at everyday settings: passive discovery and subdomain brute force, the top 100 ports with service versions, web probing and technology detection, screenshots, directory search, and a nuclei vulnerability check of every live web endpoint (severity low and up).",
     note: "Sends traffic to the target, so only targets carrying an active authorization are scanned — the rest are skipped and reported as such.",
   },
   {

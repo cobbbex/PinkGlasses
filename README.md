@@ -50,7 +50,8 @@ subdomains ─┬─────────────────┐
                                                          → service probe
                                                               ├─ tech detect
                                                               ├─ screenshot
-                                                              └─ directory brute
+                                                              ├─ directory brute
+                                                              └─ vulnerability check
 ```
 
 Tools per stage (ProjectDiscovery where it fits; the worker falls back to pure-Go
@@ -62,9 +63,23 @@ implementations when a binary is absent, so it works before you install anything
 | DNS bruteforce | shuffledns + massdns | skipped |
 | Resolution & enrichment | dnsx, Team Cymru; a wildcard probe per apex | stdlib resolver |
 | Ports & services | **nmap -sV** alone at top-100; naabu → nmap when wider | Go connect-scan |
-| Tech & versions | httpx `-tech-detect`, nuclei | header/body fingerprint |
+| Tech & versions | httpx `-tech-detect`, cookie names | header/body fingerprint |
 | Screenshots | httpx `-screenshot` | (needs `browser` capability) |
 | Directory brute | katana, urlfinder → gobuster/ffuf | built-in common-path probe |
+| Vulnerabilities | nuclei, default templates, severity low and up | skipped |
+
+**Every live web endpoint gets a nuclei pass.** Once the service probe has found what
+answers HTTP on a host, `vuln_check` runs nuclei against each endpoint with its default
+template set, at severity *low* and above by default — *Minimum severity* under
+Customize scanning changes that per run, and `nuclei_enabled` turns the stage off. Each
+match becomes a finding of kind `nuclei:<template-id>` with the template's severity and
+the matched URL, so it shows on the Findings page and the host page with the same dot
+history as every other finding. nuclei fetches its templates on a worker's first run;
+to pin a revision or ship your own set, point `ASM_NUCLEI_TEMPLATES` at a directory
+inside the worker container and it is passed as `-t`. That reaches the standing worker
+service; the workers a run builds for itself start from the worker image and fetch the
+default templates on first use, which is part of why the first nuclei task of a fleet
+takes minutes.
 
 **DNS bruteforce is a separate task per wordlist**, so several lists spread across
 workers instead of grinding through one after another. See
@@ -758,8 +773,9 @@ deploy/      worker Dockerfile
 
 Working end to end, verified against `scanme.nmap.org`: passive enumeration and DNS
 brute-forcing, resolution with ASN and reverse-DNS enrichment, batched port and service
-scanning, technology detection, screenshots, and directory brute-forcing — every stage
-confirmed by what it stored, not just by the tool running. A scan of that host records
+scanning, technology detection, screenshots, directory brute-forcing and the nuclei
+vulnerability check — every stage confirmed by what it stored, not just by the tool
+running. A scan of that host records
 `OpenSSH 6.6.1p1` on 22, `Apache 2.4.7` with `Apache HTTP Server 2.4.7` and `Ubuntu` on
 80, a page screenshot, and the paths its crawl and brute force found.
 
@@ -785,12 +801,8 @@ SSH-push provisioning, worker auto-update, cloud-inventory connectors.
 
 Known rough edges:
 
-- Results held by a worker that is stopped mid-task are lost. The agent logs
-  "spooling would retry", but no spool exists yet.
 - Provisioner-created workers are not rebuilt by `docker compose up --build`, so they keep
   running an older image until removed and recreated.
-- A rebuilt worker registers under a new container hostname, so the fleet list accumulates
-  a `stale` row per rebuild. Harmless, but it needs a sweep by age to stay tidy.
 - Wordlist downloads use the resolver a container was started with. If that resolver
   disappears — a VPN dropping is the usual cause — fetches fail until the service is
   recreated (`docker compose up -d --force-recreate scheduler`), at which point they

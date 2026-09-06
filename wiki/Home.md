@@ -37,7 +37,8 @@ subdomains ─┬─────────────────┐
                                                          → service probe
                                                               ├─ tech detect
                                                               ├─ screenshot
-                                                              └─ directory brute
+                                                              ├─ directory brute
+                                                              └─ vulnerability check
 ```
 
 | Stage | Primary tool | Fallback |
@@ -46,9 +47,10 @@ subdomains ─┬─────────────────┐
 | DNS bruteforce | shuffledns + massdns | skipped |
 | Resolution & enrichment | dnsx, Team Cymru | stdlib resolver |
 | Ports & services | **nmap -sV** alone at top-100; naabu → nmap when wider | Go connect scan |
-| Tech & versions | httpx `-tech-detect`, nuclei, cookie names | header/body fingerprint |
+| Tech & versions | httpx `-tech-detect`, cookie names | header/body fingerprint |
 | Screenshots | httpx `-screenshot` | needs the `browser` capability |
 | Directory brute | katana, urlfinder → gobuster/ffuf | built-in common-path probe |
+| Vulnerabilities | nuclei, default templates, severity low and up; findings `nuclei:<template-id>` | skipped |
 
 Every tool invocation is logged with its result count and duration; a tool that
 exits cleanly while producing nothing and complaining on stderr is reported as
