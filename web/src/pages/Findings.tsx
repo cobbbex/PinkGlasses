@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api";
+import { api, Finding } from "../api";
 import { DotStrip, PresenceBadge } from "../components/DotStrip";
+import { useSort, SortTh } from "../components/ui";
 
 const SEVERITIES = ["", "critical", "high", "medium", "low", "info"];
 const PRESENCE = [
@@ -23,9 +24,10 @@ export default function Findings({ scopeID }: { scopeID: string }) {
     refetchInterval: 15000,
   });
 
-  const shown = (findings ?? [])
+  const filtered = (findings ?? [])
     .filter((f) => !sev || f.severity === sev)
     .filter((f) => !presence || (f.presence ?? "active") === presence);
+  const { sorted: shown, sort, toggle } = useSort<Finding>(filtered, { key: "severity", dir: "desc" }, findingSortValue);
   const gone = (findings ?? []).filter((f) => f.presence === "gone").length;
 
   return (
@@ -55,9 +57,14 @@ export default function Findings({ scopeID }: { scopeID: string }) {
         <div className="table-wrap">
           <table>
             <thead><tr>
-              <th>Severity</th><th>Title</th><th>Kind</th><th>Presence</th>
+              <SortTh k="severity" sort={sort} onSort={toggle}>Severity</SortTh>
+              <SortTh k="title" sort={sort} onSort={toggle}>Title</SortTh>
+              <SortTh k="kind" sort={sort} onSort={toggle}>Kind</SortTh>
+              <SortTh k="presence" sort={sort} onSort={toggle}>Presence</SortTh>
               <th title="Filled dot: that run saw it. Hollow: that run looked and did not. Hover a dot for the date.">History</th>
-              <th>Seen</th><th>First seen</th><th>Last seen</th>
+              <SortTh k="seen" sort={sort} onSort={toggle} title="Share of runs that looked and saw it">Seen</SortTh>
+              <SortTh k="first_seen" sort={sort} onSort={toggle}>First seen</SortTh>
+              <SortTh k="last_seen" sort={sort} onSort={toggle}>Last seen</SortTh>
             </tr></thead>
             <tbody>
               {shown.map((f) => (
@@ -80,4 +87,20 @@ export default function Findings({ scopeID }: { scopeID: string }) {
       )}
     </div>
   );
+}
+
+// Severity orders by rank, not alphabetically; "Seen" by the share of covering
+// runs that observed the finding.
+const SEV_RANK: Record<string, number> = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
+function findingSortValue(f: Finding, key: string): unknown {
+  switch (key) {
+    case "severity": return SEV_RANK[f.severity] ?? 0;
+    case "title": return f.title;
+    case "kind": return f.kind;
+    case "presence": return f.presence ?? "active";
+    case "seen": return (f.covered_runs ?? 0) > 0 ? (f.seen_in ?? 0) / (f.covered_runs ?? 1) : null;
+    case "first_seen": return new Date(f.first_seen);
+    case "last_seen": return new Date(f.last_seen);
+    default: return null;
+  }
 }

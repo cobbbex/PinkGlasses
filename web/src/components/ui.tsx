@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useState, createContext, useContext, useCallback } from "react";
+import { ReactNode, useEffect, useRef, useState, createContext, useContext, useCallback, useMemo, type CSSProperties } from "react";
 
 /* ---------- Modal ---------- */
 
@@ -148,4 +148,82 @@ export function Empty({ children }: { children: ReactNode }) {
 
 export function Spinner() {
   return <span className="spinner" aria-label="loading" />;
+}
+
+
+/* ---------------- column sorting ---------------- */
+
+export type SortDir = "asc" | "desc";
+export interface SortState { key: string; dir: SortDir }
+
+/**
+ * Client-side column sorting for a table whose rows all arrived in one
+ * response. `get` maps a column key to the value to order by; strings sort
+ * case-insensitively, numbers numerically, IPv4 addresses by octet, dates by
+ * time, and nulls always sink to the bottom whatever the direction.
+ */
+export function useSort<T>(
+  rows: T[], initial: SortState, get: (row: T, key: string) => unknown,
+): { sorted: T[]; sort: SortState; toggle: (key: string) => void } {
+  const [sort, setSort] = useState<SortState>(initial);
+  const sorted = useMemo(() => {
+    const dir = sort.dir === "asc" ? 1 : -1;
+    return [...rows].map((r, i) => ({ r, i })).sort((a, b) => {
+      const c = compareValues(get(a.r, sort.key), get(b.r, sort.key));
+      // Nulls last regardless of direction; otherwise stable on the original order.
+      if (c === Number.POSITIVE_INFINITY) return 1;
+      if (c === Number.NEGATIVE_INFINITY) return -1;
+      return c !== 0 ? c * dir : a.i - b.i;
+    }).map((x) => x.r);
+  }, [rows, sort.key, sort.dir, get]);
+  const toggle = (key: string) => setSort((s) =>
+    s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: defaultDirFor(rows, key, get) });
+  return { sorted, sort, toggle };
+}
+
+// A first click on a column of numbers or dates shows the biggest first; on
+// text, alphabetical.
+function defaultDirFor<T>(rows: T[], key: string, get: (r: T, k: string) => unknown): SortDir {
+  const sample = rows.map((r) => get(r, key)).find((v) => v !== null && v !== undefined && v !== "");
+  return typeof sample === "number" || sample instanceof Date ? "desc" : "asc";
+}
+
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+function ipv4Num(s: string): number | null {
+  const m = IPV4.exec(s);
+  if (!m) return null;
+  return ((+m[1]) << 24 >>> 0) + ((+m[2]) << 16) + ((+m[3]) << 8) + (+m[4]);
+}
+
+function compareValues(a: unknown, b: unknown): number {
+  const an = a === null || a === undefined || a === "";
+  const bn = b === null || b === undefined || b === "";
+  if (an && bn) return 0;
+  if (an) return Number.POSITIVE_INFINITY;
+  if (bn) return Number.NEGATIVE_INFINITY;
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  if (typeof a === "string" && typeof b === "string") {
+    const ia = ipv4Num(a), ib = ipv4Num(b);
+    if (ia !== null && ib !== null) return ia - ib;
+    return a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+  }
+  return String(a).localeCompare(String(b));
+}
+
+/** A header cell that sorts its column: click to sort, click again to flip. */
+export function SortTh({ k, sort, onSort, children, title, style }: {
+  k: string; sort: SortState; onSort: (key: string) => void;
+  children: ReactNode; title?: string; style?: CSSProperties;
+}) {
+  const on = sort.key === k;
+  return (
+    <th className={"sortable" + (on ? " sorted" : "")} onClick={() => onSort(k)} title={title}
+        aria-sort={on ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} style={style}>
+      {children}
+      <span className={"sort-arrow" + (on ? " on" : "")} aria-hidden="true">
+        {on ? (sort.dir === "asc" ? "▲" : "▼") : "⇅"}
+      </span>
+    </th>
+  );
 }

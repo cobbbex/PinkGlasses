@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api";
-import { InfoDot, Spinner } from "../components/ui";
+import { api, HostRow } from "../api";
+import { InfoDot, Spinner, useSort, SortTh } from "../components/ui";
 import { ScreenshotButton } from "../components/Screenshot";
 import Graph from "../components/Graph";
 
@@ -27,7 +27,8 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
     queryKey: ["graph", scopeID], queryFn: () => api.graph(scopeID), enabled: view === "map",
   });
 
-  const list = data?.rows ?? [];
+  const rows = data?.rows ?? [];
+  const { sorted: list, sort, toggle } = useSort<HostRow>(rows, { key: "last_seen", dir: "desc" }, hostSortValue);
   const hidden = data?.unresolvedHidden ?? 0;
   const uniqueIPs = new Set(list.filter((r) => r.addr).map((r) => r.addr)).size;
 
@@ -92,9 +93,15 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
           <table>
             <thead>
               <tr>
-                <th>Subdomain</th><th>Address</th><th>Reverse DNS</th>
-                <th>ASN</th><th>AS name</th><th>AS range</th><th>Services</th>
-                <th title="When this name was last seen resolving to this address. Hover a value for when it was first seen.">Seen</th>
+                <SortTh k="name" sort={sort} onSort={toggle}>Subdomain</SortTh>
+                <SortTh k="addr" sort={sort} onSort={toggle}>Address</SortTh>
+                <SortTh k="ptr" sort={sort} onSort={toggle}>Reverse DNS</SortTh>
+                <SortTh k="asn" sort={sort} onSort={toggle}>ASN</SortTh>
+                <SortTh k="as_org" sort={sort} onSort={toggle}>AS name</SortTh>
+                <SortTh k="as_range" sort={sort} onSort={toggle}>AS range</SortTh>
+                <SortTh k="services" sort={sort} onSort={toggle}>Services</SortTh>
+                <SortTh k="last_seen" sort={sort} onSort={toggle}
+                  title="When this name was last seen resolving to this address. Hover a value for when it was first seen.">Seen</SortTh>
                 <th></th>
               </tr>
             </thead>
@@ -147,4 +154,20 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
 
     </div>
   );
+}
+
+// What each Hosts column orders by. Dates become Date so they sort by time,
+// and an unresolved row's missing address sinks to the bottom.
+function hostSortValue(r: HostRow, key: string): unknown {
+  switch (key) {
+    case "name": return r.name;
+    case "addr": return r.addr;
+    case "ptr": return r.ptr;
+    case "asn": return r.asn;
+    case "as_org": return r.as_org;
+    case "as_range": return r.as_range;
+    case "services": return r.ip_id ? r.services : null;
+    case "last_seen": return new Date(r.last_seen);
+    default: return null;
+  }
 }
