@@ -120,6 +120,12 @@ happened to the process that asked for them.
 | `failed` | Could not be built, or lost its workers — the run fails with the same reason |
 | `torn_down` | Containers, worker rows and pool removed |
 
+The **Workers** page shows every fleet up or being built, and those ended in the
+last day, under *Run fleets*: the gateway with its tunnel state, VPN configuration
+and exit address, and the workers beside it by name. The gateway never enrols —
+it only holds the tunnel — so that is the one place it appears; its workers also
+show under *Local workers* while the run lasts.
+
 At most `ASM_MAX_RUN_FLEETS` runs (default 3) hold containers at once. A run over
 the ceiling **waits**: its passive stages run meanwhile on the standing pool, its
 active tasks sit pending on a pool nothing else can lease from, and the run view
@@ -148,7 +154,7 @@ with the pool chosen on the token; approve it; it appears in the launch dialog.
 
 | | |
 |---|---|
-| Workers per local run | 8 (`maxFleetWorkers`), and the provisioner's `ASM_PROVISIONER_MAX_WORKERS` on top |
+| Workers per local run | Auto: 1, plus one per CIDR /24-equivalent or per five targets, at most 4; an explicit 1–8 under *Customize scanning → Run workers* (`maxFleetWorkers`), and the provisioner's `ASM_PROVISIONER_MAX_WORKERS` on top |
 | Concurrent fleets | `ASM_MAX_RUN_FLEETS`, default 3; excess runs wait |
 | Gateway startup budget | 90 s to report a changed address |
 | Dead-fleet grace | 2 minutes with no live worker |

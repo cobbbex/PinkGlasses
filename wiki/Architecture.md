@@ -378,9 +378,17 @@ CREATE TABLE scope (
   id uuid PRIMARY KEY, name text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE target_group (               -- what one "Add targets" produced (00032)
+  id         uuid PRIMARY KEY,
+  scope_id   uuid NOT NULL REFERENCES scope(id) ON DELETE CASCADE,
+  name       text NOT NULL,
+  UNIQUE (scope_id, name)
+);
+
 CREATE TABLE scope_target (
   id            uuid PRIMARY KEY,
   scope_id      uuid NOT NULL REFERENCES scope(id) ON DELETE CASCADE,
+  group_id      uuid NOT NULL REFERENCES target_group(id) ON DELETE CASCADE,
   kind          text NOT NULL,            -- 'domain' | 'cidr' | 'asn' | 'ip'
   value         text NOT NULL,
   tags          text[] NOT NULL DEFAULT '{}',   -- select a batch by tag
@@ -388,9 +396,19 @@ CREATE TABLE scope_target (
   pool_id       uuid REFERENCES worker_pool(id),  -- optional: scan this only from pool X
   authorized_by text,
   authorized_at timestamptz,
-  UNIQUE (scope_id, kind, value)
+  UNIQUE (group_id, kind, value)          -- per group, not per scope (00033)
 );
 ```
+
+A **group** is the unit a person adds, edits and picks: the Dashboard lists groups,
+the scan dialog ticks groups, and a schedule stores `target_group_ids` and expands
+them when each run starts. The same value may sit in several groups of a company;
+the planner and launcher read `ListTargetsMerged` — one row per `(kind, value)`,
+excluded if any group excludes it, otherwise authorized if any group authorizes it
+(`domain.MergeTargets`) — so a run covers it once and a group that authorizes a
+host is not undone by another that merely lists it. A value added through the
+plain targets endpoint without a group becomes a group of its own, named after
+itself, which is also how every pre-existing target was migrated.
 
 ### 5.2 Runs, targets, tasks
 
@@ -400,7 +418,7 @@ CREATE TABLE scan_run (
   scope_id    uuid NOT NULL REFERENCES scope(id),
   profile     text NOT NULL,              -- 'passive' | 'standard' | 'deep'
   trigger     text NOT NULL,              -- 'schedule' | 'manual' | 'api'
-  status      text NOT NULL,              -- queued|planning|running|completed|failed|cancelled
+  status      text NOT NULL,              -- queued|planning|running|paused|completed|failed|cancelled
   pool_id     uuid REFERENCES worker_pool(id),
   max_concurrency int NOT NULL DEFAULT 32,
   started_at timestamptz, finished_at timestamptz,
@@ -991,6 +1009,18 @@ non-run-scoped pool that has at least one active worker, and its active tasks
 are leased only there. The API refuses an empty pool rather than binding to it,
 because a run bound to a pool with no members never moves and nothing else can
 rescue it.
+
+**How big a fleet is.** Unless a person sets a number under *Customize scanning →
+Run workers*, the launcher sizes it from the run's targets: one worker, plus one
+per CIDR /24-equivalent and one per five names or addresses, capped at four
+(`autoFleetSize`, 00031 records `workers_auto`). A run's workers share one tunnel
+and one target, so past that the extra containers add noise at the target and
+RAM on the host rather than speed. Schedules default to Auto and a rerun of an
+auto-sized run is auto-sized again rather than frozen at last time's number.
+While a fleet is up, and for a day after, the Workers page lists it under *Run
+fleets* — the gateway with its tunnel state and exit address, and the workers
+beside it — because the gateway never enrols and is visible nowhere else.
+
 
 ### 7.7 Version skew
 

@@ -71,7 +71,8 @@ for the same reasons, and the refusal is shown on the schedule rather than lost
 in a log. A run still going when the next is due is skipped, never stacked; a
 one-off disables itself once it has started. Runs can be paused (nothing more is
 leased, in-flight tasks finish, the fleet stays up), resumed, stopped and rerun
-with the same choices. See the README's *Scheduled scans* and *Watching a scan*,
+with the same choices; a finished run can be deleted with everything it recorded,
+its screenshots included. See the README's *Scheduled scans* and *Watching a scan*,
 and [Architecture](Architecture) §3.3.
 
 ## Who can do what
@@ -79,12 +80,21 @@ and [Architecture](Architecture) §3.3.
 Every endpoint needs a signed-in session or an API token; three ordered roles
 decide the rest. Starting a scan needs **operator**, because it sends packets at
 somebody else's infrastructure; managing accounts, workers and VPN
-configurations needs **admin**, because each hands out a credential. See
-[Accounts and access](Accounts-and-Access).
+configurations needs **admin**, because each hands out a credential, and so does
+deleting a company, because that takes its whole inventory and history with it.
+See [Accounts and access](Accounts-and-Access).
 
 ## Target authorization
 
-A target is **passive-only** unless it carries an explicit active
-authorization. Only addresses belonging to an authorized target are port
-scanned; everything else is enumerated and resolved but never probed. RFC1918
-and loopback targets are rejected outright.
+Targets come in **groups**: what one *Add targets* on the Dashboard produced, a
+name and its list of domains, IPs and CIDRs. A scan picks groups; a schedule
+remembers groups and expands them when each run starts, so editing a group later
+changes what its scheduled runs cover. The same entry may sit in several groups
+and is scanned once.
+
+A target is **passive-only** unless it carries an explicit active authorization,
+recorded with who gave it and when — the tick on the group's form applies it to
+every entry. Only addresses belonging to an authorized target are port scanned;
+everything else is enumerated and resolved but never probed. An entry in several
+groups counts as authorized if any of them authorizes it, and as excluded if any
+excludes it. RFC1918 and loopback targets are rejected outright.

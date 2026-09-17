@@ -71,8 +71,8 @@ Three, ordered. Each adds to the one below rather than replacing it.
 | Role | Adds |
 |---|---|
 | **viewer** | Reads everything: inventory, findings, runs, search, worker list, VPN config *names*. Changes nothing. |
-| **operator** | Companies, targets, wordlists, alert channels — and **starting scans**. |
-| **admin** | Accounts, API tokens, worker enrollment and scaling, VPN configurations. |
+| **operator** | Creating companies, target groups, wordlists, alert channels — and **starting, pausing, stopping, rerunning and deleting scans**. |
+| **admin** | Accounts, API tokens, worker enrollment, VPN configurations — and **deleting a company**, since that takes its whole inventory and history with it. |
 
 Two boundaries are worth explaining because they are the whole design:
 
