@@ -828,6 +828,9 @@ npm run build         # emits web/dist, served by the api binary
 
 ## Passive discovery API keys
 
+Where to get each key, in the order of `.env.example`, is on the wiki page
+[Passive discovery sources](wiki/Passive-Sources.md).
+
 Passive enumeration finds subdomains without sending a single packet at the
 target, and it gets substantially better with API keys. `.env.example` lists
 **every source subfinder accepts a credential for** — 40 of them, grouped by what

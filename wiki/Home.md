@@ -22,6 +22,8 @@ rationale, [Architecture](Architecture).
 - **[Workers and containers](Workers-and-Containers)** — what a worker is as
   opposed to a Docker container, and how an active scan travels through the VPN
   gateway, step by step, with pictures.
+- **[Passive discovery sources](Passive-Sources)** — every subfinder source that
+  takes an API key, in the order of `.env.example`, with the link to get each key.
 - **[Where scans run from](VPN-Scanning)** — passive stages on the standing
   workers, active stages from a chosen exit: an ephemeral fleet behind a VPN
   gateway, or a pool of remote workers. Why the privilege is not in the worker,
