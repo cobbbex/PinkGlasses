@@ -817,3 +817,24 @@ when the other group was deleted.
       going. Everything the company owns cascades in the database and its runs' screenshots
       and raw output are removed from object storage. Verified 2026-09-17: 409 while a run
       was going, 200 after stopping it with every row gone, 404 afterwards, audited.
+
+## Phase 25 — MCP server
+
+- [x] 25.1 **A thin MCP adapter over the HTTP API.** `cmd/mcp`, sixth binary in the
+      control-plane image; authenticates with a PinkGlasses API token so every action is
+      audited under that account and a viewer token gives a read-only server. Task-shaped
+      tools (about two dozen), resources for the read side, a few prompts; destructive tools
+      need `confirm: true`; agent, provisioner, VPN bodies and accounts are not exposed.
+- [x] 25.2 **No drift.** A test walks the route table and fails when a viewer or operator
+      route is reachable through no tool or resource (allowlist for UI plumbing).
+- [x] 25.3 **Transports and packaging.** stdio for local clients; streamable HTTP as an
+      optional compose service behind the same token. Docs: wiki page and README.
+      Done 2026-09-18 (`internal/mcpserver`, `cmd/mcp`, SDK v1.8.0, which raised the module
+      to Go 1.25 — build images bumped to match). 29 tools, 6 resources, 3 prompts. Verified
+      over stdio with an operator token: tools/resources/prompts listed; list_companies,
+      search, get_run, wait_for_run, a passive start_scan and stop_run worked, both audited
+      under the token's account; an active start_scan without an exit returned the API's
+      refusal verbatim; remove_target_group without confirm refused. A viewer token read but
+      was refused start_scan with the role sentence; a bad token got "sign in to continue".
+      Over HTTP (compose profile mcp, stateless, per-request bearer): initialize and
+      tools/call worked, and a request without a token got the same refusal.

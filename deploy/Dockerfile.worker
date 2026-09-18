@@ -34,7 +34,7 @@ RUN GOBIN=/gotools go install github.com/OJ/gobuster/v3@latest && \
     GOBIN=/gotools go install github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest
 
 # --- our worker binary (stays on Go 1.23; local toolchain so it can't drift) ---
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-alpine AS build
 ENV GOTOOLCHAIN=local
 WORKDIR /src
 COPY go.mod go.sum ./

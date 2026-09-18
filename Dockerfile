@@ -10,7 +10,7 @@ COPY web/ ./
 RUN npm run build   # emits /web/dist
 
 # --- Go build ---
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-alpine AS build
 ENV GOTOOLCHAIN=local
 WORKDIR /src
 RUN apk add --no-cache git
@@ -22,7 +22,8 @@ RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/api       ./cmd/api      && 
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/gateway   ./cmd/gateway  && \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/scheduler ./cmd/scheduler && \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/migrate   ./cmd/migrate && \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/provisioner ./cmd/provisioner
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/provisioner ./cmd/provisioner && \
+    CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/mcp       ./cmd/mcp
 
 # --- runtime ---
 FROM alpine:3.20

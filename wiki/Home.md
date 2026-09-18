@@ -22,6 +22,9 @@ rationale, [Architecture](Architecture).
 - **[Workers and containers](Workers-and-Containers)** — what a worker is as
   opposed to a Docker container, and how an active scan travels through the VPN
   gateway, step by step, with pictures.
+- **[MCP server](MCP)** — let an AI client do what the web UI does, through the
+  API and under an API token: which tools exist, what is deliberately not
+  exposed, and how to run it over stdio or HTTP.
 - **[Passive discovery sources](Passive-Sources)** — every subfinder source that
   takes an API key, in the order of `.env.example`, with the link to get each key.
 - **[Where scans run from](VPN-Scanning)** — passive stages on the standing

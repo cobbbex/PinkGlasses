@@ -785,6 +785,18 @@ ASM_LOG_LEVEL=debug docker compose up -d worker
 `info` (the default) is every tool invocation and stage summary; `warn` and `error`
 narrow it further.
 
+## MCP server
+
+An AI client — Claude Code, Claude Desktop, anything that speaks the Model Context
+Protocol — can do what the web UI does through the built-in MCP server: read the
+inventory and findings, manage target groups, start, watch, pause, stop and rerun
+scans, keep schedules. It is a thin adapter over the HTTP API, authenticated with a
+PinkGlasses API token, so every rule the UI obeys applies unchanged and every action is
+audited under that account; a viewer token gives a read-only server. Destructive tools
+require `confirm: true`; credentials (workers, VPN bodies, accounts, tokens) are not
+exposed. Run it over stdio from the published image, or as the `mcp` compose profile
+over HTTP. See the wiki page [MCP server](wiki/MCP.md).
+
 ## Develop
 
 **The wiki is mirrored from `wiki/`.** The pages under `wiki/` are the GitHub wiki: `Home.md`

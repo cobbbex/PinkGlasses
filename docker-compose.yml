@@ -222,6 +222,24 @@ services:
       - workerspool:/var/cache/asm/spool
     depends_on: [gateway]
 
+  # MCP server over streamable HTTP, for AI clients on the network. Off unless
+  # the "mcp" profile is enabled; each request carries its own PinkGlasses API
+  # token as Authorization: Bearer, nothing is shared. Local clients (Claude
+  # Code, Claude Desktop) run the same binary over stdio instead — see the wiki.
+  mcp:
+    profiles: ["mcp"]
+    build: .
+    entrypoint: ["/usr/local/bin/mcp"]
+    environment:
+      ASM_MCP_TRANSPORT: "http"
+      ASM_MCP_ADDR: ":8092"
+      ASM_API_URL: "http://api:8080"
+      # "true" adds the delete_company tool; off by default.
+      ASM_MCP_ALLOW_DELETE_COMPANY: "${ASM_MCP_ALLOW_DELETE_COMPANY:-false}"
+    ports: ["8092:8092"]
+    depends_on:
+      api: {condition: service_started}
+
 # Volume names are pinned to what they were before the project was renamed.
 # Compose derives volume names from the project, so without this the rename
 # would silently start against empty volumes and leave the existing database,
