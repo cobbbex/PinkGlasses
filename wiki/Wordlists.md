@@ -37,6 +37,12 @@ Until a download finishes the entry reads `pending` and scans skip it. A failed
 download shows its reason in the list and is retried on every sweep, so a
 network blip heals itself rather than disabling the list for good.
 
+The **Wordlists** page belongs to the install, not to a company, so it shows the
+shipped lists before any company has been created. If an upgraded install still
+shows the page as it was, the browser is running the previous build of the app:
+reload once with the cache bypassed (`Ctrl+Shift+R`). Builds since 2026-09-18 tell
+the browser to revalidate the shell on every load, so this is a one-time step.
+
 ## How a list reaches a worker
 
 Lists live in object storage, never in the worker image — the assetnote lists

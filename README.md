@@ -228,6 +228,24 @@ too. The first publish creates each package **private**; to let others pull with
 token, open the package on GitHub → *Package settings* → *Change visibility* → Public,
 once per image. The packages link to this repository through the image source label.
 
+## Upgrade it
+
+```bash
+git pull && docker compose up --build -d        # built locally
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull && \
+docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d   # published images
+```
+
+`migrate` runs first and applies any new schema; the standing worker reconnects on its
+own. The web page tells browsers to revalidate the app shell on every load, so an open tab
+picks up the new build on its next reload — no hard refresh needed. (Builds before
+2026-09-18 sent no cache headers; a browser that last loaded one of those may keep its old
+copy until you reload with the cache bypassed, `Ctrl+Shift+R`, once.)
+
+**Workers**, **Wordlists** and **Accounts** belong to the install, not to a company, and
+show before any company exists — so a fresh deployment can be checked from those pages
+before anything is added.
+
 ## Stop it
 
 ```bash
@@ -639,7 +657,7 @@ shuffledns brute-forces, the resolver lists it queries through, and the director
 wordlists gobuster brute-forces web services with. All three are the same kind of
 object — a line-oriented file — so they share one registry, under three tabs.
 
-Five lists ship as built-ins and download themselves on first boot:
+Five lists ship as built-ins and are ready seconds after first boot:
 
 | List | Kind | Size |
 |---|---|---|
