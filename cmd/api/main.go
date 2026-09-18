@@ -2,6 +2,7 @@
 package main
 
 import (
+	"strings"
 	"context"
 	"errors"
 	"log/slog"
@@ -61,9 +62,23 @@ func main() {
 }
 
 // spaHandler serves static files, falling back to index.html for client routes.
+//
+// Cache headers are what make a redeploy reach open browsers. The shell
+// (index.html, and every client route that falls back to it) is served with
+// no-cache, so the browser revalidates it on each load and picks up the new
+// bundle name; the bundles under /assets carry a content hash in their name
+// and may be cached for a year. Without this, a browser kept running the
+// previous build after an update — the page looked unchanged, and features
+// that only existed in the new build were "missing".
 func spaHandler(dir string) http.Handler {
 	fs := http.FileServer(http.Dir(dir))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			fs.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-cache")
 		if _, err := os.Stat(dir + r.URL.Path); os.IsNotExist(err) && r.URL.Path != "/" {
 			http.ServeFile(w, r, dir+"/index.html")
 			return

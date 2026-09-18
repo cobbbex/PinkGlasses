@@ -860,3 +860,13 @@ when the other group was deleted.
       gzip-compressed; the seeder loads them from there at first start, falling back to the
       source URL only for a list the bundle lacks. A fresh install has every list ready
       without reaching the internet, and no user's first scan downloads anything.
+
+Found 2026-09-18 by redeploying from scratch to check the shipped wordlists: they were
+loaded and ready 4 s after `up`, and still "did not appear" in the UI — for two reasons
+that together match the report from a pipeline-deployed install. (1) With no company yet,
+the app showed "No company yet" for every page, including Wordlists, Workers and Accounts,
+which belong to the install, not to a company; those now render regardless. (2) The api
+served index.html with no cache headers, so a browser kept running the previous bundle
+after a redeploy and features of the new build were "missing"; the shell is now no-cache
+and the hashed assets immutable. Also: the standing worker connected before the seeder
+finished and cached one list; the prefetch now repeats after one and five minutes.

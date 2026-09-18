@@ -231,6 +231,17 @@ function Shell({ me, defaultPw, onSignedOut }: {
               picked — otherwise opening a host in a new tab would land on the
               "no company yet" screen while scopes are still loading. */}
           <Route path="/host/:ipID" element={<Host />} />
+          {/* Pages that belong to the install, not to a company: they render
+              whether or not a company exists yet. On a fresh install this is
+              where the shipped wordlists and the standing worker are seen. */}
+          <Route path="/workers" element={<Fleet />} />
+          <Route path="/fleet" element={<Navigate to="/workers" replace />} />
+          <Route path="/wordlists" element={<Wordlists />} />
+          <Route path="/accounts" element={
+            atLeast(me.role, "admin")
+              ? <Users me={me} />
+              : <div className="empty">Managing accounts needs the admin role.</div>
+          } />
           <Route path="*" element={
             !scopeID ? (
               <div className="empty">
@@ -250,16 +261,7 @@ function Shell({ me, defaultPw, onSignedOut }: {
                 <Route path="/findings" element={<Findings scopeID={scopeID} />} />
                 <Route path="/alerts" element={<Alerts scopeID={scopeID} />} />
                 <Route path="/runs" element={<Runs scopeID={scopeID} />} />
-                <Route path="/workers" element={<Fleet />} />
-                <Route path="/wordlists" element={<Wordlists />} />
                 <Route path="/vpn" element={<VPN scopeID={scopeID} />} />
-                <Route path="/accounts" element={
-                  atLeast(me.role, "admin")
-                    ? <Users me={me} />
-                    : <div className="empty">Managing accounts needs the admin role.</div>
-                } />
-                {/* old link kept working */}
-                <Route path="/fleet" element={<Navigate to="/workers" replace />} />
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>
             )

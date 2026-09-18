@@ -311,7 +311,20 @@ func (a *Agent) connect(ctx context.Context, onConnected func(context.Context)) 
 	defer cancel()
 	go a.heartbeat(hbCtx, conn)
 	if onConnected != nil {
-		go onConnected(hbCtx)
+		// Once now, and again a little later: on a fresh install the seeder
+		// may still be loading lists when the worker connects, and a list that
+		// became ready in between would otherwise wait for its first scan.
+		go func() {
+			onConnected(hbCtx)
+			for _, d := range []time.Duration{time.Minute, 5 * time.Minute} {
+				select {
+				case <-hbCtx.Done():
+					return
+				case <-time.After(d):
+					onConnected(hbCtx)
+				}
+			}
+		}()
 	}
 
 	// The gateway is reachable again, so anything spooled while it was not can
