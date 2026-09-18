@@ -1,10 +1,13 @@
-// Package wordlists fetches registered wordlists into object storage so that
-// workers can download them by presigned URL. The multi-million-line assetnote
-// DNS lists are deliberately kept out of the worker image: they are fetched
-// once here and cached per worker by content hash.
+// Package wordlists loads registered wordlists into object storage at first
+// boot. The shipped lists come with the control-plane image (fetched at image
+// build time, gzip-compressed, see tools/fetchwordlists), so a deployment has
+// every list without reaching the internet; a list the bundle lacks — an
+// install built without it, or a builtin added after the image — falls back to
+// its source URL. Workers then cache lists from the gateway by content hash.
 package wordlists
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,6 +20,7 @@ import (
 
 	"github.com/benlik386/pinkglasses/internal/obj"
 	"github.com/benlik386/pinkglasses/internal/store"
+	"github.com/benlik386/pinkglasses/internal/wordlists/builtin"
 )
 
 // Seeder downloads pending wordlists and publishes them to object storage.
@@ -54,23 +58,15 @@ func (s *Seeder) Run(ctx context.Context) {
 }
 
 func (s *Seeder) fetchOne(ctx context.Context, w store.Wordlist) error {
-	slog.Info("wordlists: fetching", "name", w.Name, "url", *w.SourceURL)
 	if err := s.st.SetWordlistStatus(ctx, w.ID, "fetching"); err != nil {
 		return err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, *w.SourceURL, nil)
+	body, source, err := s.open(ctx, w)
 	if err != nil {
 		return err
 	}
-	resp, err := (&http.Client{Timeout: 30 * time.Minute}).Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("source returned %s", resp.Status)
-	}
+	defer body.Close()
+	slog.Info("wordlists: loading", "name", w.Name, "from", source)
 
 	// Stream to a temp file so we can hash and count without holding a
 	// multi-hundred-megabyte list in memory.
@@ -82,7 +78,7 @@ func (s *Seeder) fetchOne(ctx context.Context, w store.Wordlist) error {
 
 	h := sha256.New()
 	counter := &lineCounter{}
-	size, err := io.Copy(io.MultiWriter(tmp, h, counter), resp.Body)
+	size, err := io.Copy(io.MultiWriter(tmp, h, counter), body)
 	if err != nil {
 		return err
 	}
@@ -103,6 +99,41 @@ func (s *Seeder) fetchOne(ctx context.Context, w store.Wordlist) error {
 	slog.Info("wordlists: ready", "name", w.Name, "lines", counter.n, "bytes", size)
 	return nil
 }
+
+// open returns the list's bytes: from the bundle the image carries when it has
+// this list, otherwise from the source URL.
+func (s *Seeder) open(ctx context.Context, w store.Wordlist) (io.ReadCloser, string, error) {
+	bundled := builtin.BundleFile(builtin.BundleDir(), w.ObjectKey)
+	if f, err := os.Open(bundled); err == nil {
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			f.Close()
+			return nil, "", fmt.Errorf("bundled %s is not gzip: %w", bundled, err)
+		}
+		return &gzFile{gz: gz, f: f}, "bundle " + bundled, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, *w.SourceURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Minute}).Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, "", fmt.Errorf("source returned %s", resp.Status)
+	}
+	return resp.Body, *w.SourceURL, nil
+}
+
+type gzFile struct {
+	gz *gzip.Reader
+	f  *os.File
+}
+
+func (g *gzFile) Read(p []byte) (int, error) { return g.gz.Read(p) }
+func (g *gzFile) Close() error               { g.gz.Close(); return g.f.Close() }
 
 // lineCounter counts newlines in a stream without buffering it.
 type lineCounter struct{ n int64 }

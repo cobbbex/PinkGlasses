@@ -853,3 +853,10 @@ when the other group was deleted.
       exercised: a fleet through the tunnel — the WireGuard endpoint (VPS) was unreachable
       that day and two runs failed at "the tunnel did not change this worker's address",
       before any worker existed. Re-check once the VPS is back.
+
+- [x] 24.12 **Shipped wordlists come with the deployment.** The five built-ins are fetched at
+      image build time (`tools/fetchwordlists`, from the manifest in `internal/wordlists/builtin`,
+      kept in step with the migrations by a test) and carried in the control-plane image,
+      gzip-compressed; the seeder loads them from there at first start, falling back to the
+      source URL only for a list the bundle lacks. A fresh install has every list ready
+      without reaching the internet, and no user's first scan downloads anything.

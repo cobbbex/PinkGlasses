@@ -653,8 +653,13 @@ Until a download finishes the entry shows as `pending` and scans skip it; a down
 fails shows the reason and is retried on every sweep, so a network blip heals itself
 rather than disabling the list permanently.
 
-**Files live in object storage, not in the worker image, and no scan downloads one.**
-The lists are fetched into storage when the stack first starts. When the standing
+**The shipped lists come with the deployment.** They are fetched once when the
+control-plane image is built and carried inside it, gzip-compressed; at first start the
+scheduler loads them from there into object storage in seconds, with no internet needed
+at runtime, and they appear under **Wordlists** as ready for every user of the install.
+A list the image lacks falls back to its source URL.
+
+**Files live in object storage, not in the worker image, and no scan downloads one.** When the standing
 worker starts it asks the gateway for every ready list and caches each on disk by
 content hash, in a volume that a run's own workers mount too — so by the time anyone
 scans, every list is already on disk, and a worker behind a VPN or on a VPS never has

@@ -20,7 +20,9 @@ name is used, and dispatch logs which one it chose and which it passed over.
 
 ## What ships
 
-Five lists are registered on a fresh install and download themselves on first
+Five lists are registered on a fresh install and are loaded from the bundle the
+control-plane image carries — fetched once at image build time, so a fresh
+deployment needs no internet for them — or, failing that, download themselves on first
 boot:
 
 | List | Kind | Size |

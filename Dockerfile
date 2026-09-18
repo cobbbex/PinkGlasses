@@ -10,6 +10,17 @@ COPY web/ ./
 RUN npm run build   # emits /web/dist
 
 # --- Go build ---
+# The shipped wordlists, fetched once at build time and carried in the image so a
+# deployment has them without reaching the internet. Cached until the manifest
+# or the fetch tool changes.
+FROM golang:1.25-alpine AS wordlists
+ENV GOTOOLCHAIN=local
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY internal/wordlists/builtin ./internal/wordlists/builtin
+COPY tools/fetchwordlists ./tools/fetchwordlists
+RUN go run ./tools/fetchwordlists /out/wordlists
+
 FROM golang:1.25-alpine AS build
 ENV GOTOOLCHAIN=local
 WORKDIR /src
@@ -30,6 +41,7 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates && adduser -D -u 10001 asm
 WORKDIR /app
 COPY --from=build /out/ /usr/local/bin/
+COPY --from=wordlists /out/wordlists /usr/share/pinkglasses/wordlists
 # the api looks for ./web/dist relative to its working directory
 COPY --from=web /web/dist /app/web/dist
 USER asm
