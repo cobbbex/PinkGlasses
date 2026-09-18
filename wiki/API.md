@@ -260,6 +260,8 @@ lease token.
 | `GET /agent/v1/connect` | WebSocket control channel. Server → worker envelopes: `job`, `cancel`, `heartbeat_ack`, `rotate_cred`. Worker → server: heartbeats `{worker_id, running_tasks, stopping, at}`. A worker whose row no longer exists is closed with a policy-violation frame and re-enrols |
 | `POST /agent/v1/results` | a batch of observations for one task: `{schema, job_id, task_id, lease_token, seq, final, status, observations, errors}`. Observations for assets outside the task's target are refused and the worker quarantined |
 | `POST /agent/v1/artifacts/presign` | a presigned upload URL for a screenshot or raw output |
+| `GET /agent/v1/wordlists` | every ready list — `{name, kind, sha256, size_bytes, url}` — so a worker fills its cache at start |
+| `GET /agent/v1/wordlists/{sha256}` | the list itself, streamed from object storage by the gateway; workers never reach the store for lists |
 
 A **job** is `{job_id, run_id, task_id, lease_token, stage, profile, targets,
 params, constraints, ingest}`; `constraints.allow`/`deny` are the CIDRs the

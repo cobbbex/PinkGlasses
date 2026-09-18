@@ -22,6 +22,7 @@ func main() {
 		Socket:      env("ASM_DOCKER_SOCKET", "/var/run/docker.sock"),
 		Image:       env("ASM_WORKER_IMAGE", "pinkglasses-worker"),
 		Network:     env("ASM_WORKER_NETWORK", "pinkglasses_default"),
+		CacheVolume: env("ASM_WORKER_CACHE_VOLUME", "scan_tool_wordlistcache"),
 		GatewayURL:  env("ASM_GATEWAY_URL", "http://gateway:8090"),
 		EnrollToken: env("ASM_LOCAL_BOOTSTRAP_TOKEN", ""),
 		MaxWorkers:  envInt("ASM_PROVISIONER_MAX_WORKERS", 20),

@@ -21,6 +21,8 @@ type Config struct {
 	GatewayURL  string
 	EnrollToken string
 	MaxWorkers  int // hard ceiling, so a UI bug cannot fork-bomb the host
+	// CacheVolume is the wordlist cache volume every worker shares.
+	CacheVolume string
 }
 
 // Server exposes the narrow provisioning API.

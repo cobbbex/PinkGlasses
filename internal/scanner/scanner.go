@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
@@ -16,6 +17,10 @@ type Scanner struct {
 	// Upload stores an artifact (screenshot, raw tool output) and returns the
 	// object key. Nil in stage-test mode, where nothing is persisted.
 	Upload func(ctx context.Context, key string, data []byte) (string, error)
+	// Authorize adds the worker's credential to a request bound for the
+	// gateway, which is where wordlists are fetched from. Nil in stage-test
+	// mode, where lists come from disk.
+	Authorize func(req *http.Request)
 }
 
 // New builds a Scanner with detected capabilities.

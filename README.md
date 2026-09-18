@@ -653,10 +653,14 @@ Until a download finishes the entry shows as `pending` and scans skip it; a down
 fails shows the reason and is retried on every sweep, so a network blip heals itself
 rather than disabling the list permanently.
 
-**Files live in object storage, not in the worker image.** A worker downloads each
-list once and caches it on disk by content hash, so the same list is never fetched
-twice — and editing a list changes its hash, which is what makes workers pick up
-the new version rather than serving the old one from cache.
+**Files live in object storage, not in the worker image, and no scan downloads one.**
+The lists are fetched into storage when the stack first starts. When the standing
+worker starts it asks the gateway for every ready list and caches each on disk by
+content hash, in a volume that a run's own workers mount too — so by the time anyone
+scans, every list is already on disk, and a worker behind a VPN or on a VPS never has
+to reach the object store: it asks the gateway, which it can reach by definition, and
+only for a list it does not already have. Editing a list changes its hash, which is
+what makes workers pick up the new version rather than serving the old one from cache.
 
 You can **upload** your own list, mark which lists are **used by default**, and
 **edit** entries in place. Editing is capped at 4 MB: resolver lists are kilobytes,

@@ -116,6 +116,14 @@ func NewAgent(cfg AgentConfig) *Agent {
 		running: map[string]bool{},
 	}
 	a.scanner.Upload = a.uploadArtifact
+	a.scanner.Authorize = func(req *http.Request) {
+		// Only the gateway gets the credential; a presigned store URL or a
+		// tool's own download must never carry it.
+		if strings.HasPrefix(req.URL.String(), a.cfg.GatewayURL) {
+			req.Header.Set("X-Worker-Id", a.workerID)
+			req.Header.Set("X-Worker-Credential", a.cred)
+		}
+	}
 	a.spool = newSpool(envOr("ASM_SPOOL_DIR", "/var/cache/asm/spool"))
 	if n := len(a.spool.pending()); n > 0 {
 		slog.Info("results spooled by a previous run are waiting", "batches", n)
@@ -164,7 +172,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	for {
 		if err := a.ensureEnrolled(ctx); err != nil {
 			slog.Error("enrolment failed", "err", err)
-		} else if err := a.connect(ctx); err != nil {
+		} else if err := a.connect(ctx, a.prefetchWordlists); err != nil {
 			// The gateway closes with this code when it has no record of us any
 			// more. Forget the credential now rather than after the reconnect's
 			// 401, so the log says what happened instead of "dropped".
@@ -236,7 +244,48 @@ func (a *Agent) ensureEnrolled(ctx context.Context) error {
 	return nil
 }
 
-func (a *Agent) connect(ctx context.Context) error {
+// prefetchWordlists fills the on-disk cache with every ready list at start,
+// so a scan never has to download one — a fleet worker inside a VPN namespace
+// and a VPS worker both only ever need to reach the gateway. Cached lists are
+// skipped by hash; the cache directory is shared between a run's workers and
+// the standing one, so in the common case there is nothing to fetch at all.
+func (a *Agent) prefetchWordlists(ctx context.Context) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.cfg.GatewayURL+"/agent/v1/wordlists", nil)
+	if err != nil {
+		return
+	}
+	a.scanner.Authorize(req)
+	resp, err := a.client.Do(req)
+	if err != nil {
+		slog.Warn("wordlists: could not list", "err", err)
+		return
+	}
+	defer resp.Body.Close()
+	var lists []struct {
+		Name, Kind, SHA256, URL string
+		SizeBytes               int64 `json:"size_bytes"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&lists) != nil {
+		slog.Warn("wordlists: list refused", "status", resp.Status)
+		return
+	}
+	fetched, present := 0, 0
+	for _, l := range lists {
+		had := a.scanner.listCached(l.SHA256, l.Name)
+		if _, err := a.scanner.cachedList(ctx, l.URL, l.SHA256, l.Name, ""); err != nil {
+			slog.Warn("wordlists: could not cache", "name", l.Name, "err", err)
+			continue
+		}
+		if had {
+			present++
+		} else {
+			fetched++
+		}
+	}
+	slog.Info("wordlists cached and ready", "lists", len(lists), "fetched_now", fetched, "already_present", present)
+}
+
+func (a *Agent) connect(ctx context.Context, onConnected func(context.Context)) error {
 	wsURL := toWS(a.cfg.GatewayURL) + "/agent/v1/connect?worker_id=" + a.workerID + "&credential=" + a.cred
 	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
@@ -261,6 +310,9 @@ func (a *Agent) connect(ctx context.Context) error {
 	hbCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go a.heartbeat(hbCtx, conn)
+	if onConnected != nil {
+		go onConnected(hbCtx)
+	}
 
 	// The gateway is reachable again, so anything spooled while it was not can
 	// go now — and again every minute, in case results arrive faster than the

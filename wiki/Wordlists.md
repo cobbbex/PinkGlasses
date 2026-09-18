@@ -42,10 +42,17 @@ are hundreds of megabytes and change independently of releases.
 
 1. The run records which lists it uses, so it stays reproducible if the registry
    changes afterwards.
-2. At **dispatch** — not at planning time, so it is still valid when the task is
-   finally leased, which may be much later — the gateway mints a presigned
-   download URL and attaches it to the job with the list's name and SHA-256.
-3. The worker downloads it once and caches it on disk **by content hash**.
+2. At **dispatch** the gateway attaches the list's name, SHA-256 and a download
+   URL to the job. The URL is the gateway's own (`/agent/v1/wordlists/<sha>`),
+   served to enrolled workers by streaming the object from storage: a worker
+   inside a run's VPN namespace, or on a VPS, can reach the gateway by
+   definition, whereas a presigned store URL names an internal host it may not
+   resolve at all — which is how scans used to fail behind some VPNs.
+3. The worker looks in its on-disk cache **by content hash** and only fetches a
+   list it does not have. It rarely has to: when a worker starts it asks the
+   gateway for every ready list and caches them all (`wordlists cached and
+   ready` in its log), and the cache volume is shared between the standing
+   worker and every run's own workers, so a scan finds its lists already there.
 
 The content hash is what makes editing work: changing a list changes its hash,
 so workers fetch the new version instead of serving the old one from cache.

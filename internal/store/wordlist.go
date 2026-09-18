@@ -53,6 +53,14 @@ func (s *Store) ListWordlists(ctx context.Context, kind string) ([]Wordlist, err
 	return out, rows.Err()
 }
 
+// WordlistBySHA fetches a ready entry by content hash — how workers ask the
+// gateway for a list, so the URL a job carries names the content, not a
+// storage location.
+func (s *Store) WordlistBySHA(ctx context.Context, sha string) (Wordlist, error) {
+	return scanWordlist(s.Pool.QueryRow(ctx,
+		`SELECT `+wordlistCols+` FROM wordlist WHERE sha256=$1 AND status='ready' ORDER BY builtin DESC, name LIMIT 1`, sha))
+}
+
 // GetWordlist fetches one entry.
 func (s *Store) GetWordlist(ctx context.Context, id uuid.UUID) (Wordlist, error) {
 	return scanWordlist(s.Pool.QueryRow(ctx,

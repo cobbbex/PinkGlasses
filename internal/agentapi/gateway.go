@@ -10,10 +10,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/benlik386/pinkglasses/internal/store"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +33,6 @@ import (
 	"github.com/benlik386/pinkglasses/internal/obj"
 	"github.com/benlik386/pinkglasses/internal/planner"
 	"github.com/benlik386/pinkglasses/internal/scanproto"
-	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 // Gateway serves the agent-facing API.
@@ -108,6 +110,12 @@ func (g *Gateway) Routes() http.Handler {
 		r.Get("/connect", g.connect)
 		r.Post("/results", g.results)
 		r.Post("/artifacts/presign", g.presign)
+		// Wordlists come from the gateway, which every worker can reach by
+		// definition — it is what they connect to — rather than from a
+		// presigned object-store URL that names an internal host a fleet
+		// worker inside a VPN namespace, or a VPS worker, may not resolve.
+		r.Get("/wordlists", g.listWordlists)
+		r.Get("/wordlists/{sha}", g.serveWordlist)
 	})
 	return r
 }
@@ -296,9 +304,9 @@ func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job) {
 		slog.Warn("several directory wordlists are marked default; using the first",
 			"using", wl.Name, "available", strings.Join(names, ", "))
 	}
-	url, err := g.obj.PresignGet(wl.ObjectKey, 2*time.Hour, time.Now())
+	url, err := g.listURL(wl)
 	if err != nil {
-		slog.Warn("could not presign directory wordlist", "list", wl.Name, "err", err)
+		slog.Warn("could not build a download url for the directory wordlist", "list", wl.Name, "err", err)
 		return
 	}
 	job.Params.WordlistURL = url
@@ -307,6 +315,95 @@ func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job) {
 		job.Params.WordlistSHA = *wl.SHA256
 	}
 }
+
+// listURL is the download URL a job carries for a list: the gateway's own
+// route when the list has a content hash, a presigned store URL otherwise.
+func (g *Gateway) listURL(wl store.Wordlist) (string, error) {
+	if wl.SHA256 != nil && *wl.SHA256 != "" && g.cfg.PublicGatewayURL != "" {
+		return g.cfg.PublicGatewayURL + "/agent/v1/wordlists/" + *wl.SHA256, nil
+	}
+	return g.obj.PresignGet(wl.ObjectKey, 2*time.Hour, time.Now())
+}
+
+// listWordlists tells a worker which lists exist, so it can fill its cache at
+// start rather than in the middle of a scan.
+func (g *Gateway) listWordlists(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := g.authWorker(r); !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	all, err := g.st.ListWordlists(r.Context(), "")
+	if err != nil {
+		http.Error(w, "wordlists unavailable", http.StatusInternalServerError)
+		return
+	}
+	type entry struct {
+		Name      string `json:"name"`
+		Kind      string `json:"kind"`
+		SHA256    string `json:"sha256"`
+		SizeBytes int64  `json:"size_bytes"`
+		URL       string `json:"url"`
+	}
+	out := []entry{}
+	for _, wl := range all {
+		if wl.Status != "ready" || wl.SHA256 == nil || *wl.SHA256 == "" {
+			continue
+		}
+		u, err := g.listURL(wl)
+		if err != nil {
+			continue
+		}
+		out = append(out, entry{Name: wl.Name, Kind: wl.Kind, SHA256: *wl.SHA256, SizeBytes: wl.SizeBytes, URL: u})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// serveWordlist streams one list by content hash. The gateway reads it from
+// object storage itself — the worker never needs to reach the store.
+func (g *Gateway) serveWordlist(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := g.authWorker(r); !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	sha := chi.URLParam(r, "sha")
+	if len(sha) != 64 {
+		http.Error(w, "bad hash", http.StatusBadRequest)
+		return
+	}
+	wl, err := g.st.WordlistBySHA(r.Context(), sha)
+	if err != nil {
+		http.Error(w, "no ready wordlist with that hash", http.StatusNotFound)
+		return
+	}
+	u, err := g.obj.PresignGet(wl.ObjectKey, 5*time.Minute, time.Now())
+	if err != nil {
+		http.Error(w, "storage unavailable", http.StatusBadGateway)
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u, nil)
+	if err != nil {
+		http.Error(w, "storage unavailable", http.StatusBadGateway)
+		return
+	}
+	resp, err := wordlistClient.Do(req)
+	if err != nil {
+		http.Error(w, "storage unavailable: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "storage answered "+resp.Status, http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if wl.SizeBytes > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(wl.SizeBytes, 10))
+	}
+	w.Header().Set("X-Wordlist-Name", wl.Name)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+var wordlistClient = &http.Client{Timeout: 30 * time.Minute}
 
 // paramsForRun returns a run's validated scan params, cached to avoid a DB hit
 // attachWordlist gives a dns_brute job a short-lived download URL for the list
@@ -332,9 +429,9 @@ func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job) {
 	if err != nil || wl.Status != "ready" {
 		return
 	}
-	url, err := g.obj.PresignGet(wl.ObjectKey, 2*time.Hour, time.Now())
+	url, err := g.listURL(wl)
 	if err != nil {
-		slog.Warn("could not presign wordlist", "wordlist", wl.Name, "err", err)
+		slog.Warn("could not build a download url for the wordlist", "wordlist", wl.Name, "err", err)
 		return
 	}
 	job.Params.WordlistURL = url
@@ -354,9 +451,9 @@ func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job) {
 		return
 	}
 	rl := res[0]
-	rurl, err := g.obj.PresignGet(rl.ObjectKey, 2*time.Hour, time.Now())
+	rurl, err := g.listURL(rl)
 	if err != nil {
-		slog.Warn("could not presign resolvers", "list", rl.Name, "err", err)
+		slog.Warn("could not build a download url for the resolvers", "list", rl.Name, "err", err)
 		return
 	}
 	job.Params.ResolversURL = rurl

@@ -838,3 +838,18 @@ when the other group was deleted.
       was refused start_scan with the role sentence; a bad token got "sign in to continue".
       Over HTTP (compose profile mcp, stateless, per-request bearer): initialize and
       tools/call worked, and a request without a token got the same refusal.
+
+- [x] 24.11 **Wordlists ready before any scan, and never fetched from the store by a worker.**
+      Scans failed behind some VPNs because a job carried a presigned object-store URL
+      naming an internal host the fleet worker's namespace could not resolve. Lists now come
+      from the gateway (`/agent/v1/wordlists/<sha>`), which every worker reaches by
+      definition; a worker fills its cache with every ready list at start; and the cache
+      volume is mounted into a run's workers, so a scan finds its lists on disk.
+      Done 2026-09-18. Verified: the standing worker filled the shared volume at start (5
+      lists, 181 MB); the gateway lists and streams a list to an enrolled worker with a
+      matching hash, 401 without credentials, 404 for an unknown hash; a fresh worker
+      container created the way a fleet worker is, with the cache bound, reported all five
+      present and downloaded nothing; the provisioner carries the volume name. Not
+      exercised: a fleet through the tunnel — the WireGuard endpoint (VPS) was unreachable
+      that day and two runs failed at "the tunnel did not change this worker's address",
+      before any worker existed. Re-check once the VPS is back.

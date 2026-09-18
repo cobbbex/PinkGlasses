@@ -160,6 +160,10 @@ type Spec struct {
 	NetnsContainer string
 	// Role labels what the container is for.
 	Role string
+	// CacheVolume, when set, is the named volume mounted at the worker's
+	// wordlist cache, shared with the standing worker, so a run's workers find
+	// every list already on disk instead of downloading it mid-scan.
+	CacheVolume string
 	// VPNKind and VPNConfig are the tunnel a gateway container carries.
 	//
 	// The configuration reaches the container through its environment, which
@@ -225,6 +229,9 @@ func (d *Docker) Create(ctx context.Context, sp Spec, index int) (string, error)
 	}
 	if sp.RunID == "" {
 		host["RestartPolicy"] = map[string]any{"Name": "unless-stopped"}
+	}
+	if sp.CacheVolume != "" && role == roleWorker {
+		host["Binds"] = []string{sp.CacheVolume + ":/var/cache/asm/wordlists"}
 	}
 
 	body := map[string]any{

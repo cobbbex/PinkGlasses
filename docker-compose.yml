@@ -128,6 +128,9 @@ services:
       ASM_DOCKER_SOCKET: "/var/run/docker.sock"
       ASM_WORKER_IMAGE: "pinkglasses-worker"
       ASM_WORKER_NETWORK: "pinkglasses_default"
+      # The wordlist cache every worker shares: filled by the standing worker
+      # at start, mounted into a run's workers so they download nothing.
+      ASM_WORKER_CACHE_VOLUME: "scan_tool_wordlistcache"
       ASM_GATEWAY_URL: "http://gateway:8090"
       ASM_LOCAL_BOOTSTRAP_TOKEN: "${ASM_LOCAL_BOOTSTRAP_TOKEN:-change-me-local-bootstrap}"
     volumes:

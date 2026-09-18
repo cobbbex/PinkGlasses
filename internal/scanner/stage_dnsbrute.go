@@ -96,6 +96,16 @@ func (s *Scanner) resolversPath(ctx context.Context, job scanproto.Job) (string,
 // cachedList downloads a line-list on first use and caches it by content hash,
 // so a worker fetches a given file once no matter how many tasks need it. A
 // missing URL falls back to the copy shipped in the image rather than failing.
+// listCached reports whether a list with this hash is already on disk.
+func (s *Scanner) listCached(sha, name string) bool {
+	key := sha
+	if key == "" {
+		key = fmt.Sprintf("%x", sha256.Sum256([]byte(name)))
+	}
+	fi, err := os.Stat(filepath.Join(envOr("ASM_WORDLIST_CACHE", "/var/cache/asm/wordlists"), key+".txt"))
+	return err == nil && fi.Size() > 0
+}
+
 func (s *Scanner) cachedList(ctx context.Context, url, sha, name, fallback string) (string, error) {
 	if url == "" {
 		if fileExists(fallback) {
@@ -122,6 +132,9 @@ func (s *Scanner) cachedList(ctx context.Context, url, sha, name, fallback strin
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
+	}
+	if s.Authorize != nil {
+		s.Authorize(req) // the gateway serves lists to enrolled workers only
 	}
 	resp, err := (&http.Client{Timeout: 30 * time.Minute}).Do(req)
 	if err != nil {
