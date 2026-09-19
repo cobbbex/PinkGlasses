@@ -887,3 +887,11 @@ findings. The switch was gobuster's alone; the stage also crawls with katana (it
 switch, still on) and reported the crawl's paths, as its help text said. Now: the switch
 reads "Directory brute force"; with both it and Web crawling off, the planner plans no
 dir_brute task at all, the way nuclei's switch already skipped vuln_check.
+
+Asked 2026-09-19: Findings rows show Host, IP and the path's response Status (in place
+of Presence, which now shows only when a finding has gone), and open; Search columns
+sort. Technologies are also read from response headers — "X-Redirect-By: WordPress",
+the wp-json Link, X-Generator, X-Powered-By, X-Drupal-Cache, Shopify, ASP.NET, Magento
+and the like — by the service probe and by tech_detect, so a site whose page
+fingerprint saw only a redirect still gets its tag; migration 00034 reads what stored
+headers already say. A versionless sighting never sits beside a versioned one.

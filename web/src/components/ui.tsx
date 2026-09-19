@@ -158,6 +158,22 @@ export function Spinner() {
 
 /* ---------------- column sorting ---------------- */
 
+// siteURL builds the address of a web site found on a port: https for the
+// TLS ports, the default port left off. Opened in a new tab with no opener,
+// since the page it lands on is the target's, not ours.
+export function siteURL(host: string, port: number, path = "/"): string {
+  const scheme = port === 443 || port === 8443 ? "https" : "http";
+  const suffix = (scheme === "https" && port === 443) || (scheme === "http" && port === 80) ? "" : `:${port}`;
+  return `${scheme}://${host}${suffix}${path.startsWith("/") ? path : "/" + path}`;
+}
+
+export function OpenLink({ href, label = "Open" }: { href: string; label?: string }) {
+  return (
+    <a className="btn-link" href={href} target="_blank" rel="noopener noreferrer" title={href}
+       onClick={(e) => e.stopPropagation()}>↗ {label}</a>
+  );
+}
+
 export type SortDir = "asc" | "desc";
 export interface SortState { key: string; dir: SortDir }
 

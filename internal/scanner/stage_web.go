@@ -79,6 +79,11 @@ func (s *Scanner) serviceProbe(ctx context.Context, job scanproto.Job) ([]scanpr
 			Favicon: "", Product: resp.Header.Get("Server"),
 			Cookies: cookieNamesFromResponse(resp),
 		})
+		// What the headers say about the software behind the site, recorded
+		// here as well as by tech_detect: this stage always runs, sees the
+		// raw response, and a redirect or error page is where the page
+		// fingerprint has nothing to go on.
+		obs = append(obs, techObservations(ip, port, host, techFromHeaders(resp.Header.Get), nil)...)
 		// TLS certificate capture on https.
 		if scheme == "https" && resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
 			c := resp.TLS.PeerCertificates[0]
@@ -176,6 +181,7 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 				Product: hxProduct,
 				Version: hxVersion,
 			})
+			named := map[string]bool{}
 			if techs, ok := r["tech"].([]any); ok {
 				for _, t := range techs {
 					name, _ := t.(string)
@@ -187,12 +193,16 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 					if i := strings.LastIndex(name, ":"); i > 0 {
 						n, v = name[:i], name[i+1:]
 					}
+					named[strings.ToLower(n)] = true
 					obs = append(obs, scanproto.Observation{
 						Type: scanproto.ObsTech, IP: ip, Port: port, Host: host,
 						TechName: n, TechVersion: v, TechConfidence: 90,
 					})
 				}
 			}
+			// Headers name what the page fingerprint missed — WordPress behind
+			// a redirect, for one. -irh above is what puts them in the row.
+			obs = append(obs, techObservations(ip, port, host, techFromHeaders(httpxHeader(r)), named)...)
 		}
 		if len(obs) > 0 {
 			return obs, nil
@@ -213,11 +223,7 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 		obs = append(obs, scanproto.Observation{Type: scanproto.ObsTech, IP: ip, Port: port, Host: host,
 			TechName: name, TechVersion: version, TechConfidence: 60})
 	}
-	if x := resp.Header.Get("X-Powered-By"); x != "" {
-		name, version := splitProductVersion(x)
-		obs = append(obs, scanproto.Observation{Type: scanproto.ObsTech, IP: ip, Port: port, Host: host,
-			TechName: name, TechVersion: version, TechConfidence: 60})
-	}
+	obs = append(obs, techObservations(ip, port, host, techFromHeaders(resp.Header.Get), nil)...)
 	if names := cookieNamesFromResponse(resp); len(names) > 0 {
 		obs = append(obs, scanproto.Observation{Type: scanproto.ObsHTTP, IP: ip, Port: port, Host: host,
 			Status: resp.StatusCode, Cookies: names})

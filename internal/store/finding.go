@@ -94,10 +94,18 @@ func (s *Store) RecordFindingObservation(ctx context.Context, findingID, runID u
 // ListFindings returns findings for a scope with their run history and derived
 // presence, filterable by status/severity.
 func (s *Store) ListFindings(ctx context.Context, scopeID uuid.UUID, status, severity string) ([]domain.Finding, error) {
+	// The address and port ride along: a service finding's service and its
+	// address, an address finding's address. Without them the list showed a
+	// path with no way to tell which machine it was found on.
 	rows, err := s.Pool.Query(ctx, `
 		SELECT f.id, f.scope_id, f.asset_kind, f.asset_id, f.kind, f.severity, f.title, f.status,
-		       f.first_seen, f.last_seen, COALESCE(h.hist, '[]'::jsonb), f.evidence
+		       f.first_seen, f.last_seen, COALESCE(h.hist, '[]'::jsonb), f.evidence,
+		       host(ip.addr), ip.id, sv.port
 		FROM finding f
+		LEFT JOIN service sv ON f.asset_kind = 'service' AND sv.id = f.asset_id
+		LEFT JOIN ip_address ip ON ip.id = CASE f.asset_kind
+		                                     WHEN 'service' THEN sv.ip_id
+		                                     WHEN 'ip' THEN f.asset_id END
 		`+findingHistorySQL+`
 		WHERE f.scope_id=$1 AND ($2='' OR f.status=$2) AND ($3='' OR f.severity=$3)
 		ORDER BY
@@ -110,9 +118,19 @@ func (s *Store) ListFindings(ctx context.Context, scopeID uuid.UUID, status, sev
 	defer rows.Close()
 	out := []domain.Finding{}
 	for rows.Next() {
-		f, err := scanFindingWithHistory(rows)
+		var addr *string
+		var ipID *uuid.UUID
+		var port *int
+		f, err := scanFindingWithHistory(rows, &addr, &ipID, &port)
 		if err != nil {
 			return nil, err
+		}
+		if addr != nil {
+			f.IP = *addr
+		}
+		f.IPID = ipID
+		if port != nil {
+			f.Port = *port
 		}
 		out = append(out, f)
 	}
@@ -120,12 +138,13 @@ func (s *Store) ListFindings(ctx context.Context, scopeID uuid.UUID, status, sev
 }
 
 // scanFindingWithHistory reads the standard finding columns followed by the
-// history JSON, and derives presence.
-func scanFindingWithHistory(rows pgx.Rows) (domain.Finding, error) {
+// history JSON, then any extra columns the query added, and derives presence.
+func scanFindingWithHistory(rows pgx.Rows, extra ...any) (domain.Finding, error) {
 	var f domain.Finding
 	var hist, ev []byte
-	if err := rows.Scan(&f.ID, &f.ScopeID, &f.AssetKind, &f.AssetID, &f.Kind,
-		&f.Severity, &f.Title, &f.Status, &f.FirstSeen, &f.LastSeen, &hist, &ev); err != nil {
+	dest := append([]any{&f.ID, &f.ScopeID, &f.AssetKind, &f.AssetID, &f.Kind,
+		&f.Severity, &f.Title, &f.Status, &f.FirstSeen, &f.LastSeen, &hist, &ev}, extra...)
+	if err := rows.Scan(dest...); err != nil {
 		return f, err
 	}
 	_ = json.Unmarshal(hist, &f.History)

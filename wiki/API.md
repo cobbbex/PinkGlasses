@@ -189,7 +189,7 @@ the field has a value (`product:*` is every port whose product is known); a bare
 
 | Route | Role | Purpose |
 |---|---|---|
-| `GET /scopes/{scopeID}/findings` | viewer | with per-run `history`, `presence` (active/gone), `gone_since` and `evidence` (a discovered path's `path`, `host` and `status`; a nuclei match's URL) |
+| `GET /scopes/{scopeID}/findings` | viewer | with per-run `history`, `presence` (active/gone), `gone_since`, `evidence` (a discovered path's `path`, `host` and `status`; a nuclei match's URL), and where it is: `ip`, `ip_id` (its host page) and `port` |
 | `PATCH /findings/{findingID}` | operator | `{status}`: `open`, `acknowledged`, `resolved`, `accepted_risk` |
 | `GET /scopes/{scopeID}/notifications` | viewer | `{channels, events}` — the second lists the event kinds a channel may subscribe to |
 | `POST /scopes/{scopeID}/notifications` | operator | `{name, kind: slack\|webhook, url, events, min_severity}` |

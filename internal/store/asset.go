@@ -237,12 +237,35 @@ func jsonOrNil(v map[string]any) []byte {
 }
 
 // UpsertTechnology records a detected technology on a service.
+//
+// Technologies are unique per (service, name, version), and the same product
+// is often seen twice with different precision: a response header says
+// "WordPress", the page fingerprint says "WordPress 6.4". Those must not
+// become two rows. A versionless sighting of a name that already has a
+// version only refreshes the versioned row; a versioned sighting retires the
+// versionless row it supersedes.
 func (s *Store) UpsertTechnology(ctx context.Context, serviceID uuid.UUID, name, version, cpe string, confidence int, at time.Time) error {
+	if version == "" {
+		ct, err := s.Pool.Exec(ctx, `
+			UPDATE technology SET last_seen = GREATEST(last_seen, $3)
+			WHERE service_id=$1 AND name=$2 AND version <> ''`, serviceID, name, at)
+		if err != nil {
+			return err
+		}
+		if ct.RowsAffected() > 0 {
+			return nil
+		}
+	} else if _, err := s.Pool.Exec(ctx, `
+			DELETE FROM technology WHERE service_id=$1 AND name=$2 AND version = ''`,
+		serviceID, name); err != nil {
+		return err
+	}
 	_, err := s.Pool.Exec(ctx, `
 		INSERT INTO technology (service_id, name, version, cpe, confidence, first_seen, last_seen)
 		VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$6)
 		ON CONFLICT (service_id, name, version) DO UPDATE SET
-		  last_seen = GREATEST(technology.last_seen, EXCLUDED.last_seen), confidence = EXCLUDED.confidence`,
+		  last_seen = GREATEST(technology.last_seen, EXCLUDED.last_seen),
+		  confidence = GREATEST(technology.confidence, EXCLUDED.confidence)`,
 		serviceID, name, version, cpe, confidence, at)
 	return err
 }

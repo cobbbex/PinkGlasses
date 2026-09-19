@@ -626,6 +626,13 @@ computed from that record rather than set by hand:
 - **active** — the latest run that looked for it found it;
 - **gone since \<date\>** — a later run looked and did not find it.
 
+Each row on the **Findings** page says where it was found: the **Host** it was observed
+under (or *by address* when the request carried no name), the **IP**, which opens the
+host page, and for a discovered path the **Status** it answered with — that, rather than
+a presence badge, is what a path is about; a finding that has gone says so in the same
+cell. Every finding that is a URL has an **Open** link, and every column sorts. The
+Search table sorts the same way.
+
 The Findings page and each host page show this as a **dot-strip**: one dot per run,
 oldest on the left, filled when that run observed the finding and hollow when it
 looked and did not. Hovering a dot shows the date and time of that run and the

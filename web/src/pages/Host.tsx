@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { api, HostService, HostVhost, Finding } from "../api";
-import { Spinner, useSort, SortTh } from "../components/ui";
+import { Spinner, useSort, SortTh, siteURL, OpenLink } from "../components/ui";
 import { ScreenshotButton } from "../components/Screenshot";
 import { DotStrip, PresenceBadge } from "../components/DotStrip";
 
@@ -350,22 +350,6 @@ function VhostRow({ sv, v }: { sv: HostService; v: HostVhost }) {
         </details>
       )}
     </div>
-  );
-}
-
-// siteURL builds the address of a web site found on a port: https for the
-// TLS ports, the default port left off. Opened in a new tab with no opener,
-// since the page it lands on is the target's, not ours.
-function siteURL(host: string, port: number, path = "/"): string {
-  const scheme = port === 443 || port === 8443 ? "https" : "http";
-  const suffix = (scheme === "https" && port === 443) || (scheme === "http" && port === 80) ? "" : `:${port}`;
-  return `${scheme}://${host}${suffix}${path.startsWith("/") ? path : "/" + path}`;
-}
-
-function OpenLink({ href, label = "Open" }: { href: string; label?: string }) {
-  return (
-    <a className="btn-link" href={href} target="_blank" rel="noopener noreferrer" title={href}
-       onClick={(e) => e.stopPropagation()}>↗ {label}</a>
   );
 }
 

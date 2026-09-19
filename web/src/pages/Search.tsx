@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, SearchResult, SearchFacets, Facet } from "../api";
-import { Spinner } from "../components/ui";
+import { Spinner, useSort, SortTh } from "../components/ui";
 
 const EXAMPLES = [
   '*',
@@ -31,6 +31,9 @@ export default function Search({ scopeID }: { scopeID: string }) {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [global, setGlobal] = useState(false);
+  // Sorting is on the rows in hand, the way the Hosts and Findings tables do
+  // it; the server's order (by address, then port) is the starting point.
+  const { sorted, sort, toggle } = useSort<SearchResult>(rows ?? [], { key: "ip", dir: "asc" }, searchSortValue);
 
   useEffect(() => {
     const initial = sp.get("q");
@@ -117,11 +120,16 @@ export default function Search({ scopeID }: { scopeID: string }) {
           <div className="table-wrap">
             <table>
               <thead><tr>
-                {global && <th>Company</th>}
-                <th>Site</th><th>IP</th><th>Port</th><th>Product</th><th>Version</th><th>Title</th>
+                {global && <SortTh k="company" sort={sort} onSort={toggle}>Company</SortTh>}
+                <SortTh k="site" sort={sort} onSort={toggle}>Site</SortTh>
+                <SortTh k="ip" sort={sort} onSort={toggle}>IP</SortTh>
+                <SortTh k="port" sort={sort} onSort={toggle}>Port</SortTh>
+                <SortTh k="product" sort={sort} onSort={toggle}>Product</SortTh>
+                <SortTh k="version" sort={sort} onSort={toggle}>Version</SortTh>
+                <SortTh k="title" sort={sort} onSort={toggle}>Title</SortTh>
               </tr></thead>
               <tbody>
-                {rows.map((r) => (
+                {sorted.map((r) => (
                   <tr key={r.service_id + (r.host ?? "")}
                       style={{ cursor: r.ip_id ? "pointer" : "default" }}
                       title={r.ip_id ? "Open host details in a new tab" : undefined}
@@ -152,6 +160,21 @@ export default function Search({ scopeID }: { scopeID: string }) {
       )}
     </div>
   );
+}
+
+// Site sorts by the name shown, which is the host or, by address, the domain
+// that resolves there; addresses sort numerically through compareValues.
+function searchSortValue(r: SearchResult, key: string): unknown {
+  switch (key) {
+    case "company": return r.company ?? null;
+    case "site": return r.host || r.domain || null;
+    case "ip": return r.ip;
+    case "port": return r.port;
+    case "product": return r.product ?? null;
+    case "version": return r.version ?? null;
+    case "title": return r.title ?? null;
+    default: return null;
+  }
 }
 
 function FacetColumn({ title, field, items, onPick }: {

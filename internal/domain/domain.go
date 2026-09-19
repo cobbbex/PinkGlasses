@@ -264,11 +264,17 @@ type Finding struct {
 	History []FindingRun `json:"history,omitempty"`
 	// Evidence is what the stage recorded with the finding: for a discovered
 	// path its path, host and response status; for a nuclei match the URL.
-	Evidence    map[string]any `json:"evidence,omitempty"`
-	Presence    string         `json:"presence,omitempty"`
-	SeenIn      int            `json:"seen_in"`
-	CoveredRuns int            `json:"covered_runs"`
-	GoneSince   *time.Time     `json:"gone_since,omitempty"`
+	Evidence map[string]any `json:"evidence,omitempty"`
+	Presence string         `json:"presence,omitempty"`
+	// IP, IPID and Port say which machine and port a finding is about, so a
+	// list of findings can be read without opening each one: the address for
+	// the row, the host page it links to, and the port the path was found on.
+	IP          string     `json:"ip,omitempty"`
+	IPID        *uuid.UUID `json:"ip_id,omitempty"`
+	Port        int        `json:"port,omitempty"`
+	SeenIn      int        `json:"seen_in"`
+	CoveredRuns int        `json:"covered_runs"`
+	GoneSince   *time.Time `json:"gone_since,omitempty"`
 }
 
 // FindingRun is one run's verdict on a finding: it looked, and it did or did

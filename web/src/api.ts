@@ -130,6 +130,8 @@ export interface Finding {
   evidence?: Record<string, unknown> | null;
   /** "active" if the latest covering run observed it, else "gone". */
   presence?: "active" | "gone";
+  /** The machine and port the finding is about; ip_id links to its host page. */
+  ip?: string | null; ip_id?: string | null; port?: number | null;
   seen_in?: number; covered_runs?: number; gone_since?: string | null;
 }
 export interface TaskActivity {
