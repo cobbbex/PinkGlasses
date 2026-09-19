@@ -112,11 +112,27 @@ func lex(s string) ([]token, error) {
 			toks = append(toks, token{tWord, s[i+1 : j]})
 			i = j + 1
 		default:
+			// A word runs to the next space or paren — except inside quotes,
+			// which may open partway through: title:"403 Forbidden" is one
+			// term. It used to split at the space, leaving title:"403 and
+			// Forbidden", and the facet the UI offers for that title found
+			// nothing when clicked. The quotes themselves are not part of
+			// the value.
 			j := i
-			for j < len(s) && s[j] != ' ' && s[j] != '(' && s[j] != ')' {
+			quoted := false
+			for j < len(s) {
+				ch := s[j]
+				if ch == '"' {
+					quoted = !quoted
+				} else if !quoted && (ch == ' ' || ch == '(' || ch == ')') {
+					break
+				}
 				j++
 			}
-			w := s[i:j]
+			if quoted {
+				return nil, fmt.Errorf("unterminated quote")
+			}
+			w := strings.ReplaceAll(s[i:j], `"`, "")
 			switch strings.ToUpper(w) {
 			case "AND":
 				toks = append(toks, token{tAnd, w})

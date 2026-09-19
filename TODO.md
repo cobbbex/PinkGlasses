@@ -895,3 +895,8 @@ the wp-json Link, X-Generator, X-Powered-By, X-Drupal-Cache, Shopify, ASP.NET, M
 and the like — by the service probe and by tech_detect, so a site whose page
 fingerprint saw only a redirect still gets its tag; migration 00034 reads what stored
 headers already say. A versionless sighting never sits beside a versioned one.
+
+Reported 2026-09-20: the Search facets offered "403 Forbidden" (2) and clicking it found
+nothing. The lexer only understood a quote at the start of a token, so title:"403
+Forbidden" split at the space into title:"403 and Forbidden". A quote may now open
+partway through a term; the quotes are not part of the value. Tests in internal/search.

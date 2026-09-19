@@ -614,7 +614,8 @@ asked with no name. Above the rows, a **summary** says what the query matched in
 aggregate — how many services across how many sites, and the products, ports,
 technologies, titles and HTTP statuses behind them, each with a count. Click any value to
 narrow the query by it: `*` → click *nginx* → click *443* is a three-click answer to "which
-nginx ports do we expose on 443, and what do they say".
+nginx ports do we expose on 443, and what do they say". A value with spaces is quoted,
+`title:"403 Forbidden"`, and that is what clicking a facet writes.
 
 ## Finding history
 
