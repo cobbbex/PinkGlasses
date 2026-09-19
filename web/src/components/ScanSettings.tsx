@@ -14,7 +14,7 @@ const TOOL_STAGE: Record<string, string> = {
   nmap: "Service versions",
   katana: "Web crawling",
   httpx: "Web probing",
-  gobuster: "Directory search",
+  gobuster: "Directory brute force",
   nuclei: "Vulnerability checks",
 };
 

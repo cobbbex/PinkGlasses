@@ -88,7 +88,7 @@ Built-in lists cannot be deleted; your own can.
 
 ## The one that decides how loud a scan is
 
-Directory search is the only stage that fires thousands of requests at a single
+Directory brute force is the only stage that fires thousands of requests at a single
 host, and the size of the default `dir` list is what sets that number. The
 shipped `common.txt` is ~4,700 requests per web service; `raft-medium` is
 ~30,000. Against a host you do not own, that is the setting to think about

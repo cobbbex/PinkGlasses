@@ -881,3 +881,9 @@ after binding the exit; the planner now refuses to route an active task with no 
 pool, so the run fails with that reason instead of hanging; and the scheduler's sweep
 warns about pending tasks no active worker can lease, with run, stage, pool and age.
 Documented under "If a run does not move" in the README.
+
+Asked 2026-09-19: a profile with "Directory search" off still showed a dir_brute stage with
+findings. The switch was gobuster's alone; the stage also crawls with katana (its own
+switch, still on) and reported the crawl's paths, as its help text said. Now: the switch
+reads "Directory brute force"; with both it and Web crawling off, the planner plans no
+dir_brute task at all, the way nuclei's switch already skipped vuln_check.

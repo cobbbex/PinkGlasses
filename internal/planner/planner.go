@@ -438,6 +438,22 @@ func (p *Planner) probeNewServices(ctx context.Context, run domain.ScanRun) erro
 	return err
 }
 
+// postProbeStages reads the run's switches and says whether dir_brute and
+// vuln_check are planned at all.
+//
+// dir_brute is planned unless both of the things it does are off: the
+// wordlist brute force (gobuster's switch) and the crawl (katana's). With only
+// the brute force off the stage still runs, quietly, to report the paths the
+// crawl found — that is what the switch's help text promises. With both off
+// there is nothing left for it to find, and a stage that appears on the run
+// page after the person switched "directory" off reads as the scanner
+// ignoring them. vuln_check follows nuclei's switch alone. A missing key is
+// the shipped default, on.
+func postProbeStages(params map[string]string) (dirBrute, vulnCheck bool) {
+	off := func(key string) bool { return params[key] == "false" }
+	return !(off("gobuster_enabled") && off("katana_enabled")), !off("nuclei_enabled")
+}
+
 // maybePostProbe enqueues tech_detect, screenshot, dir_brute and vuln_check for
 // web services.
 //
@@ -457,19 +473,16 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 	if err != nil {
 		return err
 	}
-	// nuclei is the loudest thing in the pipeline after directory brute force,
-	// so its switch is honoured at planning time: turning it off should mean no
-	// task exists, not a task that leases a worker and returns nothing.
-	runVuln := true
+	// The two loudest stages are switched off at planning time, so that off
+	// means no task exists — not a task that leases a worker and returns
+	// nothing, and not a stage on the run page for something the person
+	// said not to do.
+	params, _ := p.st.GetRunParams(ctx, run.ID)
+	runDir, runVuln := postProbeStages(params)
 	maxVhosts := defaultVhostsPerAddress
-	if params, err := p.st.GetRunParams(ctx, run.ID); err == nil {
-		if v, ok := params["nuclei_enabled"]; ok && v == "false" {
-			runVuln = false
-		}
-		if v, ok := params["web_vhosts_per_address"]; ok {
-			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				maxVhosts = n
-			}
+	if v, ok := params["web_vhosts_per_address"]; ok {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxVhosts = n
 		}
 	}
 	// Names per address are looked up once per run, not once per URL.
@@ -505,8 +518,10 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 				specs = append(specs,
 					spec(scanproto.StageTechDetect, tgt, 300, origin0(origins)),
 					spec(scanproto.StageScreenshot, tgt, 310, origin0(origins), string(scanproto.CapBrowser)),
-					spec(scanproto.StageDirBrute, tgt, 320, origin0(origins)),
 				)
+				if runDir {
+					specs = append(specs, spec(scanproto.StageDirBrute, tgt, 320, origin0(origins)))
+				}
 				if runVuln {
 					specs = append(specs, spec(scanproto.StageVulnCheck, tgt, 330, origin0(origins)))
 				}

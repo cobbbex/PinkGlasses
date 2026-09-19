@@ -109,11 +109,17 @@ implementations when a binary is absent, so it works before you install anything
 | Directory brute | katana, urlfinder → gobuster/ffuf | built-in common-path probe |
 | Vulnerabilities | nuclei, default templates, severity low and up | skipped |
 
+The directory stage is two tools behind one switch each. **Directory brute force** is the
+wordlist; **Web crawling** is katana. With only the brute force off the stage still runs,
+quietly, and reports the paths the crawl found. With both off no `dir_brute` task is
+planned and the stage does not appear on the run. **Vulnerability checks** off likewise
+plans no `vuln_check` task.
+
 **Web stages ask for each site by name.** One address often serves many names, and a
 server answers a request that carries no name with its default block — for nginx that
 is typically a bare 403. So once the probe has found a live port, the planner makes one
 target per name that resolves to that address, each carrying the name as SNI and Host
-header, and tech detection, screenshots, directory search and the vulnerability check run
+header, and tech detection, screenshots, the directory stage and the vulnerability check run
 per name. What each name serves is stored under that name: the Hosts table shows the
 screenshot of the row's own name, and a host page lists *Sites on this port* with each
 name's status, title, cookies and headers. An address nothing resolves to is probed as
@@ -697,7 +703,7 @@ otherwise degrades every brute force that uses the list with no visible error.
 Every list marked default for the subdomain kind becomes **its own dns_brute task**,
 so lists run in parallel across workers.
 
-Directory search works the other way round: it uses **one** list per run, so marking
+Directory brute force works the other way round: it uses **one** list per run, so marking
 several `dir` lists default picks the first by name and the dispatch log says which. The
 size of that list is the main thing deciding how loud a scan is — it is the only stage
 that fires thousands of requests at a single host. A run with no `dir` list falls back to
