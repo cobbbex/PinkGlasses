@@ -64,10 +64,10 @@ export default function Findings({ scopeID }: { scopeID: string }) {
           <table>
             <thead><tr>
               <SortTh k="severity" sort={sort} onSort={toggle}>Severity</SortTh>
-              <SortTh k="title" sort={sort} onSort={toggle} title="A discovered path shows its path; hover for the full title">Title</SortTh>
-              <SortTh k="kind" sort={sort} onSort={toggle}>Kind</SortTh>
               <SortTh k="site" sort={sort} onSort={toggle} title="The name the finding was observed under; by address when none">Host</SortTh>
               <SortTh k="ip" sort={sort} onSort={toggle}>IP</SortTh>
+              <SortTh k="title" sort={sort} onSort={toggle} title="A discovered path shows its path; hover for the full title">Title</SortTh>
+              <SortTh k="kind" sort={sort} onSort={toggle}>Kind</SortTh>
               <SortTh k="status" sort={sort} onSort={toggle} title="The HTTP status the path answered with">Status</SortTh>
               <SortTh k="seen" sort={sort} onSort={toggle} title="One dot per run that looked: filled when it saw the finding, hollow when not; hover a dot for the date. The number is runs that saw it over runs that looked; sorts by that share.">History</SortTh>
               <SortTh k="first_seen" sort={sort} onSort={toggle}>First seen</SortTh>
@@ -78,9 +78,6 @@ export default function Findings({ scopeID }: { scopeID: string }) {
               {shown.map(({ f, site, byAddress, status, url, label }) => (
                 <tr key={f.id}>
                   <td><span className={"sev-" + f.severity}>{f.severity}</span></td>
-                  <td className="mono" title={f.title}
-                      style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</td>
-                  <td className="muted" title={f.kind}>{kindLabel(f.kind)}</td>
                   <td className="mono">
                     {byAddress || !site
                       ? <span className="muted" title="Observed by address: the request carried no name">—</span>
@@ -91,6 +88,9 @@ export default function Findings({ scopeID }: { scopeID: string }) {
                       ? <a href={`/host/${f.ip_id}`} target="_blank" rel="noreferrer" title="Open host details in a new tab">{f.ip}</a>
                       : (f.ip ?? "—")}
                   </td>
+                  <td className="mono" title={f.title}
+                      style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</td>
+                  <td className="muted" title={f.kind}>{kindLabel(f.kind)}</td>
                   <td>
                     {status !== undefined && <span className={"mono " + statusClass(status)}>{status}</span>}
                     {f.presence === "gone" && <> <PresenceBadge presence={f.presence} goneSince={f.gone_since} /></>}
