@@ -225,9 +225,17 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 		return l.failed(ctx, run, refuse(http.StatusInternalServerError, "%v", err))
 	}
 
-	// Exit: bind what was validated above.
+	// Exit: bind what was validated above, then re-read the run. bindExit
+	// writes the exit pool to the row; the copy CreateRun returned does not
+	// have it, and the planner routes active tasks by run.PoolID. Planning
+	// from the stale copy left every port scan of an IP target with no pool,
+	// which the lease query matches against nothing — a run that sat at
+	// "running" with its fleet up and idle, and no error anywhere.
 	if exitPlan != nil {
 		if err := l.bindExit(ctx, run, *exitPlan); err != nil {
+			return l.failed(ctx, run, refuse(http.StatusInternalServerError, "%v", err))
+		}
+		if run, err = l.st.GetRun(ctx, run.ID); err != nil {
 			return l.failed(ctx, run, refuse(http.StatusInternalServerError, "%v", err))
 		}
 	}

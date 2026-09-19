@@ -870,3 +870,14 @@ served index.html with no cache headers, so a browser kept running the previous 
 after a redeploy and features of the new build were "missing"; the shell is now no-cache
 and the hashed assets immutable. Also: the standing worker connected before the seeder
 finished and cached one list; the prefetch now repeats after one and five minutes.
+
+Found 2026-09-19: a run whose targets were bare IPs, started with a fleet exit, sat at
+"running" with its fleet up and idle, nothing in any log. The launcher bound the exit
+pool to the run row, then planned from the copy of the run it held from before, whose
+pool was still nil; the port scans went in with no pool and the lease query matched them
+against nothing. Domain targets never showed it, because their port scans are planned
+later by the scheduler from a freshly loaded run. Fixed: the launcher re-reads the run
+after binding the exit; the planner now refuses to route an active task with no exit
+pool, so the run fails with that reason instead of hanging; and the scheduler's sweep
+warns about pending tasks no active worker can lease, with run, stage, pool and age.
+Documented under "If a run does not move" in the README.

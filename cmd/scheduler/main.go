@@ -159,6 +159,20 @@ func sweep(ctx context.Context, st *store.Store, seeder *wordlists.Seeder) {
 	if n, err := st.ReapExpiredSessions(ctx); err == nil && n > 0 {
 		slog.Info("reaped expired sessions", "count", n)
 	}
+	// Say so when a run has tasks nobody can lease. The run shows "running"
+	// in the UI and nothing progresses; without this line the only way to
+	// tell was to query scan_task and worker by hand.
+	if stranded, err := st.StrandedTasks(ctx, 2*time.Minute); err == nil {
+		for _, s := range stranded {
+			pool := "none"
+			if s.PoolID != nil {
+				pool = s.PoolID.String()
+			}
+			slog.Warn("tasks pending with no active worker able to lease them",
+				"run", s.RunID, "stage", s.Stage, "tasks", s.Tasks, "pool", pool,
+				"waiting_since", s.Oldest.UTC().Format(time.RFC3339))
+		}
+	}
 	// Cert-expiry finding sweep would run here (ExpiringCerts).
 	_, _ = st.ExpiringCerts(ctx, 14*24*time.Hour)
 }

@@ -113,7 +113,11 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 	if len(specs) == 0 {
 		return p.st.SetRunStatus(ctx, run.ID, domain.RunCompleted)
 	}
-	_, err := p.st.InsertTasks(ctx, run.ID, routeTasks(specs, rt))
+	routed, err := routeTasks(specs, rt)
+	if err != nil {
+		return err
+	}
+	_, err = p.st.InsertTasks(ctx, run.ID, routed)
 	return err
 }
 
@@ -212,15 +216,24 @@ const scanBatchSize = 64
 // cannot forget it. Replaces the old `vpn` capability requirement, which routed
 // by what a worker could build rather than where a task should run — and which
 // the planner and the dispatcher once disagreed about.
-func routeTasks(specs []store.TaskSpec, rt routing) []store.TaskSpec {
+//
+// An active task with no exit pool is an error, not a task with a nil pool.
+// The lease query matches a nil pool against nothing, which is the right
+// outcome — never scan from the wrong place — but as a silent one it left a
+// run at "running" forever with nothing in any log. Failing the batch fails
+// the run with the reason on it.
+func routeTasks(specs []store.TaskSpec, rt routing) ([]store.TaskSpec, error) {
 	for i := range specs {
 		if specs[i].Stage.SendsTrafficToTarget() {
+			if rt.active == nil {
+				return nil, fmt.Errorf("%s task has no exit pool to run from: the run was planned before its exit was bound", specs[i].Stage)
+			}
 			specs[i].PoolID = rt.active
 		} else {
 			specs[i].PoolID = rt.passive
 		}
 	}
-	return specs
+	return specs, nil
 }
 
 // routing is where a run's two classes of task go.
@@ -365,7 +378,11 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 		return nil
 	}
 	slog.Info("queued port scans", "run", run.ID, "addresses", len(fresh), "tasks", len(specs))
-	_, err = p.st.InsertTasks(ctx, run.ID, routeTasks(specs, rt))
+	routed, err := routeTasks(specs, rt)
+	if err != nil {
+		return err
+	}
+	_, err = p.st.InsertTasks(ctx, run.ID, routed)
 	return err
 }
 
@@ -413,7 +430,11 @@ func (p *Planner) probeNewServices(ctx context.Context, run domain.ScanRun) erro
 		return nil
 	}
 	slog.Info("queued service probes", "run", run.ID, "endpoints", len(specs))
-	_, err = p.st.InsertTasks(ctx, run.ID, routeTasks(specs, rt))
+	routed, err := routeTasks(specs, rt)
+	if err != nil {
+		return err
+	}
+	_, err = p.st.InsertTasks(ctx, run.ID, routed)
 	return err
 }
 
@@ -495,7 +516,11 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 	if len(specs) == 0 {
 		return nil
 	}
-	_, err = p.st.InsertTasks(ctx, run.ID, routeTasks(specs, rt))
+	routed, err := routeTasks(specs, rt)
+	if err != nil {
+		return err
+	}
+	_, err = p.st.InsertTasks(ctx, run.ID, routed)
 	return err
 }
 

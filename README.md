@@ -812,6 +812,37 @@ ASM_LOG_LEVEL=debug docker compose up -d worker
 `info` (the default) is every tool invocation and stage summary; `warn` and `error`
 narrow it further.
 
+### If a run does not move
+
+A run that says *running* while its progress bar stays put is waiting for a worker,
+not for a tool. Expand it: **Activity** shows every task in flight with its worker
+and elapsed time, so an empty running list with pending tasks means nobody has leased
+them. The scheduler says why, once tasks have waited two minutes:
+
+```bash
+docker compose logs -f scheduler
+  WARN tasks pending with no active worker able to lease them run=… stage=port_scan
+       tasks=6 pool=none waiting_since=…
+```
+
+`pool=none` means the tasks were planned without an exit and no worker will ever match
+them (a bug, fixed 2026-09-19 — a rerun clears it). A pool id with no worker in it means
+the run's own fleet never came up or died: `docker ps --filter label=asm.managed=true`
+lists the run's containers, `docker logs <container>` shows a worker enrolling, its
+control channel coming up, and the wordlists it cached, or the VPN gateway waiting for
+its tunnel. A fleet worker that logs `control channel up` and then nothing is healthy
+and idle — the problem is upstream of it. The scheduler's own log covers the rest:
+`run fleet up` when the containers are ready, `reaped expired leases` when a worker died
+mid-task, and `advance` errors when planning failed.
+
+The same picture from the database, for a run id:
+
+```bash
+docker compose exec postgres psql -U asm -d asm -c \
+  "select stage, status, pool_id, worker_name, attempts, left(error,80)
+     from scan_task where run_id='<run id>' order by created_at"
+```
+
 ## MCP server
 
 An AI client — Claude Code, Claude Desktop, anything that speaks the Model Context

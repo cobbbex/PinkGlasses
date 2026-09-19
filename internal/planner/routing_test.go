@@ -44,8 +44,8 @@ func TestEveryStageIsClassified(t *testing.T) {
 // The property under test is the one that closes the old lease leak: a task is
 // never left for "anyone". Passive stages go to the standing pool whatever the
 // run chose; active stages go to the run's exit pool; and a run with no exit
-// pool leaves its active tasks with a nil pool, which the lease query matches
-// against nothing — failing closed rather than running from the wrong place.
+// pool cannot plan an active task at all — it fails, with the reason, rather
+// than inserting a task no worker can lease or running from the wrong place.
 func TestRouteTasksByStageClass(t *testing.T) {
 	passive := uuid.New()
 	active := uuid.New()
@@ -61,7 +61,10 @@ func TestRouteTasksByStageClass(t *testing.T) {
 		{Stage: scanproto.StageDirBrute},
 		{Stage: scanproto.StageVulnCheck},
 	}
-	got := routeTasks(specs, routing{passive: &passive, active: &active})
+	got, err := routeTasks(specs, routing{passive: &passive, active: &active})
+	if err != nil {
+		t.Fatalf("routing with both pools: %v", err)
+	}
 	for _, sp := range got {
 		want := passive
 		if sp.Stage.SendsTrafficToTarget() {
@@ -77,15 +80,22 @@ func TestRouteTasksByStageClass(t *testing.T) {
 		}
 	}
 
-	// No exit pool: active tasks get nil, passive still route. The API refuses
-	// to create such a run; this is what happens if something slips past it.
-	none := routeTasks([]store.TaskSpec{
-		{Stage: scanproto.StagePassiveEnum}, {Stage: scanproto.StagePortScan},
-	}, routing{passive: &passive, active: nil})
+	// No exit pool: passive tasks still route; an active task is an error.
+	// This is exactly what the launcher once did by planning from a copy of
+	// the run taken before its exit was bound — the port scans of an IP
+	// target went in with no pool and the run hung, silently, with its fleet
+	// up. The error is what makes that visible.
+	none, err := routeTasks([]store.TaskSpec{{Stage: scanproto.StagePassiveEnum}},
+		routing{passive: &passive, active: nil})
+	if err != nil {
+		t.Fatalf("passive-only batch without an exit must route: %v", err)
+	}
 	if none[0].PoolID == nil || *none[0].PoolID != passive {
 		t.Errorf("passive task without an exit should still go to the passive pool, got %v", none[0].PoolID)
 	}
-	if none[1].PoolID != nil {
-		t.Errorf("active task without an exit must have no pool (fail closed), got %v", none[1].PoolID)
+	if _, err := routeTasks([]store.TaskSpec{
+		{Stage: scanproto.StagePassiveEnum}, {Stage: scanproto.StagePortScan},
+	}, routing{passive: &passive, active: nil}); err == nil {
+		t.Errorf("active task without an exit must fail routing, not insert a task nobody can lease")
 	}
 }

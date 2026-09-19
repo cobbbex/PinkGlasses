@@ -132,6 +132,12 @@ active tasks sit pending on a pool nothing else can lease from, and the run view
 says *"Waiting to start a VPN gateway and 2 workers: waiting for a slot: 3 of 3
 runs already hold their own workers"*. It is built when a slot frees.
 
+A run that is *not* waiting for a slot and still has active tasks pending after two
+minutes is stranded — its fleet came up and died, or the tasks carry no pool — and
+the scheduler log says so on every tick: `tasks pending with no active worker able
+to lease them`, with the run, stage, pool and how long they have waited. The README's
+"If a run does not move" walks through it.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/cobbbex/PinkGlasses/main/assets/diagrams/scan-timeline-dark.svg">
   <img src="https://raw.githubusercontent.com/cobbbex/PinkGlasses/main/assets/diagrams/scan-timeline.svg" alt="Timeline of a local run: passive stages start at once on the standing pool while the fleet is requested, built, runs the active stages, and is torn down." width="960">

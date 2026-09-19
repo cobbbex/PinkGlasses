@@ -483,6 +483,57 @@ func (s *Store) ProbedEndpoints(ctx context.Context, runID uuid.UUID) (map[strin
 	return out, rows.Err()
 }
 
+// Stranded is a run whose pending tasks no active worker can lease: their pool
+// has no active worker, or they have no pool at all.
+type Stranded struct {
+	RunID  uuid.UUID
+	PoolID *uuid.UUID
+	Stage  string
+	Tasks  int
+	Oldest time.Time
+}
+
+// StrandedTasks lists pending tasks older than `age` that no active worker is
+// eligible for. It exists to be logged: a run in this state shows "running"
+// in the UI and nothing else, and every stall that has been debugged here so
+// far — a fleet that never came up, a pool binding missed at planning — was
+// invisible until someone queried the tasks by hand. Passive tasks waiting on
+// a standing worker that is merely restarting will show up too, which is why
+// the caller applies an age.
+func (s *Store) StrandedTasks(ctx context.Context, age time.Duration) ([]Stranded, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT t.run_id, t.pool_id, t.stage, count(*), min(t.created_at)
+		FROM scan_task t
+		JOIN scan_run r ON r.id = t.run_id
+		WHERE t.status = 'pending'
+		  AND r.status = 'running'
+		  AND t.created_at < now() - $1::interval
+		  -- A run queued behind the fleet ceiling is waiting, not stranded:
+		  -- its active tasks sit on a pool that gets workers when a slot frees.
+		  AND NOT EXISTS (
+		    SELECT 1 FROM run_fleet f WHERE f.run_id = t.run_id AND f.status = 'requested')
+		  AND NOT EXISTS (
+		    SELECT 1 FROM worker w
+		    WHERE w.status = 'active'
+		      AND w.pool_id IS NOT DISTINCT FROM t.pool_id
+		      AND t.requires <@ w.capabilities)
+		GROUP BY t.run_id, t.pool_id, t.stage
+		ORDER BY min(t.created_at)`, age.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Stranded
+	for rows.Next() {
+		var st Stranded
+		if err := rows.Scan(&st.RunID, &st.PoolID, &st.Stage, &st.Tasks, &st.Oldest); err != nil {
+			return nil, err
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
 // TaskResult returns a task's stored stage summary, if any.
 func (s *Store) TaskResult(ctx context.Context, taskID uuid.UUID) ([]byte, error) {
 	var raw []byte
