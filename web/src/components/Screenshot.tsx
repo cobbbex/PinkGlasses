@@ -55,17 +55,18 @@ export function ScreenshotModal({
  * in the dialog should trigger that.
  */
 export function ScreenshotButton({
-  serviceID, host, title, label = "Screenshot",
-}: { serviceID: string; host?: string | null; title: string; label?: string }) {
+  serviceID, host, title, label = "Screenshot", compact = false,
+}: { serviceID: string; host?: string | null; title: string; label?: string; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <span onClick={(e) => e.stopPropagation()}>
       <button
-        className="ghost sm"
-        title="View the screenshot captured for this service"
+        className={"ghost sm" + (compact ? " icon" : "")}
+        title={compact ? "Screenshot" : "View the screenshot captured for this service"}
+        aria-label="View the screenshot captured for this service"
         onClick={() => setOpen(true)}
       >
-        ▣ {label}
+        ▣{compact ? "" : " " + label}
       </button>
       {open && (
         <ScreenshotModal serviceID={serviceID} host={host} title={title} onClose={() => setOpen(false)} />

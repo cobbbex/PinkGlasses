@@ -110,6 +110,7 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
             <thead>
               <tr>
                 <SortTh k="name" sort={sort} onSort={toggle}>Subdomain</SortTh>
+                <th title="Screenshot" style={{ width: 34 }}></th>
                 {cols.show("found_by") && <SortTh k="found_by" sort={sort} onSort={toggle}
                         title="How the name was discovered: a scope target, subfinder (with the sources that knew it), or the wordlist brute force">Found by</SortTh>}
                 {cols.show("addr") && <SortTh k="addr" sort={sort} onSort={toggle}>Address</SortTh>}
@@ -120,7 +121,6 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                 {cols.show("services") && <SortTh k="services" sort={sort} onSort={toggle}>Services</SortTh>}
                 {cols.show("last_seen") && <SortTh k="last_seen" sort={sort} onSort={toggle}
                   title="When this name was last seen resolving to this address. Hover a value for when it was first seen.">Seen</SortTh>}
-                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -141,6 +141,15 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                             title="This domain answers for any name (wildcard DNS). Names that resolved only to the wildcard address were dropped at discovery; what you see here pointed somewhere else too.">wildcard</span>
                     )}
                   </td>
+                  <td style={{ padding: "6px 4px", whiteSpace: "nowrap" }}>
+                    {r.screenshot_service_id && (
+                      <ScreenshotButton compact
+                        serviceID={r.screenshot_service_id}
+                        host={r.screenshot_host}
+                        title={r.name}
+                      />
+                    )}
+                  </td>
                   {cols.show("found_by") && <td style={{ fontSize: 12.5 }} title={(r.sources ?? []).join(", ") || undefined}>
                     <FoundBy sources={r.sources ?? []} />
                   </td>}
@@ -157,16 +166,6 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                       title={`First seen ${new Date(r.first_seen).toLocaleString()}\nLast seen ${new Date(r.last_seen).toLocaleString()}`}>
                     {new Date(r.last_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                   </td>}
-                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                    {r.screenshot_service_id && (
-                      <ScreenshotButton
-                        serviceID={r.screenshot_service_id}
-                        host={r.screenshot_host}
-                        title={r.name}
-                        label="Screenshot"
-                      />
-                    )}
-                  </td>
                 </tr>
               ))}
             </tbody>
