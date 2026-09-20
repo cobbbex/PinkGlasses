@@ -21,7 +21,7 @@ func (s *Store) UpsertDomain(ctx context.Context, scopeID uuid.UUID, name, apex,
 	var id uuid.UUID
 	err := s.Pool.QueryRow(ctx, `
 		INSERT INTO domain (scope_id, name, apex, sources, first_seen, last_seen)
-		VALUES ($1,$2,$3, CASE WHEN $4<>'' THEN ARRAY[$4] ELSE '{}' END, $5,$5)
+		VALUES ($1,$2,$3, ARRAY(SELECT DISTINCT x FROM unnest(string_to_array($4, ',')) x WHERE x <> ''), $5,$5)
 		ON CONFLICT (scope_id, name) DO UPDATE SET
 		  last_seen = GREATEST(domain.last_seen, EXCLUDED.last_seen),
 		  sources = ARRAY(SELECT DISTINCT unnest(domain.sources || EXCLUDED.sources))
@@ -390,6 +390,10 @@ type HostRow struct {
 	ApexWildcard bool `json:"apex_wildcard"`
 	IsShared     bool `json:"is_shared"`
 	Services     int  `json:"services"`
+	// Sources is where the name came from: "seed" (a scope target),
+	// "subfinder:<provider>" per passive source, "shuffledns" for the brute
+	// force, "dns" once resolution saw it.
+	Sources []string `json:"sources"`
 	// FirstSeen and LastSeen are when this name was first and most recently seen
 	// resolving to this address — the pair, not the name or the address alone.
 	FirstSeen time.Time `json:"first_seen"`
@@ -435,7 +439,8 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 		       ip.as_range, ip.country, ip.cloud, COALESCE(ip.is_shared,false),
 		       COALESCE((SELECT a.is_wildcard FROM domain a WHERE a.scope_id = d.scope_id AND a.name = d.apex), false),
 		       COALESCE((SELECT count(*) FROM service sv WHERE sv.ip_id = ip.id), 0),
-		       COALESCE(di.first_seen, d.first_seen), COALESCE(di.last_seen, d.last_seen), shot.service_id, shot.host
+		       COALESCE(di.first_seen, d.first_seen), COALESCE(di.last_seen, d.last_seen), shot.service_id, shot.host,
+		       COALESCE(d.sources, '{}')
 		FROM domain d
 		LEFT JOIN domain_ip di ON di.domain_id = d.id
 		LEFT JOIN ip_address ip ON ip.id = di.ip_id
@@ -464,8 +469,11 @@ func (s *Store) HostRows(ctx context.Context, scopeID uuid.UUID, q string, limit
 		var h HostRow
 		if err := rows.Scan(&h.DomainID, &h.Name, &h.IPID, &h.Addr, &h.PTR, &h.ASN,
 			&h.ASOrg, &h.ASRange, &h.Country, &h.Cloud, &h.IsShared, &h.ApexWildcard, &h.Services,
-			&h.FirstSeen, &h.LastSeen, &h.ScreenshotServiceID, &h.ScreenshotHost); err != nil {
+			&h.FirstSeen, &h.LastSeen, &h.ScreenshotServiceID, &h.ScreenshotHost, &h.Sources); err != nil {
 			return res, err
+		}
+		if h.Sources == nil {
+			h.Sources = []string{}
 		}
 		res.Rows = append(res.Rows, h)
 	}

@@ -134,6 +134,14 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 			if !domSeen[o.Domain] {
 				sum.Domains = append(sum.Domains, o.Domain)
 				domSeen[o.Domain] = true
+				for _, src := range strings.Split(o.Source, ",") {
+					if src = strings.TrimSpace(src); src != "" {
+						if sum.Sources == nil {
+							sum.Sources = map[string]int{}
+						}
+						sum.Sources[src]++
+					}
+				}
 			}
 
 		case scanproto.ObsDNSRecord:

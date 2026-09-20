@@ -900,3 +900,11 @@ Reported 2026-09-20: the Search facets offered "403 Forbidden" (2) and clicking 
 nothing. The lexer only understood a quote at the start of a token, so title:"403
 Forbidden" split at the space into title:"403 and Forbidden". A quote may now open
 partway through a term; the quotes are not part of the value. Tests in internal/search.
+
+Asked 2026-09-20: the Dashboard's Resolving names, Hosts and Open findings tiles open
+their pages, as Services already opened Search. The run view says what each stage and
+task found — names, addresses, open ports, web endpoints — and, for discovery, by
+source: subfinder names now carry their provider ("subfinder:crtsh"), so a dns_brute
+chip reads "dns_brute 2/2 · 37 names" and the Hosts table has a "Found by" column:
+target, subfinder (crtsh, hackertarget), brute force. Existing names keep the bare
+"subfinder" tag until a scan sees them again.

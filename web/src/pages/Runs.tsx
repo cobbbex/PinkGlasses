@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, Run, RunTarget, RunActivity, RunFleet, Schedule } from "../api";
+import { api, Run, RunTarget, RunActivity, RunFleet, Schedule, TaskResult } from "../api";
 import { Badge, useToast, Modal } from "../components/ui";
 import ScanSettings from "../components/ScanSettings";
 
@@ -824,9 +824,14 @@ function RunWorkers({ runID }: { runID: string }) {
         {act.stages.length === 0 && <span className="muted">No tasks planned yet.</span>}
         {act.stages.map((st) => (
           <span key={st.stage} className="pill" title={
-            `${st.done} done · ${st.active} running · ${st.pending} queued · ${st.failed} failed`}>
+            `${st.done} done · ${st.active} running · ${st.pending} queued · ${st.failed} failed` +
+            (st.found_kind ? `\n${st.found ?? 0} ${st.found_kind} found` : "") +
+            (st.sources && Object.keys(st.sources).length ? "\nby source: " + sourcesText(st.sources) : "")}>
             {st.stage}
             <span className="muted"> {st.done}/{st.done + st.active + st.pending + st.failed}</span>
+            {st.found_kind && (st.found ?? 0) > 0 && (
+              <span style={{ color: "var(--accent)" }}> · {st.found} {st.found_kind}</span>
+            )}
             {st.active > 0 && <span style={{ color: "var(--accent)" }}> ●</span>}
             {st.failed > 0 && <span className="sev-high"> ✕{st.failed}</span>}
           </span>
@@ -856,7 +861,7 @@ function RunWorkers({ runID }: { runID: string }) {
       ) : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Stage</th><th>Target</th><th>Worker</th><th>Status</th><th>Took</th></tr></thead>
+            <thead><tr><th>Stage</th><th>Target</th><th>Worker</th><th>Status</th><th>Found</th><th>Took</th></tr></thead>
             <tbody>
               {[...active, ...recent].map((t) => (
                 <tr key={t.task_id}>
@@ -868,6 +873,7 @@ function RunWorkers({ runID }: { runID: string }) {
                     {t.attempts > 1 && <span className="muted"> retry {t.attempts}</span>}
                     {t.error && <div className="sev-high" style={{ fontSize: 11.5 }}>{t.error}</div>}
                   </td>
+                  <td className="muted" style={{ fontSize: 12.5 }}>{resultText(t.stage, t.result)}</td>
                   <td className="muted">{took(t.started_at, t.finished_at)}</td>
                 </tr>
               ))}
@@ -877,6 +883,38 @@ function RunWorkers({ runID }: { runID: string }) {
       )}
     </div>
   );
+}
+
+// resultText says what a task found, in the unit its stage produces, and
+// for discovery stages where the names came from.
+function resultText(stage: string, r?: TaskResult | null): string {
+  if (!r) return "—";
+  const n = (v: number | undefined, one: string, many: string) => `${v ?? 0} ${v === 1 ? one : many}`;
+  switch (stage) {
+    case "passive_enum":
+    case "dns_brute": {
+      const base = n(r.names, "name", "names");
+      const by = r.sources && Object.keys(r.sources).length ? ` (${sourcesText(r.sources)})` : "";
+      return base + by;
+    }
+    case "dns_resolve":
+    case "ip_enrich": return n(r.addresses, "address", "addresses");
+    case "port_scan": return n(r.services, "open port", "open ports");
+    case "service_probe": return n(r.web_urls, "web endpoint", "web endpoints");
+    default: return "—";
+  }
+}
+
+// sourcesText lists sources by contribution: "crtsh 120, hackertarget 30,
+// brute force 37". A subfinder provider drops its prefix; the brute force
+// and the seed read as words.
+function sourcesText(sources: Record<string, number>): string {
+  const label = (s: string) =>
+    s === "shuffledns" ? "brute force" : s === "seed" ? "seed" : s.replace(/^subfinder:/, "");
+  return Object.entries(sources)
+    .sort((a, b) => b[1] - a[1])
+    .map(([s, c]) => `${label(s)} ${c}`)
+    .join(", ");
 }
 
 // took renders how long a task has been running, or how long it took.

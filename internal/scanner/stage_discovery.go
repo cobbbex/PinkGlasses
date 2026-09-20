@@ -72,7 +72,14 @@ func (s *Scanner) passiveEnum(ctx context.Context, job scanproto.Job) ([]scanpro
 		rows, _ := runJSONL(ctx, budget, "subfinder", args...)
 		for _, r := range rows {
 			if h := str(r, "host"); h != "" {
-				add(h, "subfinder")
+				// The provider rides along — "subfinder:crtsh" — so the Hosts
+				// table can say which source knew a name, and a run can say
+				// what each source contributed.
+				src := "subfinder"
+				if p := str(r, "source"); p != "" {
+					src += ":" + p
+				}
+				add(h, src)
 			}
 		}
 	}

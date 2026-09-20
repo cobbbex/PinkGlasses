@@ -765,6 +765,12 @@ func (g *Gateway) mergeTaskSummary(ctx context.Context, taskID uuid.UUID, add pl
 	}
 
 	cur.Domains = mergeStrings(cur.Domains, add.Domains)
+	for src, n := range add.Sources {
+		if cur.Sources == nil {
+			cur.Sources = map[string]int{}
+		}
+		cur.Sources[src] += n
+	}
 	cur.IPs = mergeStrings(cur.IPs, add.IPs)
 	cur.WebURLs = mergeStrings(cur.WebURLs, add.WebURLs)
 

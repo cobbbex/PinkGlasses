@@ -107,7 +107,7 @@ asset route is under a scope.
 | `POST /scopes/{scopeID}/runs` | operator | start a run; the fields are under *Starting a run* |
 | `GET /runs/{runID}` | viewer | `{run, progress, fleet?}` — `fleet` is present when the run has its own containers, and carries the reason if it is waiting or failed |
 | `GET /runs/{runID}/targets` | viewer | per-target status, counters, skip reasons |
-| `GET /runs/{runID}/activity` | viewer | `{tasks, stages, workers}` — what is running where, right now |
+| `GET /runs/{runID}/activity` | viewer | `{tasks, stages, workers}` — what is running where, right now. Each stage carries `found` and `found_kind` (names, addresses, open ports, web endpoints) and, for discovery stages, `sources` (names per source: `subfinder:crtsh`, `shuffledns`, `seed`); each task carries `result` with the same counts |
 | `GET /runs/{runID}/diff` | viewer | change events this run produced: `{kind, asset_kind, asset_id, before, after, created_at}` |
 | `GET /runs/{runID}/footprint` | viewer | what the run owns, as counts: `{tasks, targets, service_observations, screenshots, resolution_records, finding_observations, change_events, has_fleet}` — what deleting it removes |
 | `GET /runs/{runID}/events` | viewer | server-sent events stream; see the note under *Known gaps* |
@@ -166,7 +166,7 @@ Runs a schedule starts carry `trigger: "scheduled"`.
 | `GET /scopes/{scopeID}/domains` | viewer | `?q=` substring |
 | `GET /scopes/{scopeID}/graph` | viewer | `{nodes, edges}` for the name→address map |
 | `GET /scopes/{scopeID}/hosts` | viewer | addresses with ASN, PTR, country, cloud |
-| `GET /scopes/{scopeID}/hostrows` | viewer | the Hosts table: one row per name→address pair, `?q=` and `?unresolved=true` to include names that resolve to nothing. Returns `{rows, unresolved_hidden}` |
+| `GET /scopes/{scopeID}/hostrows` | viewer | the Hosts table: one row per name→address pair, `?q=` and `?unresolved=true` to include names that resolve to nothing. Returns `{rows, unresolved_hidden}`; each row's `sources` says how the name was found (`seed`, `subfinder:<provider>`, `shuffledns`, `dns`) |
 | `GET /hosts/{ipID}` | viewer | everything about one address: `{host, names, services, findings}`. Each name carries `history` (one entry per run that resolved it) and `also_resolved_to`; each service carries `history` (one entry per run that port-scanned the address), the latest banner/HTTP/TLS, technologies, and cookie **names** |
 | `GET /hosts/{ipID}/services` | viewer | open ports only |
 | `GET /services/{serviceID}/screenshot` | viewer | `image/png`, the most recent capture; `?host=` picks one virtual host's capture, otherwise the address-level one with any host's as fallback |

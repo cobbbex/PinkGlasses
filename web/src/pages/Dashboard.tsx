@@ -38,12 +38,13 @@ export default function Dashboard({ scopeID }: { scopeID: string }) {
       </div>
 
       <div className="cards">
-        <Stat n={sum?.domains_resolving} label="Resolving names"
+        <Stat n={sum?.domains_resolving} label="Resolving names" to="/hosts"
+          title="Open Hosts: every name with the address it resolves to"
           hint={sum && sum.domains > sum.domains_resolving ? `${sum.domains - sum.domains_resolving} more never resolved` : undefined} />
-        <Stat n={sum?.ips} label="Hosts" />
+        <Stat n={sum?.ips} label="Hosts" to="/hosts" title="Open Hosts: every name with the address it resolves to" />
         <Stat n={sum?.services} label="Services" to="/search?q=product%3A*"
           title="Open Search with every service listed and summarized by product, port and technology" />
-        <Stat n={sum?.open_findings} label="Open findings" />
+        <Stat n={sum?.open_findings} label="Open findings" to="/findings" title="Open Findings" />
       </div>
 
       <div className="page-head">

@@ -39,6 +39,10 @@ type StageSummary struct {
 	IPs      []string `json:"ips,omitempty"`      // resolved / enriched addresses
 	Services []IPPort `json:"services,omitempty"` // open ports
 	WebURLs  []string `json:"web_urls,omitempty"` // live http(s) endpoints
+	// Sources counts the discovered names per source that reported them —
+	// "subfinder:crtsh", "shuffledns", "seed" — so a run can say not just
+	// how many names a stage found but where they came from.
+	Sources map[string]int `json:"sources,omitempty"`
 }
 
 // IPPort is an open service discovered by a port scan.

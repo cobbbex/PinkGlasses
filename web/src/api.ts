@@ -134,13 +134,23 @@ export interface Finding {
   ip?: string | null; ip_id?: string | null; port?: number | null;
   seen_in?: number; covered_runs?: number; gone_since?: string | null;
 }
+/** What a task found, counted; sources is names per discovery source. */
+export interface TaskResult {
+  names?: number; addresses?: number; services?: number; web_urls?: number;
+  sources?: Record<string, number> | null;
+}
 export interface TaskActivity {
   task_id: string; stage: string; target: string; status: string; attempts: number;
   worker_name?: string | null; worker_kind?: string | null;
   started_at?: string | null; finished_at?: string | null; error?: string | null;
+  result?: TaskResult | null;
 }
 export interface StageCount {
   stage: string; pending: number; active: number; done: number; failed: number;
+  /** What the stage's finished tasks reported, in found_kind units (names, addresses, open ports, web endpoints). */
+  found?: number; found_kind?: string;
+  /** For discovery stages: found broken down by source. */
+  sources?: Record<string, number> | null;
 }
 export interface WorkerBusy {
   name: string; kind: string; running: number; done: number; stages: string[];
@@ -162,6 +172,8 @@ export interface HostRow {
   asn?: number | null; as_org?: string | null; as_range?: string | null;
   country?: string | null; cloud?: string | null;
   is_shared: boolean; services: number;
+  /** Where the name came from: "seed", "subfinder:<provider>", "shuffledns", "dns" once resolved. */
+  sources?: string[] | null;
   /** The apex answers for any label; phantom names under it were dropped at discovery. */
   apex_wildcard?: boolean;
   /** When this name was first and most recently seen resolving to this address. */

@@ -94,6 +94,8 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
             <thead>
               <tr>
                 <SortTh k="name" sort={sort} onSort={toggle}>Subdomain</SortTh>
+                <SortTh k="found_by" sort={sort} onSort={toggle}
+                        title="How the name was discovered: a scope target, subfinder (with the sources that knew it), or the wordlist brute force">Found by</SortTh>
                 <SortTh k="addr" sort={sort} onSort={toggle}>Address</SortTh>
                 <SortTh k="ptr" sort={sort} onSort={toggle}>Reverse DNS</SortTh>
                 <SortTh k="asn" sort={sort} onSort={toggle}>ASN</SortTh>
@@ -122,6 +124,9 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                       <span className="pill" style={{ marginLeft: 6 }}
                             title="This domain answers for any name (wildcard DNS). Names that resolved only to the wildcard address were dropped at discovery; what you see here pointed somewhere else too.">wildcard</span>
                     )}
+                  </td>
+                  <td style={{ fontSize: 12.5 }} title={(r.sources ?? []).join(", ") || undefined}>
+                    <FoundBy sources={r.sources ?? []} />
                   </td>
                   <td className="mono">
                     {r.addr ?? <span className="muted">did not resolve</span>}
@@ -159,9 +164,37 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
 
 // What each Hosts column orders by. Dates become Date so they sort by time,
 // and an unresolved row's missing address sinks to the bottom.
+/**
+ * How a name was found. "dns" only says resolution saw it, which every
+ * resolving name has, so it is not a way of finding and is left out unless
+ * it is all there is (a name that arrived as a DNS record of another).
+ */
+function foundBy(sources: string[]): { kind: string; providers: string[] } {
+  const providers = sources.filter((s) => s.startsWith("subfinder:")).map((s) => s.slice("subfinder:".length)).sort();
+  const kinds: string[] = [];
+  if (sources.includes("seed")) kinds.push("target");
+  if (providers.length || sources.includes("subfinder")) kinds.push("subfinder");
+  if (sources.includes("shuffledns")) kinds.push("brute force");
+  if (sources.includes("wildcard-probe")) kinds.push("wildcard probe");
+  if (kinds.length === 0 && sources.includes("dns")) kinds.push("dns record");
+  return { kind: kinds.join(" + "), providers };
+}
+
+function FoundBy({ sources }: { sources: string[] }) {
+  const { kind, providers } = foundBy(sources);
+  if (!kind) return <span className="muted">—</span>;
+  return (
+    <>
+      {kind}
+      {providers.length > 0 && <span className="muted"> ({providers.join(", ")})</span>}
+    </>
+  );
+}
+
 function hostSortValue(r: HostRow, key: string): unknown {
   switch (key) {
     case "name": return r.name;
+    case "found_by": { const f = foundBy(r.sources ?? []); return f.kind ? f.kind + " " + f.providers.join(",") : null; }
     case "addr": return r.addr;
     case "ptr": return r.ptr;
     case "asn": return r.asn;

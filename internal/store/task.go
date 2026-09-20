@@ -345,6 +345,42 @@ func (s *Store) OriginsForTask(ctx context.Context, taskID uuid.UUID) ([]uuid.UU
 
 // Activity is one task's live state, joined to the worker executing it. This is
 // what answers "which workers are on this scan and what are they doing".
+// TaskResult is what a task found, counted: read off the stage summary the
+// gateway keeps on the task, so the run view can say "37 names" beside a
+// dns_brute task rather than only that it finished.
+type TaskResult struct {
+	Names     int            `json:"names,omitempty"`
+	Addresses int            `json:"addresses,omitempty"`
+	Services  int            `json:"services,omitempty"`
+	WebURLs   int            `json:"web_urls,omitempty"`
+	Sources   map[string]int `json:"sources,omitempty"`
+}
+
+// taskResultCounts reads the counts off a stored stage summary. The summary
+// is planner.StageSummary; it is decoded here by shape, since store cannot
+// import planner.
+func taskResultCounts(raw []byte) *TaskResult {
+	if len(raw) == 0 {
+		return nil
+	}
+	var sum struct {
+		Domains  []json.RawMessage `json:"domains"`
+		IPs      []json.RawMessage `json:"ips"`
+		Services []json.RawMessage `json:"services"`
+		WebURLs  []json.RawMessage `json:"web_urls"`
+		Sources  map[string]int    `json:"sources"`
+	}
+	if err := json.Unmarshal(raw, &sum); err != nil {
+		return nil
+	}
+	r := &TaskResult{Names: len(sum.Domains), Addresses: len(sum.IPs),
+		Services: len(sum.Services), WebURLs: len(sum.WebURLs), Sources: sum.Sources}
+	if r.Names == 0 && r.Addresses == 0 && r.Services == 0 && r.WebURLs == 0 {
+		return nil
+	}
+	return r
+}
+
 type Activity struct {
 	TaskID     uuid.UUID  `json:"task_id"`
 	Stage      string     `json:"stage"`
@@ -357,6 +393,8 @@ type Activity struct {
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	Error      *string    `json:"error,omitempty"`
+	// Result is what the task found, when it has reported anything.
+	Result *TaskResult `json:"result,omitempty"`
 }
 
 // RunActivity returns in-flight tasks first, then the most recently finished,
@@ -372,7 +410,7 @@ func (s *Store) RunActivity(ctx context.Context, runID uuid.UUID, limit int) ([]
 		       t.status, t.attempts,
 		       t.worker_id,
 		       COALESCE(w.name, t.worker_name), COALESCE(w.kind, t.worker_kind),
-		       t.started_at, t.finished_at, t.error
+		       t.started_at, t.finished_at, t.error, t.result
 		FROM scan_task t
 		LEFT JOIN worker w ON w.id = t.worker_id
 		WHERE t.run_id = $1
@@ -388,11 +426,13 @@ func (s *Store) RunActivity(ctx context.Context, runID uuid.UUID, limit int) ([]
 	out := []Activity{}
 	for rows.Next() {
 		var a Activity
+		var result []byte
 		if err := rows.Scan(&a.TaskID, &a.Stage, &a.Target, &a.Status, &a.Attempts,
 			&a.WorkerID, &a.WorkerName, &a.WorkerKind,
-			&a.StartedAt, &a.FinishedAt, &a.Error); err != nil {
+			&a.StartedAt, &a.FinishedAt, &a.Error, &result); err != nil {
 			return nil, err
 		}
+		a.Result = taskResultCounts(result)
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -405,6 +445,23 @@ type StageCount struct {
 	Active  int    `json:"active"`
 	Done    int    `json:"done"`
 	Failed  int    `json:"failed"`
+	// Found is what the stage's finished tasks reported so far, in the unit
+	// that stage produces: names for discovery and brute force, addresses
+	// for resolution, open ports for the port scan, web endpoints for the
+	// probe. FoundKind names the unit; both are zero for stages whose
+	// output is not a count of things (screenshots, technologies, paths).
+	Found     int    `json:"found,omitempty"`
+	FoundKind string `json:"found_kind,omitempty"`
+	// Sources is Found broken down by discovery source, for the stages
+	// that have one: "subfinder:crtsh" 120, "shuffledns" 37, "seed" 1.
+	Sources map[string]int `json:"sources,omitempty"`
+}
+
+// stageFoundKind is the unit each stage's result is counted in.
+var stageFoundKind = map[string]string{
+	"passive_enum": "names", "dns_brute": "names",
+	"dns_resolve": "addresses", "ip_enrich": "addresses",
+	"port_scan": "open ports", "service_probe": "web endpoints",
 }
 
 // RunStages returns per-stage counts so the UI can show where a run actually is
@@ -415,7 +472,17 @@ func (s *Store) RunStages(ctx context.Context, runID uuid.UUID) ([]StageCount, e
 		       count(*) FILTER (WHERE status='pending'),
 		       count(*) FILTER (WHERE status IN ('leased','running')),
 		       count(*) FILTER (WHERE status='done'),
-		       count(*) FILTER (WHERE status='failed')
+		       count(*) FILTER (WHERE status='failed'),
+		       COALESCE(sum(jsonb_array_length(result->'domains')) FILTER (WHERE jsonb_typeof(result->'domains')='array'), 0),
+		       COALESCE(sum(jsonb_array_length(result->'ips')) FILTER (WHERE jsonb_typeof(result->'ips')='array'), 0),
+		       COALESCE(sum(jsonb_array_length(result->'services')) FILTER (WHERE jsonb_typeof(result->'services')='array'), 0),
+		       COALESCE(sum(jsonb_array_length(result->'web_urls')) FILTER (WHERE jsonb_typeof(result->'web_urls')='array'), 0),
+		       COALESCE((SELECT jsonb_object_agg(k, n) FROM (
+		           SELECT k, sum(v::int) AS n
+		           FROM scan_task t2, jsonb_each_text(t2.result->'sources') AS e(k, v)
+		           WHERE t2.run_id = $1 AND t2.stage = scan_task.stage
+		             AND jsonb_typeof(t2.result->'sources') = 'object'
+		           GROUP BY k) agg), '{}'::jsonb)
 		FROM scan_task WHERE run_id=$1
 		GROUP BY stage ORDER BY min(priority), stage`, runID)
 	if err != nil {
@@ -425,8 +492,22 @@ func (s *Store) RunStages(ctx context.Context, runID uuid.UUID) ([]StageCount, e
 	out := []StageCount{}
 	for rows.Next() {
 		var c StageCount
-		if err := rows.Scan(&c.Stage, &c.Pending, &c.Active, &c.Done, &c.Failed); err != nil {
+		var names, addrs, svcs, urls int
+		var sources []byte
+		if err := rows.Scan(&c.Stage, &c.Pending, &c.Active, &c.Done, &c.Failed,
+			&names, &addrs, &svcs, &urls, &sources); err != nil {
 			return nil, err
+		}
+		switch c.FoundKind = stageFoundKind[c.Stage]; c.FoundKind {
+		case "names":
+			c.Found = names
+			_ = json.Unmarshal(sources, &c.Sources)
+		case "addresses":
+			c.Found = addrs
+		case "open ports":
+			c.Found = svcs
+		case "web endpoints":
+			c.Found = urls
 		}
 		out = append(out, c)
 	}

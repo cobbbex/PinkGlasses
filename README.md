@@ -786,11 +786,16 @@ slot rather than stacking a second run.
 Expanding a run shows, refreshed every few seconds:
 
 - **Pipeline** — a chip per stage with done/total, a dot while work is in flight,
-  and a count of failures
+  a count of failures, and what the stage has found so far in its own unit: names
+  for discovery and the brute force, addresses for resolution, open ports, web
+  endpoints. Hover a discovery chip for the names by source — each subfinder
+  provider, the brute force, the seed
 - **Workers on this scan** — each worker, how many tasks it is running and has
   finished, and which stages it is on
 - **Activity** — running tasks first, then recently finished: stage, target,
-  which worker, status, retries and elapsed time
+  which worker, status, what it found (a dns_brute task says "37 names (brute
+  force 37)", a passive_enum task lists names per provider), retries and elapsed
+  time
 
 The same story appears in the worker log:
 
