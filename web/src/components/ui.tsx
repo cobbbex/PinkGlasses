@@ -1,3 +1,4 @@
+import type React from "react";
 import { Link } from "react-router-dom";
 import { ReactNode, useEffect, useRef, useState, createContext, useContext, useCallback, useMemo, type CSSProperties } from "react";
 
@@ -238,6 +239,55 @@ export function ColumnPicker({ defs, show, toggle, reset, hiddenCount }: {
   );
 }
 
+/**
+ * Column widths a viewer has dragged, in px by column key, remembered per
+ * browser under `storageKey`. A column never dragged has no entry and takes
+ * the width its content asks for.
+ */
+export function useColumnWidths(storageKey: string) {
+  const [widths, setWidths] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem(storageKey) ?? "{}") as Record<string, number>; } catch { return {}; }
+  });
+  const set = (key: string, px: number) => setWidths((w) => {
+    const next = { ...w, [key]: Math.round(px) };
+    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* private mode */ }
+    return next;
+  });
+  const reset = () => { setWidths({}); try { localStorage.removeItem(storageKey); } catch { /* private mode */ } };
+  return { widths, set, reset, any: Object.keys(widths).length > 0 };
+}
+
+/**
+ * The drag handle at a header's right edge. Listeners go on the document for
+ * the drag's duration, so the pointer may leave the handle — and the header —
+ * without losing the column. The click that ends a drag must not sort.
+ */
+function ResizeHandle({ onResize, th }: { onResize: (px: number) => void; th: React.RefObject<HTMLTableCellElement | null> }) {
+  const dragging = useRef(false);
+  const start = (e: React.PointerEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    const el = th.current;
+    if (!el) return;
+    const x0 = e.clientX, w0 = el.getBoundingClientRect().width;
+    dragging.current = true;
+    const move = (ev: PointerEvent) => onResize(Math.max(48, w0 + (ev.clientX - x0)));
+    const up = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      // Let the click that follows pointerup see that a drag just happened.
+      setTimeout(() => { dragging.current = false; }, 0);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+  };
+  return (
+    <span className="col-resize" title="Drag to resize; double-click to fit"
+          onPointerDown={start}
+          onClick={(e) => { e.stopPropagation(); }}
+          onDoubleClick={(e) => { e.stopPropagation(); onResize(0); }} />
+  );
+}
+
 export type SortDir = "asc" | "desc";
 export interface SortState { key: string; dir: SortDir }
 
@@ -297,18 +347,24 @@ function compareValues(a: unknown, b: unknown): number {
 }
 
 /** A header cell that sorts its column: click to sort, click again to flip. */
-export function SortTh({ k, sort, onSort, children, title, style }: {
+export function SortTh({ k, sort, onSort, children, title, style, width, onResize }: {
   k: string; sort: SortState; onSort: (key: string) => void;
   children: ReactNode; title?: string; style?: CSSProperties;
+  /** A dragged width in px; with onResize, the header grows a drag handle. */
+  width?: number; onResize?: (key: string, px: number) => void;
 }) {
   const on = sort.key === k;
+  const ref = useRef<HTMLTableCellElement>(null);
+  const sized = width && width > 0 ? { width, minWidth: width, maxWidth: width } : {};
   return (
-    <th className={"sortable" + (on ? " sorted" : "")} onClick={() => onSort(k)} title={title}
-        aria-sort={on ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} style={style}>
+    <th ref={ref} className={"sortable" + (on ? " sorted" : "") + (onResize ? " resizable" : "")}
+        onClick={() => onSort(k)} title={title}
+        aria-sort={on ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} style={{ ...sized, ...style }}>
       {children}
       <span className={"sort-arrow" + (on ? " on" : "")} aria-hidden="true">
         {on ? (sort.dir === "asc" ? "▲" : "▼") : "⇅"}
       </span>
+      {onResize && <ResizeHandle th={ref} onResize={(px) => onResize(k, px)} />}
     </th>
   );
 }

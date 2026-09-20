@@ -1,7 +1,8 @@
+import type React from "react";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, HostRow } from "../api";
-import { InfoDot, Spinner, useSort, SortTh, useColumns, ColumnPicker, ColumnDef } from "../components/ui";
+import { InfoDot, Spinner, useSort, SortTh, useColumns, ColumnPicker, ColumnDef, useColumnWidths } from "../components/ui";
 import { ScreenshotButton } from "../components/Screenshot";
 import Graph from "../components/Graph";
 
@@ -28,6 +29,16 @@ const COLUMNS: ColumnDef[] = [
 export default function Hosts({ scopeID }: { scopeID: string }) {
   const [q, setQ] = useState("");
   const cols = useColumns("asm.hosts.columns", COLUMNS);
+  // Widths the viewer has dragged. A double-click on a handle lets that
+  // column size itself again; "Reset widths" does it for all.
+  const cw = useColumnWidths("asm.hosts.widths");
+  const size = { onResize: cw.set };
+  // A dragged column's cells take its width and clip; the rest size themselves.
+  const cell = (k: string): { className?: string; style?: React.CSSProperties } => {
+    const w = cw.widths[k];
+    return w && w > 0 ? { className: "clip", style: { width: w, maxWidth: w, minWidth: w } } : {};
+  };
+  const cls = (k: string, base: string) => (cell(k).className ? base + " clip" : base);
   const [view, setView] = useState<"table" | "map">("table");
   // Passive sources record names that existed once and no longer resolve. They
   // are kept, but they are not current attack surface, so they are out of the
@@ -77,6 +88,9 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
         </div>
         <div className="row" style={{ margin: 0 }}>
           {isLoading && <Spinner />}
+          {view === "table" && cw.any && (
+            <button className="ghost" onClick={cw.reset} title="Let every column size itself again">Reset widths</button>
+          )}
           {view === "table" && <ColumnPicker defs={COLUMNS} {...cols} />}
           <button className={view === "table" ? "" : "ghost"} onClick={() => setView("table")}>Table</button>
           <button className={view === "map" ? "" : "ghost"} onClick={() => setView("map")}>Map</button>
@@ -109,17 +123,17 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
           <table>
             <thead>
               <tr>
-                <SortTh k="name" sort={sort} onSort={toggle}>Subdomain</SortTh>
+                <SortTh k="name" sort={sort} onSort={toggle} width={cw.widths.name} {...size}>Subdomain</SortTh>
                 <th title="Screenshot" style={{ width: 34 }}></th>
-                {cols.show("found_by") && <SortTh k="found_by" sort={sort} onSort={toggle}
+                {cols.show("found_by") && <SortTh k="found_by" sort={sort} onSort={toggle} width={cw.widths.found_by} {...size}
                         title="How the name was discovered: a scope target, subfinder (with the sources that knew it), or the wordlist brute force">Found by</SortTh>}
-                {cols.show("addr") && <SortTh k="addr" sort={sort} onSort={toggle}>Address</SortTh>}
-                {cols.show("ptr") && <SortTh k="ptr" sort={sort} onSort={toggle}>Reverse DNS</SortTh>}
-                {cols.show("asn") && <SortTh k="asn" sort={sort} onSort={toggle}>ASN</SortTh>}
-                {cols.show("as_org") && <SortTh k="as_org" sort={sort} onSort={toggle}>AS name</SortTh>}
-                {cols.show("as_range") && <SortTh k="as_range" sort={sort} onSort={toggle}>AS range</SortTh>}
-                {cols.show("services") && <SortTh k="services" sort={sort} onSort={toggle}>Services</SortTh>}
-                {cols.show("last_seen") && <SortTh k="last_seen" sort={sort} onSort={toggle}
+                {cols.show("addr") && <SortTh k="addr" sort={sort} onSort={toggle} width={cw.widths.addr} {...size}>Address</SortTh>}
+                {cols.show("ptr") && <SortTh k="ptr" sort={sort} onSort={toggle} width={cw.widths.ptr} {...size}>Reverse DNS</SortTh>}
+                {cols.show("asn") && <SortTh k="asn" sort={sort} onSort={toggle} width={cw.widths.asn} {...size}>ASN</SortTh>}
+                {cols.show("as_org") && <SortTh k="as_org" sort={sort} onSort={toggle} width={cw.widths.as_org} {...size}>AS name</SortTh>}
+                {cols.show("as_range") && <SortTh k="as_range" sort={sort} onSort={toggle} width={cw.widths.as_range} {...size}>AS range</SortTh>}
+                {cols.show("services") && <SortTh k="services" sort={sort} onSort={toggle} width={cw.widths.services} {...size}>Services</SortTh>}
+                {cols.show("last_seen") && <SortTh k="last_seen" sort={sort} onSort={toggle} width={cw.widths.last_seen} {...size}
                   title="When this name was last seen resolving to this address. Hover a value for when it was first seen.">Seen</SortTh>}
               </tr>
             </thead>
@@ -129,7 +143,7 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                     style={{ cursor: r.ip_id ? "pointer" : "default" }}
                     title={r.ip_id ? "Open host details in a new tab" : undefined}
                     onClick={() => r.ip_id && window.open(`/host/${r.ip_id}`, "_blank", "noopener")}>
-                  <td className="mono">
+                  <td className={cls("name", "mono")} style={cell("name").style}>
                     {r.ip_id ? (
                       // A real link, so the row also answers to middle-click,
                       // ctrl-click and "copy link address".
@@ -150,19 +164,19 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                       />
                     )}
                   </td>
-                  {cols.show("found_by") && <td style={{ fontSize: 12.5 }} title={(r.sources ?? []).join(", ") || undefined}>
+                  {cols.show("found_by") && <td className={cell("found_by").className} style={{ fontSize: 12.5, ...cell("found_by").style }} title={(r.sources ?? []).join(", ") || undefined}>
                     <FoundBy sources={r.sources ?? []} />
                   </td>}
-                  {cols.show("addr") && <td className="mono">
+                  {cols.show("addr") && <td className={cls("addr", "mono")} style={cell("addr").style}>
                     {r.addr ?? <span className="muted">did not resolve</span>}
                     {r.is_shared && <span className="pill" style={{ marginLeft: 6 }}>shared</span>}
                   </td>}
-                  {cols.show("ptr") && <td className="muted mono">{r.ptr ?? "—"}</td>}
-                  {cols.show("asn") && <td className="mono">{r.asn ? "AS" + r.asn : "—"}</td>}
-                  {cols.show("as_org") && <td>{r.as_org ?? "—"}</td>}
-                  {cols.show("as_range") && <td className="mono muted">{r.as_range ?? "—"}</td>}
-                  {cols.show("services") && <td className="muted">{r.ip_id ? r.services : "—"}</td>}
-                  {cols.show("last_seen") && <td className="muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}
+                  {cols.show("ptr") && <td className={cls("ptr", "muted mono")} style={cell("ptr").style} title={r.ptr ?? undefined}>{r.ptr ?? "—"}</td>}
+                  {cols.show("asn") && <td className={cls("asn", "mono")} style={cell("asn").style}>{r.asn ? "AS" + r.asn : "—"}</td>}
+                  {cols.show("as_org") && <td className={cell("as_org").className} style={cell("as_org").style} title={r.as_org ?? undefined}>{r.as_org ?? "—"}</td>}
+                  {cols.show("as_range") && <td className={cls("as_range", "mono muted")} style={cell("as_range").style}>{r.as_range ?? "—"}</td>}
+                  {cols.show("services") && <td className={cls("services", "muted")} style={cell("services").style}>{r.ip_id ? r.services : "—"}</td>}
+                  {cols.show("last_seen") && <td className={cls("last_seen", "muted")} style={{ whiteSpace: "nowrap", fontSize: 12, ...cell("last_seen").style }}
                       title={`First seen ${new Date(r.first_seen).toLocaleString()}\nLast seen ${new Date(r.last_seen).toLocaleString()}`}>
                     {new Date(r.last_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
                   </td>}

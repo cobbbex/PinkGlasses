@@ -930,3 +930,7 @@ in every company. Company deletion no longer counts or removes configs.
 Asked 2026-09-21: the Hosts table has a Columns button — a checklist of its columns,
 the name always on — remembered in the browser (asm.hosts.columns); the hook and the
 picker live in components/ui.tsx so other tables can take the same.
+
+Asked 2026-09-21: Hosts column headings resize by dragging their right edge; widths are
+kept in the browser (asm.hosts.widths), a double-click fits a column again, "Reset widths"
+clears all. The handle and the widths hook are in components/ui.tsx.

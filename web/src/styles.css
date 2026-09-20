@@ -368,3 +368,11 @@ h2 { margin: 0 0 16px; } h3 { margin: 0; font-size: 15px; }
 
 /* An icon-only button: as tall as the text beside it, no wider than its glyph. */
 button.icon { padding: 1px 6px; font-size: 12px; line-height: 1.5; min-width: 0; }
+
+/* Resizable headers: a grab strip at the right edge; a table whose columns
+   have been dragged keeps the widths it was given and clips what no longer
+   fits (the full value is still on hover where the cell offers one). */
+th.resizable { position: relative; }
+.col-resize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; z-index: 1; }
+.col-resize:hover, .col-resize:active { background: var(--accent); opacity: .5; }
+td.clip { overflow: hidden; text-overflow: ellipsis; }
