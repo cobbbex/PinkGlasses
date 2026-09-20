@@ -539,6 +539,10 @@ endpoint, never logged.
 
 ## The Hosts view
 
+**Columns** above the table chooses which columns to show; the name and the row's
+actions always show. The choice is kept in the browser, so it holds across companies
+and reloads, and *Show all* puts every column back.
+
 Names and the machines they point at are one question in practice, so there is a
 single **Hosts** page rather than separate Domains and Hosts pages. Each row is a
 discovered name with the address it resolves to and that address's provenance:

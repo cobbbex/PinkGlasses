@@ -174,6 +174,70 @@ export function OpenLink({ href, label = "Open" }: { href: string; label?: strin
   );
 }
 
+/** A column a table can show or hide. `always` columns cannot be hidden. */
+export interface ColumnDef { key: string; label: string; always?: boolean }
+
+/**
+ * Which of a table's columns are shown, remembered per browser under
+ * `storageKey`. A column absent from storage is shown, so a column added
+ * later appears rather than staying hidden by an old choice.
+ */
+export function useColumns(storageKey: string, defs: ColumnDef[]) {
+  const [hidden, setHidden] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch { return new Set(); }
+  });
+  const show = (key: string) => !hidden.has(key);
+  const toggle = (key: string) => setHidden((h) => {
+    if (defs.find((d) => d.key === key)?.always) return h;
+    const next = new Set(h);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* private mode */ }
+    return next;
+  });
+  const reset = () => { setHidden(new Set()); try { localStorage.removeItem(storageKey); } catch { /* private mode */ } };
+  return { show, toggle, reset, hiddenCount: [...hidden].filter((k) => defs.some((d) => d.key === k)).length };
+}
+
+/** A "Columns" button opening a checklist of a table's columns. */
+export function ColumnPicker({ defs, show, toggle, reset, hiddenCount }: {
+  defs: ColumnDef[]; show: (k: string) => boolean; toggle: (k: string) => void; reset: () => void; hiddenCount: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc); document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  return (
+    <div className="colpick" ref={ref}>
+      <button className="ghost" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+              title="Choose which columns to show">
+        Columns{hiddenCount > 0 && <span className="muted"> · {hiddenCount} hidden</span>}
+      </button>
+      {open && (
+        <div className="colpick-menu card" role="menu">
+          {defs.map((d) => (
+            <label key={d.key} className={"param-toggle" + (d.always ? " muted" : "")}
+                   title={d.always ? "Always shown" : undefined}>
+              <input type="checkbox" checked={show(d.key)} disabled={d.always} onChange={() => toggle(d.key)} />
+              <span>{d.label}</span>
+            </label>
+          ))}
+          {hiddenCount > 0 && (
+            <button className="ghost sm" style={{ marginTop: 6 }} onClick={() => { reset(); setOpen(false); }}>Show all</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export type SortDir = "asc" | "desc";
 export interface SortState { key: string; dir: SortDir }
 

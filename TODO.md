@@ -926,3 +926,7 @@ delete anyone's. A run, a rerun, a schedule and a company default may only name 
 requester's own config (403); a schedule stays bound to its creator's. The VPN page is
 account-level and renders without a company; the launch dialog lists the person's configs
 in every company. Company deletion no longer counts or removes configs.
+
+Asked 2026-09-21: the Hosts table has a Columns button — a checklist of its columns,
+the name always on — remembered in the browser (asm.hosts.columns); the hook and the
+picker live in components/ui.tsx so other tables can take the same.

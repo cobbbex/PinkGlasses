@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, HostRow } from "../api";
-import { InfoDot, Spinner, useSort, SortTh } from "../components/ui";
+import { InfoDot, Spinner, useSort, SortTh, useColumns, ColumnPicker, ColumnDef } from "../components/ui";
 import { ScreenshotButton } from "../components/Screenshot";
 import Graph from "../components/Graph";
 
@@ -11,8 +11,23 @@ import Graph from "../components/Graph";
  * discovered name with the address it resolves to and that address's network
  * provenance (rDNS, AS number, AS name, announcing prefix), all supplied by dnsx.
  */
+// The table's columns, in order. Which are shown is the viewer's choice,
+// kept in this browser; the name and the row's actions always show.
+const COLUMNS: ColumnDef[] = [
+  { key: "name", label: "Subdomain", always: true },
+  { key: "found_by", label: "Found by" },
+  { key: "addr", label: "Address" },
+  { key: "ptr", label: "Reverse DNS" },
+  { key: "asn", label: "ASN" },
+  { key: "as_org", label: "AS name" },
+  { key: "as_range", label: "AS range" },
+  { key: "services", label: "Services" },
+  { key: "last_seen", label: "Seen" },
+];
+
 export default function Hosts({ scopeID }: { scopeID: string }) {
   const [q, setQ] = useState("");
+  const cols = useColumns("asm.hosts.columns", COLUMNS);
   const [view, setView] = useState<"table" | "map">("table");
   // Passive sources record names that existed once and no longer resolve. They
   // are kept, but they are not current attack surface, so they are out of the
@@ -62,6 +77,7 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
         </div>
         <div className="row" style={{ margin: 0 }}>
           {isLoading && <Spinner />}
+          {view === "table" && <ColumnPicker defs={COLUMNS} {...cols} />}
           <button className={view === "table" ? "" : "ghost"} onClick={() => setView("table")}>Table</button>
           <button className={view === "map" ? "" : "ghost"} onClick={() => setView("map")}>Map</button>
         </div>
@@ -94,16 +110,16 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
             <thead>
               <tr>
                 <SortTh k="name" sort={sort} onSort={toggle}>Subdomain</SortTh>
-                <SortTh k="found_by" sort={sort} onSort={toggle}
-                        title="How the name was discovered: a scope target, subfinder (with the sources that knew it), or the wordlist brute force">Found by</SortTh>
-                <SortTh k="addr" sort={sort} onSort={toggle}>Address</SortTh>
-                <SortTh k="ptr" sort={sort} onSort={toggle}>Reverse DNS</SortTh>
-                <SortTh k="asn" sort={sort} onSort={toggle}>ASN</SortTh>
-                <SortTh k="as_org" sort={sort} onSort={toggle}>AS name</SortTh>
-                <SortTh k="as_range" sort={sort} onSort={toggle}>AS range</SortTh>
-                <SortTh k="services" sort={sort} onSort={toggle}>Services</SortTh>
-                <SortTh k="last_seen" sort={sort} onSort={toggle}
-                  title="When this name was last seen resolving to this address. Hover a value for when it was first seen.">Seen</SortTh>
+                {cols.show("found_by") && <SortTh k="found_by" sort={sort} onSort={toggle}
+                        title="How the name was discovered: a scope target, subfinder (with the sources that knew it), or the wordlist brute force">Found by</SortTh>}
+                {cols.show("addr") && <SortTh k="addr" sort={sort} onSort={toggle}>Address</SortTh>}
+                {cols.show("ptr") && <SortTh k="ptr" sort={sort} onSort={toggle}>Reverse DNS</SortTh>}
+                {cols.show("asn") && <SortTh k="asn" sort={sort} onSort={toggle}>ASN</SortTh>}
+                {cols.show("as_org") && <SortTh k="as_org" sort={sort} onSort={toggle}>AS name</SortTh>}
+                {cols.show("as_range") && <SortTh k="as_range" sort={sort} onSort={toggle}>AS range</SortTh>}
+                {cols.show("services") && <SortTh k="services" sort={sort} onSort={toggle}>Services</SortTh>}
+                {cols.show("last_seen") && <SortTh k="last_seen" sort={sort} onSort={toggle}
+                  title="When this name was last seen resolving to this address. Hover a value for when it was first seen.">Seen</SortTh>}
                 <th></th>
               </tr>
             </thead>
@@ -125,22 +141,22 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                             title="This domain answers for any name (wildcard DNS). Names that resolved only to the wildcard address were dropped at discovery; what you see here pointed somewhere else too.">wildcard</span>
                     )}
                   </td>
-                  <td style={{ fontSize: 12.5 }} title={(r.sources ?? []).join(", ") || undefined}>
+                  {cols.show("found_by") && <td style={{ fontSize: 12.5 }} title={(r.sources ?? []).join(", ") || undefined}>
                     <FoundBy sources={r.sources ?? []} />
-                  </td>
-                  <td className="mono">
+                  </td>}
+                  {cols.show("addr") && <td className="mono">
                     {r.addr ?? <span className="muted">did not resolve</span>}
                     {r.is_shared && <span className="pill" style={{ marginLeft: 6 }}>shared</span>}
-                  </td>
-                  <td className="muted mono">{r.ptr ?? "—"}</td>
-                  <td className="mono">{r.asn ? "AS" + r.asn : "—"}</td>
-                  <td>{r.as_org ?? "—"}</td>
-                  <td className="mono muted">{r.as_range ?? "—"}</td>
-                  <td className="muted">{r.ip_id ? r.services : "—"}</td>
-                  <td className="muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}
+                  </td>}
+                  {cols.show("ptr") && <td className="muted mono">{r.ptr ?? "—"}</td>}
+                  {cols.show("asn") && <td className="mono">{r.asn ? "AS" + r.asn : "—"}</td>}
+                  {cols.show("as_org") && <td>{r.as_org ?? "—"}</td>}
+                  {cols.show("as_range") && <td className="mono muted">{r.as_range ?? "—"}</td>}
+                  {cols.show("services") && <td className="muted">{r.ip_id ? r.services : "—"}</td>}
+                  {cols.show("last_seen") && <td className="muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}
                       title={`First seen ${new Date(r.first_seen).toLocaleString()}\nLast seen ${new Date(r.last_seen).toLocaleString()}`}>
                     {new Date(r.last_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
-                  </td>
+                  </td>}
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     {r.screenshot_service_id && (
                       <ScreenshotButton
