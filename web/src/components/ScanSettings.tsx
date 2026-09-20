@@ -4,7 +4,7 @@ import { api, ParamSpec, ScanProfilePreset } from "../api";
 import { useToast, InfoDot } from "./ui";
 
 // Pipeline order, so settings read top-to-bottom the way a scan runs.
-const TOOL_ORDER = ["subfinder", "shuffledns", "dnsx", "naabu", "nmap", "katana", "httpx", "gobuster", "nuclei"];
+const TOOL_ORDER = ["subfinder", "shuffledns", "dnsx", "naabu", "nmap", "httpx", "katana", "gobuster", "nuclei"];
 
 const TOOL_STAGE: Record<string, string> = {
   subfinder: "Subdomain discovery",

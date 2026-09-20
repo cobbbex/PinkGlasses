@@ -733,7 +733,7 @@ paths:
   /api/v1/scopes/{scopeID}/findings:
     get:
       operationId: getScopesByScopeIDFindings
-      summary: "with per-run history, presence (active/gone), gone_since and evidence (a discovered path's path, host and status; a nuclei match's URL)"
+      summary: "with per-run history, presence (active/gone), gone_since, evidence (a discovered path's path, host and status; a nuclei match's URL), and where it is: ip, ip_id (its host page) and port"
       x-required-role: viewer
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}
