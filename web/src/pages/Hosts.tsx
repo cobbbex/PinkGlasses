@@ -36,7 +36,7 @@ const LAYOUT: Record<string, { min: number; weight: number }> = {
   name: { min: 160, weight: 24 }, found_by: { min: 110, weight: 14 }, addr: { min: 128, weight: 6 },
   ptr: { min: 110, weight: 20 }, asn: { min: 86, weight: 2 }, as_org: { min: 110, weight: 20 },
   as_range: { min: 118, weight: 6 }, services: { min: 100, weight: 2 }, last_seen: { min: 128, weight: 6 },
-  screenshot: { min: 122, weight: 0 },
+  screenshot: { min: 116, weight: 0 },
 };
 
 // fitStored reads the fit-to-screen preference; on unless switched off.
@@ -243,7 +243,7 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                         serviceID={r.screenshot_service_id}
                         host={r.screenshot_host}
                         title={r.name}
-                        label="Screenshot"
+                        label="View"
                       />
                     )}
                   </td>}
