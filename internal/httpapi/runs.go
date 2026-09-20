@@ -45,7 +45,7 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		Profile: in.Profile, Targets: in.Targets, TargetGroupIDs: in.TargetGroupIDs, Tag: in.Tag, All: in.All,
 		ProfileID: in.ProfileID, Params: in.Params, WordlistIDs: in.WordlistIDs,
 		Exit: in.Exit, VPNConfigID: in.VPNConfigID, PoolID: in.PoolID, WorkerCount: in.WorkerCount,
-		Trigger: "manual",
+		Trigger: "manual", UserID: userIDOf(r),
 	})
 	if ref != nil {
 		writeErr(w, ref.Status, ref.Msg)
@@ -259,7 +259,12 @@ func (s *Server) rerunRun(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, "that run scanned through a VPN configuration that has since been removed; start a new scan and pick another")
 			return
 		}
+		if e := s.ownsVPN(r, *sp.VPNConfigID); e != nil {
+			writeErr(w, http.StatusConflict, "that run scanned through another account's VPN configuration; start a new scan and pick one of yours")
+			return
+		}
 		o.VPNConfigID = sp.VPNConfigID.String()
+		o.UserID = userIDOf(r)
 	case "remote":
 		o.PoolID = sp.PoolID.String()
 	}

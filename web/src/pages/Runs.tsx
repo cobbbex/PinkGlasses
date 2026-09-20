@@ -176,7 +176,7 @@ function Schedules({ scopeID }: { scopeID: string }) {
     queryKey: ["schedules", scopeID], queryFn: () => api.schedules(scopeID),
     refetchInterval: 15000,
   });
-  const { data: vpn } = useQuery({ queryKey: ["vpn", scopeID], queryFn: () => api.vpnConfigs(scopeID) });
+  const { data: vpn } = useQuery({ queryKey: ["vpn"], queryFn: () => api.vpnConfigs() });
   const { data: pools } = useQuery({ queryKey: ["pools"], queryFn: () => api.pools() });
   const vpnConfigs = vpn?.configs ?? [];
 
@@ -329,7 +329,7 @@ function LaunchModal({
   const [workerCount, setWorkerCount] = useState(0);
   const { data: pools } = useQuery({ queryKey: ["pools"], queryFn: () => api.pools() });
   const { data: vpn } = useQuery({
-    queryKey: ["vpn", scopeID], queryFn: () => api.vpnConfigs(scopeID),
+    queryKey: ["vpn"], queryFn: () => api.vpnConfigs(),
   });
 
   async function start() {

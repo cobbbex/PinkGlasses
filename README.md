@@ -395,12 +395,14 @@ Three, and each adds to the one below it:
 | Role | Can |
 |---|---|
 | **viewer** | Read everything — inventory, findings, runs, search. Change nothing. |
-| **operator** | Also add companies and targets, edit wordlists and alerts, and **start scans**. |
-| **admin** | Also manage accounts and API tokens, enrol and scale workers, and add VPN configurations. |
+| **operator** | Also add companies and targets, edit wordlists and alerts, add their own VPN configurations, and **start scans**. |
+| **admin** | Also manage accounts and API tokens, enrol and scale workers, and remove anyone's VPN configuration. |
 
 Starting a scan is what separates viewer from operator, because a scan sends
-packets at somebody's infrastructure. Adding a VPN configuration or enrolling a
-worker is admin, because both hand out credentials.
+packets at somebody's infrastructure. Enrolling a worker is admin, because it hands
+out a credential for the control plane. A VPN configuration belongs to the account
+that adds it — it is usable in every company that person scans and offered to nobody
+else — so an operator adds their own.
 
 Manage accounts under **Accounts** in the sidebar (administrators only). You can
 change a username there; history stays attached to the account rather than to the
@@ -479,9 +481,10 @@ target, so the launch dialog asks where they should leave from. Two choices:
   <img src="assets/diagrams/scan-fork.svg" alt="One run's tasks fork by stage class: passive stages to the standing local pool, active stages to the run's exit pool; a worker leases a task only when the pools match." width="960">
 </picture>
 
-There is deliberately no "from this host". **Local requires a VPN configuration**;
-a company with none cannot start a local active scan, and the dialog says so. A
-**passive** scan needs no exit at all.
+There is deliberately no "from this host". **Local requires a VPN configuration**,
+added once under **VPN** by the person scanning and usable in every company they
+scan; an account with none cannot start a local active scan, and the dialog says so.
+A **passive** scan needs no exit at all.
 
 ```
 vpn gateway ──── tun0, default route ──── the internet
@@ -565,9 +568,9 @@ and in the Hosts list per row — which opens the captured page image.
 **Deleting a company.** An administrator can delete the selected company from the company
 picker (*Delete <name>…* at the foot of the list). The dialog counts what goes — target
 groups and entries, the whole inventory of names, hosts and services with its history, every
-run with its tasks and observations, screenshots, findings, schedules, VPN configurations and
-alert channels — asks for the name to be typed back, and refuses while a run of the company
-is still going. Workers, wordlists and accounts are not the company's and stay.
+run with its tasks and observations, screenshots, findings, schedules and alert channels —
+asks for the name to be typed back, and refuses while a run of the company is still going.
+Workers, wordlists, accounts and VPN configurations are not the company's and stay.
 
 **Mine / All companies.** The company picker can narrow the list to the companies
 you created. "You" is whatever `X-Forwarded-User` says, or `local` — so this tidies

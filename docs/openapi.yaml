@@ -272,7 +272,7 @@ paths:
   /api/v1/scopes/{scopeID}/footprint:
     get:
       operationId: getScopesByScopeIDFootprint
-      summary: "what the company owns, as counts: target groups, targets, names, hosts, services, runs, findings, screenshots, VPN configs, schedules, alert channels — and active_runs / live_fleets, which block a delete"
+      summary: "what the company owns, as counts: target groups, targets, names, hosts, services, runs, findings, screenshots, schedules, alert channels — and active_runs / live_fleets, which block a delete"
       x-required-role: viewer
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}
@@ -917,13 +917,11 @@ paths:
         "403": {$ref: "#/components/responses/e403"}
         "404": {$ref: "#/components/responses/e404"}
         "409": {$ref: "#/components/responses/e409"}
-  /api/v1/scopes/{scopeID}/vpn-configs:
+  /api/v1/vpn-configs:
     get:
-      operationId: getScopesByScopeIDVpnConfigs
-      summary: "name, kind, endpoint host, last egress — never the body"
+      operationId: getVpnConfigs
+      summary: "your own: name, kind, endpoint host, last egress — never the body"
       x-required-role: viewer
-      parameters:
-        - {name: scopeID, in: path, required: true, schema: {type: string}}
       security:
         - session: []
         - token: []
@@ -936,11 +934,9 @@ paths:
         "404": {$ref: "#/components/responses/e404"}
         "409": {$ref: "#/components/responses/e409"}
     post:
-      operationId: postScopesByScopeIDVpnConfigs
-      summary: "multipart file + name, or JSON {name, config}; kind (wireguard/openvpn) and endpoint are detected from the body; a WireGuard config without a default route is refused"
-      x-required-role: admin
-      parameters:
-        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      operationId: postVpnConfigs
+      summary: "multipart file + name, or JSON {name, config}; kind (wireguard/openvpn) and endpoint are detected from the body; a WireGuard config without a default route is refused; 409 if you already have one by that name"
+      x-required-role: operator
       security:
         - session: []
         - token: []
@@ -1190,7 +1186,7 @@ paths:
   /api/v1/scopes/{scopeID}:
     delete:
       operationId: deleteScopesByScopeID
-      summary: "delete the company with everything it owns — inventory, runs, findings, schedules, VPN configurations, alert channels — and remove its runs' screenshots and raw output from object storage. 409 while a run of it is going; answers {deleted, artifacts_removed, artifacts_failed}"
+      summary: "delete the company with everything it owns — inventory, runs, findings, schedules, alert channels — and remove its runs' screenshots and raw output from object storage. 409 while a run of it is going; answers {deleted, artifacts_removed, artifacts_failed}"
       x-required-role: admin
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}
@@ -1293,6 +1289,24 @@ paths:
         "403": {$ref: "#/components/responses/e403"}
         "404": {$ref: "#/components/responses/e404"}
         "409": {$ref: "#/components/responses/e409"}
+  /api/v1/vpn-configs/{vpnID}:
+    delete:
+      operationId: deleteVpnConfigsByVpnID
+      summary: "your own; an administrator may delete anyone's"
+      x-required-role: operator
+      parameters:
+        - {name: vpnID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
   /api/v1/wordlists/{wordlistID}:
     delete:
       operationId: deleteWordlistsByWordlistID
@@ -1383,23 +1397,6 @@ paths:
       x-required-role: admin
       parameters:
         - {name: userID, in: path, required: true, schema: {type: string}}
-      security:
-        - session: []
-        - token: []
-        - proxy: []
-      responses:
-        "200": {description: ok}
-        "400": {$ref: "#/components/responses/e400"}
-        "401": {$ref: "#/components/responses/e401"}
-        "403": {$ref: "#/components/responses/e403"}
-        "404": {$ref: "#/components/responses/e404"}
-        "409": {$ref: "#/components/responses/e409"}
-  /api/v1/vpn-configs/{vpnID}:
-    delete:
-      operationId: deleteVpnConfigsByVpnID
-      x-required-role: admin
-      parameters:
-        - {name: vpnID, in: path, required: true, schema: {type: string}}
       security:
         - session: []
         - token: []

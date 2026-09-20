@@ -70,9 +70,9 @@ Three, ordered. Each adds to the one below rather than replacing it.
 
 | Role | Adds |
 |---|---|
-| **viewer** | Reads everything: inventory, findings, runs, search, worker list, VPN config *names*. Changes nothing. |
+| **viewer** | Reads everything: inventory, findings, runs, search, worker list, the *names* of their own VPN configs. Changes nothing. |
 | **operator** | Creating companies, target groups, wordlists, alert channels — and **starting, pausing, stopping, rerunning and deleting scans**. |
-| **admin** | Accounts, API tokens, worker enrollment, VPN configurations — and **deleting a company**, since that takes its whole inventory and history with it. |
+| **admin** | Accounts, API tokens, worker enrollment, deleting anyone's VPN configuration — and **deleting a company**, since that takes its whole inventory and history with it. |
 
 Two boundaries are worth explaining because they are the whole design:
 
@@ -80,11 +80,13 @@ Two boundaries are worth explaining because they are the whole design:
 somebody else's infrastructure. Everything a viewer can do is look at what has
 already been collected; the first thing an operator can do is cause traffic.
 
-**Adding a VPN configuration and enrolling a worker are admin** because both hand
-out credentials — one for a network that is not ours, one for the control plane
-itself. A viewer can see that a tunnel called `vps-wireguard` exists and what
-address it last exited from; the body is sealed and is returned by no endpoint
-at any role.
+**Enrolling a worker is admin** because it hands out a credential for the control
+plane itself. **A VPN configuration is the account's own**: it belongs to whoever
+added it, is usable in every company they scan, and is offered to nobody else — so
+an operator adds their own, since they are the one starting the scans that use it,
+and only an administrator can remove somebody else's. Its body is sealed and is
+returned by no endpoint at any role; what anyone sees is the name, the kind and the
+address it last exited from.
 
 Roles are enforced per route group, and the whole of `/api/v1` is inside
 `requireAuth` with exactly three exceptions: `auth/status`, `auth/setup`,

@@ -186,6 +186,16 @@ A WireGuard config whose `AllowedIPs` carries no default route is rejected at
 upload. `wg-quick` is deliberately not used — it needs a sysctl a container's
 read-only `/proc/sys` refuses — so the gateway drives `ip` and `wg` directly.
 
+## Whose tunnel
+
+A VPN configuration belongs to the **account** that added it, not to a company.
+One person's tunnel is the same tunnel whichever company they are scanning, so
+it is added once under **VPN** and offered in every company's launch dialog for
+that person. Nobody else sees it or can pick it: a run, a schedule or a
+company's default exit may only name a configuration of the account making the
+request, and a schedule stays bound to its creator's configuration after it is
+saved. Deleting a company leaves configurations where they are.
+
 ## What is stored
 
 Config bodies are sealed with AES-256-GCM under `ASM_SECRET_KEY`, are never

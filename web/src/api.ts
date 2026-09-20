@@ -6,7 +6,7 @@
 export interface ScopeFootprint {
   name: string; target_groups: number; targets: number; names: number; hosts: number; services: number;
   runs: number; active_runs: number; findings: number; screenshots: number;
-  vpn_configs: number; schedules: number; alert_channels: number; live_fleets: number;
+  schedules: number; alert_channels: number; live_fleets: number;
 }
 export interface Scope {
   id: string; name: string; created_at: string;
@@ -387,11 +387,12 @@ export const api = {
       .then((x) => (x ?? []).map((f) => ({ ...f, history: f.history ?? [] }))),
   // Configs are write-only: the body is sealed server-side and no endpoint
   // ever returns it.
-  vpnConfigs: (s: string) =>
+  /** The signed-in account's VPN configurations; usable in every company. */
+  vpnConfigs: () =>
     req<{ configs: VPNConfig[] | null; secrets_ready: boolean; secrets_reason: string }>(
-      `/scopes/${s}/vpn-configs`).then((r) => ({ ...r, configs: r.configs ?? [] })),
-  createVPNConfig: (s: string, body: { name: string; config: string }) =>
-    req<VPNConfig>(`/scopes/${s}/vpn-configs`, { method: "POST", body: JSON.stringify(body) }),
+      `/vpn-configs`).then((r) => ({ ...r, configs: r.configs ?? [] })),
+  createVPNConfig: (body: { name: string; config: string }) =>
+    req<VPNConfig>(`/vpn-configs`, { method: "POST", body: JSON.stringify(body) }),
   deleteVPNConfig: (id: string) => req(`/vpn-configs/${id}`, { method: "DELETE" }),
   notifications: (s: string) =>
     req<{ channels: NotificationChannel[] | null; events: string[] | null }>(`/scopes/${s}/notifications`)

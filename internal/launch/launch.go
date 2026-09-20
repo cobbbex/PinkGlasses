@@ -39,6 +39,10 @@ type Options struct {
 	TargetGroupIDs []string
 	Tag            string
 	All            bool
+	// UserID is the account starting the run, when a person is: it decides
+	// which VPN configurations may be named. A scheduled run has none; its
+	// config was checked against its creator when the schedule was saved.
+	UserID *uuid.UUID
 	// Exit is where the active stages leave from: "local" (needs VPNConfigID)
 	// or "remote" (needs PoolID). A passive profile needs neither.
 	Exit        string
@@ -305,11 +309,14 @@ func (l *Launcher) checkExit(ctx context.Context, scopeID uuid.UUID, o Options) 
 					"scan from a remote pool instead")
 		}
 		if o.VPNConfigID == "" {
-			configs, _ := l.st.ListVPNConfigs(ctx, scopeID)
+			var configs []store.VPNConfig
+			if o.UserID != nil {
+				configs, _ = l.st.ListVPNConfigs(ctx, *o.UserID)
+			}
 			if len(configs) == 0 {
 				return nil, refuse(http.StatusConflict,
 					"scanning from local workers needs a VPN so the scan never leaves from this "+
-						"host's own address, and this company has no VPN configuration yet: add one "+
+						"host's own address, and your account has no VPN configuration yet: add one "+
 						"under VPN, or scan from a remote pool")
 			}
 			return nil, refuse(http.StatusBadRequest, "a local exit needs vpn_config_id: which tunnel this scan leaves through")
@@ -319,7 +326,13 @@ func (l *Launcher) checkExit(ctx context.Context, scopeID uuid.UUID, o Options) 
 			return nil, refuse(http.StatusBadRequest, "bad vpn config id")
 		}
 		vc, err := l.st.GetVPNConfig(ctx, vpnID)
-		if err != nil || vc.ScopeID != scopeID {
+		// A person may only scan through their own tunnel. A schedule carries
+		// no user here; its config was its creator's when the schedule was
+		// saved, and stays bound to it.
+		if err == nil && o.UserID != nil && vc.OwnerID != *o.UserID {
+			return nil, refuse(http.StatusForbidden, "that VPN configuration belongs to another account; pick one of yours under VPN")
+		}
+		if err != nil {
 			return nil, refuse(http.StatusBadRequest, "unknown vpn config")
 		}
 		// 0 is Auto: Start sizes the fleet from the run's targets once it knows

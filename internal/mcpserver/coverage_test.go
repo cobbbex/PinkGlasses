@@ -28,7 +28,8 @@ var notExposed = map[string]string{
 	"GET /tokens":                          "API tokens are credentials; the UI issues and revokes them",
 	"POST /tokens":                         "same",
 	"DELETE /tokens/{tokenID}":             "same",
-	"GET /scopes/{scopeID}/vpn-configs":    "covered by list_vpn_configs", // listed for clarity; also in a tool
+	"POST /vpn-configs":                    "a VPN configuration is a credential; the UI uploads it",
+	"DELETE /vpn-configs/{vpnID}":          "same",
 	"POST /scopes":                         "creating a company is done in the UI, where the picker follows it",
 	"GET /scopes/{scopeID}/footprint":      "covered by company_summary",
 }

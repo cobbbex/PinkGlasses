@@ -4,17 +4,19 @@ import { api } from "../api";
 import { InfoDot, useToast } from "../components/ui";
 
 /**
- * VPN configurations a scan can leave through.
+ * VPN configurations a scan can leave through. They belong to the signed-in
+ * account, not to a company: one person's tunnel is the same tunnel whichever
+ * company they are scanning, so it is added once and offered everywhere.
  *
  * A config is write-only. It holds a private key for someone's network, so it
  * is sealed before it reaches the database and no endpoint returns it — what
  * you see here is the name, the kind, and the endpoint parsed out of the file
  * when it was uploaded. To change one, replace it.
  */
-export default function VPN({ scopeID }: { scopeID: string }) {
+export default function VPN() {
   const toast = useToast();
   const { data, refetch } = useQuery({
-    queryKey: ["vpn", scopeID], queryFn: () => api.vpnConfigs(scopeID),
+    queryKey: ["vpn"], queryFn: () => api.vpnConfigs(),
   });
   const configs = data?.configs ?? [];
   const ready = data?.secrets_ready ?? true;
@@ -27,7 +29,7 @@ export default function VPN({ scopeID }: { scopeID: string }) {
   async function add() {
     setBusy(true);
     try {
-      const v = await api.createVPNConfig(scopeID, { name: name.trim(), config });
+      const v = await api.createVPNConfig({ name: name.trim(), config });
       toast("ok", `Added "${v.name}" (${v.kind})`);
       setAdding(false); setName(""); setConfig("");
       refetch();
@@ -63,7 +65,7 @@ export default function VPN({ scopeID }: { scopeID: string }) {
               </p>
             </InfoDot>
           </h2>
-          <div className="sub">WireGuard and OpenVPN configurations a scan can leave through.</div>
+          <div className="sub">Your WireGuard and OpenVPN configurations, usable in every company you scan.</div>
         </div>
         <button onClick={() => setAdding((a) => !a)} disabled={!ready}>
           {adding ? "Cancel" : "+ Add config"}
@@ -106,9 +108,9 @@ export default function VPN({ scopeID }: { scopeID: string }) {
         <div className="empty">
           <p>No VPN configurations yet.</p>
           <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
-            Until one exists, this company cannot start an active scan from local workers —
-            there is deliberately no way to scan from this host's own address. Passive scans
-            and remote worker pools are unaffected.
+            Until you add one, you cannot start an active scan from local workers in any
+            company — there is deliberately no way to scan from this host's own address.
+            Passive scans and remote worker pools are unaffected.
           </p>
         </div>
       ) : (

@@ -237,6 +237,8 @@ function Shell({ me, defaultPw, onSignedOut }: {
           <Route path="/workers" element={<Fleet />} />
           <Route path="/fleet" element={<Navigate to="/workers" replace />} />
           <Route path="/wordlists" element={<Wordlists />} />
+        {/* VPN configurations belong to the account, not to a company. */}
+        <Route path="/vpn" element={<VPN />} />
           <Route path="/accounts" element={
             atLeast(me.role, "admin")
               ? <Users me={me} />
@@ -261,7 +263,6 @@ function Shell({ me, defaultPw, onSignedOut }: {
                 <Route path="/findings" element={<Findings scopeID={scopeID} />} />
                 <Route path="/alerts" element={<Alerts scopeID={scopeID} />} />
                 <Route path="/runs" element={<Runs scopeID={scopeID} />} />
-                <Route path="/vpn" element={<VPN scopeID={scopeID} />} />
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>
             )
@@ -443,10 +444,10 @@ function DeleteCompany({ scope, onClose, onConfirm }: { scope: Scope; onClose: (
             <li>{n(f.names, "name", "names")}, {n(f.hosts, "host", "hosts")} and {n(f.services, "service", "services")} — the whole inventory, with its history</li>
             <li>{n(f.runs, "run", "runs")}, with their tasks and observations, and {n(f.screenshots, "screenshot", "screenshots")} removed from object storage</li>
             <li>{n(f.findings, "finding", "findings")}</li>
-            <li>{n(f.schedules, "scheduled scan", "scheduled scans")}, {n(f.vpn_configs, "VPN configuration", "VPN configurations")} and {n(f.alert_channels, "alert channel", "alert channels")}</li>
+            <li>{n(f.schedules, "scheduled scan", "scheduled scans")} and {n(f.alert_channels, "alert channel", "alert channels")}</li>
           </ul>
           <p className="muted" style={{ fontSize: 13 }}>
-            This cannot be undone. Workers, wordlists and accounts are not the company's and stay.
+            This cannot be undone. Workers, wordlists, accounts and VPN configurations are not the company's and stay.
           </p>
           <div className="field" style={{ marginBottom: 0 }}>
             <label>Type the company's name to confirm</label>

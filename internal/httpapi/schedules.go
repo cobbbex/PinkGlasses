@@ -39,6 +39,18 @@ type scheduleInput struct {
 // maxEveryHours is a leap year: the longest cadence the dialog offers is yearly.
 const maxEveryHours = 366 * 24
 
+// applyFor is apply with the requester's ownership of the VPN configuration
+// checked: a schedule scans through the tunnel of the person who saved it.
+func (in scheduleInput) applyFor(s *Server, r *http.Request, sc *store.Schedule) *exitErr {
+	if e := in.apply(sc); e != nil {
+		return e
+	}
+	if sc.VPNConfigID != nil && in.VPNConfigID != nil && *in.VPNConfigID != "" {
+		return s.ownsVPN(r, *sc.VPNConfigID)
+	}
+	return nil
+}
+
 func (in scheduleInput) apply(sc *store.Schedule) *exitErr {
 	if in.Profile != "" {
 		sc.Profile = in.Profile
@@ -175,7 +187,7 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sc := store.Schedule{ScopeID: scopeID, Enabled: true, EveryHours: 24}
-	if e := in.apply(&sc); e != nil {
+	if e := in.applyFor(s, r, &sc); e != nil {
 		writeErr(w, e.status, e.msg)
 		return
 	}
@@ -224,7 +236,7 @@ func (s *Server) patchSchedule(w http.ResponseWriter, r *http.Request) {
 			in.PoolID = &v
 		}
 	}
-	if e := in.apply(&sc); e != nil {
+	if e := in.applyFor(s, r, &sc); e != nil {
 		writeErr(w, e.status, e.msg)
 		return
 	}
@@ -284,6 +296,10 @@ func (s *Server) patchScope(w http.ResponseWriter, r *http.Request) {
 		id, err := uuid.Parse(*in.DefaultVPNConfigID)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "bad vpn config id")
+			return
+		}
+		if e := s.ownsVPN(r, id); e != nil {
+			writeErr(w, e.status, e.msg)
 			return
 		}
 		vpnID = &id

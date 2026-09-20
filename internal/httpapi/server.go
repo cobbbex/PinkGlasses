@@ -122,9 +122,8 @@ func (s *Server) Routes() http.Handler {
 				// Where a run may scan from: every pool that is not a run's own.
 				v.Get("/pools", s.listPools)
 
-				// A tunnel's name and last egress, never its body. Reading
-				// which exits exist is not the same as being able to use one.
-				v.Get("/scopes/{scopeID}/vpn-configs", s.listVPNConfigs)
+				// Your own tunnels' names and last egress, never a body.
+				v.Get("/vpn-configs", s.listVPNConfigs)
 
 				// Your own tokens; an administrator sees everyone's.
 				v.Get("/tokens", s.listTokens)
@@ -166,6 +165,11 @@ func (s *Server) Routes() http.Handler {
 				o.Patch("/findings/{findingID}", s.patchFinding)
 
 				o.Post("/wordlists", s.uploadWordlist)
+				// A tunnel is the account's own credential for its own network,
+				// usable in every company it scans; anyone who may start a scan
+				// may add one. Deleting is the owner's, or an administrator's.
+				o.Post("/vpn-configs", s.createVPNConfig)
+				o.Delete("/vpn-configs/{vpnID}", s.deleteVPNConfig)
 				o.Patch("/wordlists/{wordlistID}", s.patchWordlist)
 				o.Put("/wordlists/{wordlistID}/content", s.putWordlistContent)
 				o.Delete("/wordlists/{wordlistID}", s.deleteWordlist)
@@ -182,8 +186,6 @@ func (s *Server) Routes() http.Handler {
 				a.Delete("/users/{userID}", s.deleteUser)
 
 				// Credentials for somebody else's network.
-				a.Post("/scopes/{scopeID}/vpn-configs", s.createVPNConfig)
-				a.Delete("/vpn-configs/{vpnID}", s.deleteVPNConfig)
 
 				// Enrolling a worker hands out a credential; scaling them
 				// creates containers on the host.

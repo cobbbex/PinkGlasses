@@ -33,8 +33,8 @@ table below.
 | Role | Adds |
 |---|---|
 | **viewer** | read everything; create and revoke your own API tokens |
-| **operator** | companies, targets, scan profiles, alerts, wordlists — and starting runs |
-| **admin** | accounts, everyone's tokens, workers and enrollment, VPN configurations, deleting a company |
+| **operator** | companies, targets, scan profiles, alerts, wordlists, your own VPN configurations — and starting runs |
+| **admin** | accounts, everyone's tokens, workers and enrollment, deleting a company, deleting anyone's VPN configuration |
 
 A route above your role answers `403` with the role it needs.
 
@@ -84,8 +84,8 @@ asset route is under a scope.
 |---|---|---|
 | `GET /scopes` | viewer | all companies; `?mine=true` narrows to ones you created |
 | `POST /scopes` | operator | `{name}` |
-| `GET /scopes/{scopeID}/footprint` | viewer | what the company owns, as counts: target groups, targets, names, hosts, services, runs, findings, screenshots, VPN configs, schedules, alert channels — and `active_runs` / `live_fleets`, which block a delete |
-| `DELETE /scopes/{scopeID}` | admin | delete the company with everything it owns — inventory, runs, findings, schedules, VPN configurations, alert channels — and remove its runs' screenshots and raw output from object storage. 409 while a run of it is going; answers `{deleted, artifacts_removed, artifacts_failed}` |
+| `GET /scopes/{scopeID}/footprint` | viewer | what the company owns, as counts: target groups, targets, names, hosts, services, runs, findings, screenshots, schedules, alert channels — and `active_runs` / `live_fleets`, which block a delete |
+| `DELETE /scopes/{scopeID}` | admin | delete the company with everything it owns — inventory, runs, findings, schedules, alert channels — and remove its runs' screenshots and raw output from object storage. 409 while a run of it is going; answers `{deleted, artifacts_removed, artifacts_failed}` |
 | `GET /scopes/{scopeID}/summary` | viewer | dashboard counters: domains, ips, services, open_findings |
 | `GET /scopes/{scopeID}/target-groups` | viewer | the company's target groups, each with its entries and `authorized` (every entry active with a recorded authorization) |
 | `POST /scopes/{scopeID}/target-groups` | operator | `{name, values, tags, authorize}` — one group from a list of domains, IPs and CIDRs; `name` defaults to the first value; 409 if the name is taken |
@@ -227,9 +227,16 @@ Event kinds: `new_finding`, `finding_gone`, `finding_returned`, `new_port`,
 
 | Route | Role | Purpose |
 |---|---|---|
-| `GET /scopes/{scopeID}/vpn-configs` | viewer | name, kind, endpoint host, last egress — **never the body** |
-| `POST /scopes/{scopeID}/vpn-configs` | admin | multipart `file` + `name`, or JSON `{name, config}`; kind (wireguard/openvpn) and endpoint are detected from the body; a WireGuard config without a default route is refused |
-| `DELETE /vpn-configs/{vpnID}` | admin | |
+A VPN configuration belongs to the account that added it and can be used in any
+company that account scans; nothing here takes a company id. A run, a schedule or a
+company default may only name a configuration of the requesting account (403
+otherwise), and a schedule stays bound to its creator's configuration.
+
+| Route | Role | Purpose |
+|---|---|---|
+| `GET /vpn-configs` | viewer | your own: name, kind, endpoint host, last egress — **never the body** |
+| `POST /vpn-configs` | operator | multipart `file` + `name`, or JSON `{name, config}`; kind (wireguard/openvpn) and endpoint are detected from the body; a WireGuard config without a default route is refused; 409 if you already have one by that name |
+| `DELETE /vpn-configs/{vpnID}` | operator | your own; an administrator may delete anyone's |
 
 Bodies are sealed with AES-256-GCM at rest and are returned by no endpoint.
 

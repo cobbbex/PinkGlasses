@@ -9,12 +9,14 @@ import (
 	"github.com/benlik386/pinkglasses/internal/secret"
 )
 
-// VPNConfig is a tunnel a scan can leave through. The config body is sealed and
-// is never part of this struct as JSON — only the server ever sees it, and only
-// when handing it to a worker that is about to use it.
+// VPNConfig is a tunnel a scan can leave through. It belongs to the account
+// that added it and is usable in any company that account scans: the tunnel
+// is the person's, not the company's. The config body is sealed and is never
+// part of this struct as JSON — only the server ever sees it, and only when
+// handing it to a gateway that is about to use it.
 type VPNConfig struct {
 	ID            uuid.UUID  `json:"id"`
-	ScopeID       uuid.UUID  `json:"scope_id"`
+	OwnerID       uuid.UUID  `json:"owner_id"`
 	Name          string     `json:"name"`
 	Kind          string     `json:"kind"` // wireguard | openvpn
 	Endpoint      *string    `json:"endpoint,omitempty"`
@@ -24,11 +26,11 @@ type VPNConfig struct {
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
-const vpnCols = `id, scope_id, name, kind, endpoint, last_egress_ip, last_checked_at, created_by, created_at`
+const vpnCols = `id, owner_id, name, kind, endpoint, last_egress_ip, last_checked_at, created_by, created_at`
 
 func scanVPN(row interface{ Scan(...any) error }) (VPNConfig, error) {
 	var v VPNConfig
-	err := row.Scan(&v.ID, &v.ScopeID, &v.Name, &v.Kind, &v.Endpoint,
+	err := row.Scan(&v.ID, &v.OwnerID, &v.Name, &v.Kind, &v.Endpoint,
 		&v.LastEgressIP, &v.LastCheckedAt, &v.CreatedBy, &v.CreatedAt)
 	return v, err
 }
@@ -41,15 +43,15 @@ func (s *Store) CreateVPNConfig(ctx context.Context, v VPNConfig, body []byte) (
 		return VPNConfig{}, err
 	}
 	row := s.Pool.QueryRow(ctx, `
-		INSERT INTO vpn_config (scope_id, name, kind, endpoint, config, created_by)
+		INSERT INTO vpn_config (owner_id, name, kind, endpoint, config, created_by)
 		VALUES ($1,$2,$3,$4,$5,$6) RETURNING `+vpnCols,
-		v.ScopeID, v.Name, v.Kind, v.Endpoint, sealed, v.CreatedBy)
+		v.OwnerID, v.Name, v.Kind, v.Endpoint, sealed, v.CreatedBy)
 	return scanVPN(row)
 }
 
-// ListVPNConfigs returns a scope's tunnels, metadata only.
-func (s *Store) ListVPNConfigs(ctx context.Context, scopeID uuid.UUID) ([]VPNConfig, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT `+vpnCols+` FROM vpn_config WHERE scope_id=$1 ORDER BY name`, scopeID)
+// ListVPNConfigs returns one account's tunnels, metadata only.
+func (s *Store) ListVPNConfigs(ctx context.Context, ownerID uuid.UUID) ([]VPNConfig, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT `+vpnCols+` FROM vpn_config WHERE owner_id=$1 ORDER BY name`, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -81,10 +83,22 @@ func (s *Store) OpenVPNConfigBody(ctx context.Context, id uuid.UUID) ([]byte, er
 	return secret.Open(sealed)
 }
 
-// DeleteVPNConfig removes a tunnel.
-func (s *Store) DeleteVPNConfig(ctx context.Context, id uuid.UUID) (bool, error) {
-	ct, err := s.Pool.Exec(ctx, `DELETE FROM vpn_config WHERE id=$1`, id)
+// DeleteVPNConfig removes a tunnel. With an owner given, only that owner's
+// row is removed; nil is an administrator cleaning up anyone's.
+func (s *Store) DeleteVPNConfig(ctx context.Context, id uuid.UUID, owner *uuid.UUID) (bool, error) {
+	ct, err := s.Pool.Exec(ctx,
+		`DELETE FROM vpn_config WHERE id=$1 AND ($2::uuid IS NULL OR owner_id=$2)`, id, owner)
 	return ct.RowsAffected() > 0, err
+}
+
+// VPNConfigOwnedBy reports whether a tunnel exists and belongs to the account.
+// Every place that binds a config to a run, a schedule or a company default
+// asks this first: a config id is not a capability, the account is.
+func (s *Store) VPNConfigOwnedBy(ctx context.Context, id, owner uuid.UUID) (bool, error) {
+	var ok bool
+	err := s.Pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM vpn_config WHERE id=$1 AND owner_id=$2)`, id, owner).Scan(&ok)
+	return ok, err
 }
 
 // RecordVPNEgress notes the address a tunnel was last seen exiting from, so the

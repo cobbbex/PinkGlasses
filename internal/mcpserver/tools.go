@@ -119,7 +119,7 @@ func Tools(o Options) []toolDef {
 		},
 		{
 			Name: "company_summary", ReadOnly: true,
-			Description: "Dashboard counters for a company: resolving names, hosts, services, open findings — and what it owns (target groups, runs, schedules, VPN configs) with whether a run is going.",
+			Description: "Dashboard counters for a company: resolving names, hosts, services, open findings — and what it owns (target groups, runs, schedules) with whether a run is going.",
 			Schema:      obj(map[string]any{"company_id": str("Company id")}, "company_id"),
 			Routes:      []string{"GET /scopes/{scopeID}/summary", "GET /scopes/{scopeID}/footprint"},
 			Run: func(ctx context.Context, c *Client, a args) (any, error) {
@@ -611,12 +611,12 @@ func Tools(o Options) []toolDef {
 		},
 		{
 			Name: "list_vpn_configs", ReadOnly: true,
-			Description: "A company's VPN configurations by name and kind (never their contents), with the exit address last measured. Pick one's id as vpn_config_id for a local scan.",
-			Schema:      obj(map[string]any{"company_id": str("Company id")}, "company_id"),
-			Routes:      []string{"GET /scopes/{scopeID}/vpn-configs"},
+			Description: "The VPN configurations of the account this token belongs to, by name and kind (never their contents), with the exit address last measured. They are usable in any company. Pick one's id as vpn_config_id for a local scan.",
+			Schema:      obj(map[string]any{}),
+			Routes:      []string{"GET /vpn-configs"},
 			Run: func(ctx context.Context, c *Client, a args) (any, error) {
 				var out map[string]any
-				return out, c.get(ctx, "/scopes/"+a.str("company_id")+"/vpn-configs", &out)
+				return out, c.get(ctx, "/vpn-configs", &out)
 			},
 		},
 		{
@@ -650,7 +650,7 @@ func Tools(o Options) []toolDef {
 	if o.AllowDeleteCompany {
 		t = append(t, toolDef{
 			Name: "delete_company", Destructive: true,
-			Description: "Delete a company with everything it owns — inventory, runs, findings, schedules, VPN configurations, alert channels. Refused while a run of it is going. Admin only. Requires confirm: true and the company's exact name.",
+			Description: "Delete a company with everything it owns — inventory, runs, findings, schedules, alert channels. Refused while a run of it is going. Admin only. Requires confirm: true and the company's exact name.",
 			Schema:      obj(map[string]any{"company_id": str("Company id"), "name": str("The company's exact name, typed back"), "confirm": boolean("Must be true")}, "company_id", "name"),
 			Routes:      []string{"DELETE /scopes/{scopeID}"},
 			Run: func(ctx context.Context, c *Client, a args) (any, error) {

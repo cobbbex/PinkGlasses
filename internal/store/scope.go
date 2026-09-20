@@ -102,7 +102,6 @@ type ScopeFootprint struct {
 	ActiveRuns    int    `json:"active_runs"`
 	Findings      int    `json:"findings"`
 	Screenshots   int    `json:"screenshots"`
-	VPNConfigs    int    `json:"vpn_configs"`
 	Schedules     int    `json:"schedules"`
 	AlertChannels int    `json:"alert_channels"`
 	LiveFleets    int    `json:"live_fleets"`
@@ -124,12 +123,11 @@ func (s *Store) ScopeFootprint(ctx context.Context, scopeID uuid.UUID) (ScopeFoo
 		       (SELECT count(*) FROM finding WHERE scope_id=$1),
 		       (SELECT count(*) FROM service_observation so JOIN scan_run r ON r.id=so.run_id
 		          WHERE r.scope_id=$1 AND COALESCE(so.screenshot_key,'') <> '' AND so.screenshot_key NOT LIKE '%(not uploaded%'),
-		       (SELECT count(*) FROM vpn_config WHERE scope_id=$1),
 		       (SELECT count(*) FROM scan_schedule WHERE scope_id=$1),
 		       (SELECT count(*) FROM notification_channel WHERE scope_id=$1),
 		       (SELECT count(*) FROM run_fleet f JOIN scan_run r ON r.id=f.run_id WHERE r.scope_id=$1 AND f.status IN ('requested','up'))
 		FROM scope sc WHERE sc.id=$1`, scopeID).Scan(&f.Name, &f.TargetGroups, &f.Targets, &f.Names, &f.Hosts, &f.Services,
-		&f.Runs, &f.ActiveRuns, &f.Findings, &f.Screenshots, &f.VPNConfigs, &f.Schedules, &f.AlertChannels, &f.LiveFleets)
+		&f.Runs, &f.ActiveRuns, &f.Findings, &f.Screenshots, &f.Schedules, &f.AlertChannels, &f.LiveFleets)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return f, false, nil
 	}
