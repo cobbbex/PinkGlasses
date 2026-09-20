@@ -24,6 +24,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "as_range", label: "AS range" },
   { key: "services", label: "Services" },
   { key: "last_seen", label: "Seen" },
+  { key: "screenshot", label: "Screenshot" },
 ];
 
 // How the screen's width is shared among the visible columns when the table
@@ -35,8 +36,8 @@ const LAYOUT: Record<string, { min: number; weight: number }> = {
   name: { min: 160, weight: 24 }, found_by: { min: 110, weight: 14 }, addr: { min: 128, weight: 6 },
   ptr: { min: 110, weight: 20 }, asn: { min: 86, weight: 2 }, as_org: { min: 110, weight: 20 },
   as_range: { min: 118, weight: 6 }, services: { min: 100, weight: 2 }, last_seen: { min: 128, weight: 6 },
+  screenshot: { min: 122, weight: 0 },
 };
-const SHOT_COL = 34;
 
 // fitStored reads the fit-to-screen preference; on unless switched off.
 function fitStored(): boolean {
@@ -58,7 +59,7 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
   const setFit = (v: boolean) => { setFitState(v); try { localStorage.setItem("asm.hosts.fit", v ? "1" : "0"); } catch { /* private mode */ } };
   const visible = COLUMNS.filter((c) => cols.show(c.key));
   const unsized = visible.filter((c) => !(cw.widths[c.key] > 0));
-  const fixedPx = SHOT_COL + visible.reduce((n, c) => n + (cw.widths[c.key] > 0 ? cw.widths[c.key] : 0), 0);
+  const fixedPx = visible.reduce((n, c) => n + (cw.widths[c.key] > 0 ? cw.widths[c.key] : 0), 0);
   const minSum = unsized.reduce((n, c) => n + (LAYOUT[c.key]?.min ?? 80), 0);
   const weightSum = unsized.reduce((n, c) => n + (LAYOUT[c.key]?.weight ?? 5), 0);
   // The table's box is measured, so each column's share can be a plain pixel
@@ -76,10 +77,16 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
     ro.observe(el); setTableW(el.clientWidth);
     observer.current = ro;
   }, []);
+  // When even the minimums do not fit — every column shown on a laptop —
+  // they shrink together, so the table still ends at the screen's edge and
+  // the clipped values are on hover, rather than the last columns being
+  // out of sight to the right.
+  const room = Math.max(0, tableW - fixedPx);
+  const shrink = tableW > 0 && minSum > room ? room / minSum : 1;
   const colWidth = (k: string): number => {
     if (cw.widths[k] > 0) return cw.widths[k];
-    const spare = Math.max(0, tableW - fixedPx - minSum);
-    return Math.floor((LAYOUT[k]?.min ?? 80) + spare * (LAYOUT[k]?.weight ?? 5) / Math.max(1, weightSum));
+    const spare = Math.max(0, room - minSum);
+    return Math.floor((LAYOUT[k]?.min ?? 80) * shrink + spare * (LAYOUT[k]?.weight ?? 5) / Math.max(1, weightSum));
   };
   // A dragged column's cells take its width and clip; the rest size themselves.
   const cell = (k: string): { className?: string; style?: React.CSSProperties } => {
@@ -177,15 +184,12 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
           <table className={fit ? "fit" : undefined}>
             {fit && (
               <colgroup>
-                <col style={{ width: colWidth("name") }} />
-                <col style={{ width: SHOT_COL }} />
-                {visible.filter((c) => c.key !== "name").map((c) => <col key={c.key} style={{ width: colWidth(c.key) }} />)}
+                {visible.map((c) => <col key={c.key} style={{ width: colWidth(c.key) }} />)}
               </colgroup>
             )}
             <thead>
               <tr>
                 <SortTh k="name" sort={sort} onSort={toggle} width={cw.widths.name} {...size}>Subdomain</SortTh>
-                <th title="Screenshot" style={{ width: 34 }}></th>
                 {cols.show("found_by") && <SortTh k="found_by" sort={sort} onSort={toggle} width={cw.widths.found_by} {...size}
                         title="How the name was discovered: a scope target, subfinder (with the sources that knew it), or the wordlist brute force">Found by</SortTh>}
                 {cols.show("addr") && <SortTh k="addr" sort={sort} onSort={toggle} width={cw.widths.addr} {...size}>Address</SortTh>}
@@ -196,6 +200,7 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                 {cols.show("services") && <SortTh k="services" sort={sort} onSort={toggle} width={cw.widths.services} {...size}>Services</SortTh>}
                 {cols.show("last_seen") && <SortTh k="last_seen" sort={sort} onSort={toggle} width={cw.widths.last_seen} {...size}
                   title="When this name was last seen resolving to this address. Hover a value for when it was first seen.">Seen</SortTh>}
+                {cols.show("screenshot") && <th style={cell("screenshot").style}>Screenshot</th>}
               </tr>
             </thead>
             <tbody>
@@ -216,15 +221,6 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                             title="This domain answers for any name (wildcard DNS). Names that resolved only to the wildcard address were dropped at discovery; what you see here pointed somewhere else too.">wildcard</span>
                     )}
                   </td>
-                  <td style={{ padding: "6px 4px", whiteSpace: "nowrap" }}>
-                    {r.screenshot_service_id && (
-                      <ScreenshotButton compact
-                        serviceID={r.screenshot_service_id}
-                        host={r.screenshot_host}
-                        title={r.name}
-                      />
-                    )}
-                  </td>
                   {cols.show("found_by") && <td className={cell("found_by").className} style={{ fontSize: 12.5, ...cell("found_by").style }} title={(r.sources ?? []).join(", ") || undefined}>
                     <FoundBy sources={r.sources ?? []} />
                   </td>}
@@ -240,6 +236,16 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                   {cols.show("last_seen") && <td className={cls("last_seen", "muted")} style={{ whiteSpace: "nowrap", fontSize: 12, ...cell("last_seen").style }}
                       title={`First seen ${new Date(r.first_seen).toLocaleString()}\nLast seen ${new Date(r.last_seen).toLocaleString()}`}>
                     {new Date(r.last_seen).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+                  </td>}
+                  {cols.show("screenshot") && <td style={{ whiteSpace: "nowrap", ...cell("screenshot").style }}>
+                    {r.screenshot_service_id && (
+                      <ScreenshotButton
+                        serviceID={r.screenshot_service_id}
+                        host={r.screenshot_host}
+                        title={r.name}
+                        label="Screenshot"
+                      />
+                    )}
                   </td>}
                 </tr>
               ))}
