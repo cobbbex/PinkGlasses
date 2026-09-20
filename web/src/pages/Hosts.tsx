@@ -1,5 +1,5 @@
 import type React from "react";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, HostRow } from "../api";
 import { InfoDot, Spinner, useSort, SortTh, useColumns, ColumnPicker, ColumnDef, useColumnWidths } from "../components/ui";
@@ -26,6 +26,23 @@ const COLUMNS: ColumnDef[] = [
   { key: "last_seen", label: "Seen" },
 ];
 
+// How the screen's width is shared among the visible columns when the table
+// fits the screen. Every column first gets its minimum — enough for its
+// typical value, an address, an AS number, a date — and what is left after
+// the fixed-width ones (the screenshot icon, anything dragged) is shared by
+// weight, so the wide screen goes to the columns with long values.
+const LAYOUT: Record<string, { min: number; weight: number }> = {
+  name: { min: 160, weight: 24 }, found_by: { min: 110, weight: 14 }, addr: { min: 128, weight: 6 },
+  ptr: { min: 110, weight: 20 }, asn: { min: 86, weight: 2 }, as_org: { min: 110, weight: 20 },
+  as_range: { min: 118, weight: 6 }, services: { min: 100, weight: 2 }, last_seen: { min: 128, weight: 6 },
+};
+const SHOT_COL = 34;
+
+// fitStored reads the fit-to-screen preference; on unless switched off.
+function fitStored(): boolean {
+  try { return localStorage.getItem("asm.hosts.fit") !== "0"; } catch { return true; }
+}
+
 export default function Hosts({ scopeID }: { scopeID: string }) {
   const [q, setQ] = useState("");
   const cols = useColumns("asm.hosts.columns", COLUMNS);
@@ -33,6 +50,37 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
   // column size itself again; "Reset widths" does it for all.
   const cw = useColumnWidths("asm.hosts.widths");
   const size = { onResize: cw.set };
+  // Fit to screen: the table takes the screen's width and shares it among
+  // the visible columns by weight, clipping what does not fit (the full
+  // value stays on hover). Off, columns take their natural width and the
+  // table scrolls sideways.
+  const [fit, setFitState] = useState<boolean>(fitStored);
+  const setFit = (v: boolean) => { setFitState(v); try { localStorage.setItem("asm.hosts.fit", v ? "1" : "0"); } catch { /* private mode */ } };
+  const visible = COLUMNS.filter((c) => cols.show(c.key));
+  const unsized = visible.filter((c) => !(cw.widths[c.key] > 0));
+  const fixedPx = SHOT_COL + visible.reduce((n, c) => n + (cw.widths[c.key] > 0 ? cw.widths[c.key] : 0), 0);
+  const minSum = unsized.reduce((n, c) => n + (LAYOUT[c.key]?.min ?? 80), 0);
+  const weightSum = unsized.reduce((n, c) => n + (LAYOUT[c.key]?.weight ?? 5), 0);
+  // The table's box is measured, so each column's share can be a plain pixel
+  // width on its <col>: browsers do not resolve calc() against the table
+  // there, and shared the width evenly instead.
+  // A callback ref, because the table's box comes and goes with the view
+  // and with an empty result; the observer follows whichever box is there.
+  const [tableW, setTableW] = useState(0);
+  const observer = useRef<ResizeObserver | null>(null);
+  const wrapRef = useCallback((el: HTMLDivElement | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setTableW(el.clientWidth));
+    ro.observe(el); setTableW(el.clientWidth);
+    observer.current = ro;
+  }, []);
+  const colWidth = (k: string): number => {
+    if (cw.widths[k] > 0) return cw.widths[k];
+    const spare = Math.max(0, tableW - fixedPx - minSum);
+    return Math.floor((LAYOUT[k]?.min ?? 80) + spare * (LAYOUT[k]?.weight ?? 5) / Math.max(1, weightSum));
+  };
   // A dragged column's cells take its width and clip; the rest size themselves.
   const cell = (k: string): { className?: string; style?: React.CSSProperties } => {
     const w = cw.widths[k];
@@ -91,6 +139,12 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
           {view === "table" && cw.any && (
             <button className="ghost" onClick={cw.reset} title="Let every column size itself again">Reset widths</button>
           )}
+          {view === "table" && (
+            <button className="ghost" onClick={() => setFit(!fit)}
+                    title={fit ? "Columns share the screen's width; long values clip, and show in full on hover. Click for natural widths with sideways scrolling." : "Columns take their natural width and the table scrolls sideways. Click to fit the screen."}>
+              {fit ? "Fit screen ✓" : "Fit screen"}
+            </button>
+          )}
           {view === "table" && <ColumnPicker defs={COLUMNS} {...cols} />}
           <button className={view === "table" ? "" : "ghost"} onClick={() => setView("table")}>Table</button>
           <button className={view === "map" ? "" : "ghost"} onClick={() => setView("map")}>Map</button>
@@ -119,8 +173,15 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
             : "Nothing discovered yet — run a scan."}
         </div>
       ) : (
-        <div className="table-wrap">
-          <table>
+        <div className="table-wrap" ref={wrapRef}>
+          <table className={fit ? "fit" : undefined}>
+            {fit && (
+              <colgroup>
+                <col style={{ width: colWidth("name") }} />
+                <col style={{ width: SHOT_COL }} />
+                {visible.filter((c) => c.key !== "name").map((c) => <col key={c.key} style={{ width: colWidth(c.key) }} />)}
+              </colgroup>
+            )}
             <thead>
               <tr>
                 <SortTh k="name" sort={sort} onSort={toggle} width={cw.widths.name} {...size}>Subdomain</SortTh>
@@ -143,7 +204,7 @@ export default function Hosts({ scopeID }: { scopeID: string }) {
                     style={{ cursor: r.ip_id ? "pointer" : "default" }}
                     title={r.ip_id ? "Open host details in a new tab" : undefined}
                     onClick={() => r.ip_id && window.open(`/host/${r.ip_id}`, "_blank", "noopener")}>
-                  <td className={cls("name", "mono")} style={cell("name").style}>
+                  <td className={cls("name", "mono")} style={cell("name").style} title={r.name}>
                     {r.ip_id ? (
                       // A real link, so the row also answers to middle-click,
                       // ctrl-click and "copy link address".

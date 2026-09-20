@@ -934,3 +934,8 @@ picker live in components/ui.tsx so other tables can take the same.
 Asked 2026-09-21: Hosts column headings resize by dragging their right edge; widths are
 kept in the browser (asm.hosts.widths), a double-click fits a column again, "Reset widths"
 clears all. The handle and the widths hook are in components/ui.tsx.
+
+Asked 2026-09-21: the Hosts table fits the screen by default — fixed layout, a colgroup
+sharing the width among the visible columns by weight, dragged widths honoured, long
+values clipped with the full text on hover — with a "Fit screen" toggle back to natural
+widths and sideways scrolling (asm.hosts.fit).

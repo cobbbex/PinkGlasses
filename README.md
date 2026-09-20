@@ -540,10 +540,12 @@ endpoint, never logged.
 ## The Hosts view
 
 **Columns** above the table chooses which columns to show; the name and the row's
-actions always show. Drag the right edge of a heading to resize its column; double-click
-the edge to let it size itself again, or *Reset widths* for all. Both choices are kept
-in the browser, so they hold across companies and reloads, and *Show all* puts every
-column back.
+actions always show. By default the table **fits the screen**: the visible columns share its width and a
+value that does not fit is clipped, with the whole of it on hover; *Fit screen* switches
+to natural widths with sideways scrolling. Drag the right edge of a heading to resize
+its column; double-click the edge to let it size itself again, or *Reset widths* for
+all. Every choice is kept in the browser, so it holds across companies and reloads, and
+*Show all* puts every column back.
 
 Names and the machines they point at are one question in practice, so there is a
 single **Hosts** page rather than separate Domains and Hosts pages. Each row is a

@@ -376,3 +376,8 @@ th.resizable { position: relative; }
 .col-resize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; z-index: 1; }
 .col-resize:hover, .col-resize:active { background: var(--accent); opacity: .5; }
 td.clip { overflow: hidden; text-overflow: ellipsis; }
+
+/* Fit to screen: the table is exactly as wide as its box and the columns
+   share that width (see the colgroup); a cell clips what does not fit. */
+table.fit { table-layout: fixed; width: 100%; }
+table.fit td, table.fit th { overflow: hidden; text-overflow: ellipsis; }
