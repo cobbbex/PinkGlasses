@@ -401,9 +401,11 @@ func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
 	obs, err := a.scanner.Run(ctx, job)
 	status := "ok"
 	var errs []string
+	perm := false
 	if err != nil {
 		status = "error"
 		errs = append(errs, err.Error())
+		perm = isPermanent(err)
 	}
 	logArgs := []any{
 		"stage", job.Stage, "target", target, "task", job.TaskID,
@@ -436,6 +438,7 @@ func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
 		Schema: scanproto.ResultSchema, JobID: job.JobID, TaskID: job.TaskID,
 		LeaseToken: job.LeaseToken, Seq: seq, Final: true, Status: status,
 		Worker: scanproto.WorkerRef{ID: a.workerID, Version: a.cfg.Version}, Errors: errs,
+		Permanent: perm,
 	})
 }
 

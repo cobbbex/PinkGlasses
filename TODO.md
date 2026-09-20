@@ -908,3 +908,12 @@ source: subfinder names now carry their provider ("subfinder:crtsh"), so a dns_b
 chip reads "dns_brute 2/2 · 37 names" and the Hosts table has a "Found by" column:
 target, subfinder (crtsh, hackertarget), brute force. Existing names keep the bare
 "subfinder" tag until a scan sees them again.
+
+Found 2026-09-20 from "I still don't see how many hosts the brute force found": the six
+dns_brute tasks of the night's run each ran exactly 60 minutes and finished "done" with
+nothing. shuffledns was killed at the stage's fixed hour — at the old default of 100
+in-flight queries a 9.5M-name list takes most of a day — and the runner only logged the
+kill. Now: the budget is an hour plus a second per thousand names; the default is 1000
+in-flight queries; a tool killed at its budget is a ToolTimeout the stage sees; dns_brute
+then fails with the reason, keeps what it found, and marks the failure permanent so the
+gateway does not spend two more attempts on it (Result.permanent; older workers unaffected).

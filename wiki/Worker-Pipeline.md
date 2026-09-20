@@ -75,6 +75,16 @@ out a task per (domain × wordlist), so several lists spread across workers rath
 grinding through one after another on a single box. Each task carries a presigned download
 for its wordlist and for the resolver list; the worker caches both by content hash.
 
+Each task has a time budget that grows with its list — an hour plus a second per thousand
+names, so the 9.5M-name assetnote list gets about 3.6 h — and runs shuffledns with 1000
+in-flight queries by default (*Bruteforce threads* under Customize scanning; massdns is
+asynchronous, so this is not CPU). At that rate a 10M-name list finishes well inside the
+budget; at the old default of 100 it took most of a day, and six tasks once ran for exactly
+their hour and finished "done" with nothing. A task that hits its budget now **fails, with
+the reason**, keeps the names it had found, and is not retried — the same list at the same
+rate would take the same time. The run's pipeline chip and Activity row say how many names
+the brute force found and, on the chip, per source.
+
 Two flag details this codebase learned the hard way, both of which made the stage return
 nothing while looking like a clean "found nothing":
 

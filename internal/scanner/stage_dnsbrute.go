@@ -1,9 +1,11 @@
 package scanner
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -47,6 +49,11 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	}
 
 	pr := jobParams(job)
+	threads := pr.intStr("shuffledns_threads", "1000")
+	names := countLines(wordlist)
+	budget := bruteTimeout(names)
+	slog.Info("dns_brute starting", "domain", root, "wordlist", job.Params.WordlistName,
+		"names", names, "threads", threads, "budget", budget.String())
 	// No -mode flag: this shuffledns build rejects it and exits with a usage
 	// error, which used to make the whole stage silently return nothing.
 	// Passing -d with -w is what selects brute-force mode.
@@ -54,9 +61,9 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	// wildcarded domain (or a resolver that hijacks NXDOMAIN) turns the whole
 	// wordlist into "found" subdomains. It costs extra queries per hit, which
 	// is cheap next to inventing thousands of hosts that do not exist.
-	lines, _ := runLines(ctx, 60*time.Minute, "shuffledns",
+	lines, runErr := runLines(ctx, budget, "shuffledns",
 		"-d", root, "-w", wordlist, "-r", resolvers,
-		"-t", pr.intStr("shuffledns_threads", "100"),
+		"-t", threads,
 		"-strict-wildcard", "-silent")
 
 	var obs []scanproto.Observation
@@ -77,7 +84,62 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 
 	// Resolve what we found so the coalesce barrier downstream sees addresses.
 	obs = append(obs, s.resolveNames(ctx, keysOf(seen), pr)...)
+
+	// A list the tool could not get through in its budget is a failed task,
+	// said so, with what was found kept — not a task that reads "done" with
+	// nothing after an hour, which is what six of these once looked like.
+	// Permanent, because the same list at the same rate takes the same time.
+	var to *ToolTimeout
+	if errors.As(runErr, &to) {
+		return obs, permanent(fmt.Errorf(
+			"shuffledns did not finish the %s-name list %q within %s at %s threads; "+
+				"%d names found before it was stopped — raise Bruteforce threads under "+
+				"Customize scanning, or brute-force with a smaller list",
+			humanCount(names), job.Params.WordlistName, budget.Round(time.Minute), threads, len(seen)))
+	}
 	return obs, nil
+}
+
+// bruteTimeout is how long a brute force over `names` candidates may take:
+// an hour, plus a second per thousand names — 9.5M names get about 3.6 h.
+// At the default 1000 in-flight queries massdns gets through a list of that
+// size in well under an hour; the budget is there for slow resolvers, not
+// as the expected duration.
+func bruteTimeout(names int) time.Duration {
+	d := time.Hour + time.Duration(names/1000)*time.Second
+	if d < time.Hour {
+		return time.Hour
+	}
+	return d
+}
+
+// countLines counts the newline-terminated lines in a file; 0 if unreadable.
+func countLines(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	buf := make([]byte, 1<<20)
+	n := 0
+	for {
+		c, err := f.Read(buf)
+		n += bytes.Count(buf[:c], []byte{'\n'})
+		if err != nil {
+			return n
+		}
+	}
+}
+
+// humanCount renders 9544235 as "9.5M" and 3244 as "3.2k".
+func humanCount(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	}
+	return fmt.Sprint(n)
 }
 
 // wordlistPath returns a local path to this job's wordlist.

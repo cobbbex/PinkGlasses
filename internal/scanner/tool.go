@@ -31,6 +31,37 @@ type execution struct {
 	stderr string
 	took   time.Duration
 	err    error
+	// timedOut: the tool was killed at `timeout`. Whatever it had written
+	// by then is in stdout; the stage decides whether that is worth keeping.
+	timedOut bool
+	timeout  time.Duration
+}
+
+// ToolTimeout is the error a runner returns when the tool was killed at its
+// time budget. Stages that ignore the error keep the partial output, as
+// before; a stage whose whole job is one long tool run reports it.
+type ToolTimeout struct {
+	Tool    string
+	Timeout time.Duration
+}
+
+func (t *ToolTimeout) Error() string {
+	return t.Tool + " did not finish within " + t.Timeout.Round(time.Second).String()
+}
+
+// permanentError marks a stage failure that a retry would only repeat.
+type permanentError struct{ err error }
+
+func (p permanentError) Error() string { return p.err.Error() }
+func (p permanentError) Unwrap() error { return p.err }
+
+// permanent wraps err so the agent reports it as not worth retrying.
+func permanent(err error) error { return permanentError{err: err} }
+
+// isPermanent reports whether err, anywhere in its chain, was marked permanent.
+func isPermanent(err error) bool {
+	var p permanentError
+	return errors.As(err, &p)
 }
 
 // runTool executes a scan tool, capturing output and timing. Every invocation
@@ -41,7 +72,7 @@ func runTool(ctx context.Context, timeout time.Duration, stdin string, name stri
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	e := &execution{name: name, args: args}
+	e := &execution{name: name, args: args, timeout: timeout}
 	cmd := exec.CommandContext(cctx, name, args...)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
@@ -64,6 +95,7 @@ func runTool(ctx context.Context, timeout time.Duration, stdin string, name stri
 		logToolFailure(name, args, e.err, e.stderr)
 	}
 	if errors.Is(cctx.Err(), context.DeadlineExceeded) {
+		e.timedOut = true
 		slog.Warn("tool timed out — results are partial",
 			"tool", name, "timeout", timeout, "args", argSummary(args))
 	}
@@ -134,7 +166,17 @@ func parseJSONL(e *execution) ([]map[string]any, error) {
 		}
 	}
 	e.logResult(len(rows))
-	return rows, nil
+	return rows, e.timeoutErr()
+}
+
+// timeoutErr is the error a parse returns: a ToolTimeout when the tool was
+// killed at its budget, nil otherwise. Exit status is deliberately not an
+// error here — tools exit non-zero and still produce useful lines.
+func (e *execution) timeoutErr() error {
+	if e.timedOut {
+		return &ToolTimeout{Tool: e.name, Timeout: e.timeout}
+	}
+	return nil
 }
 
 // parseLines turns an invocation's stdout into trimmed non-empty lines.
@@ -148,7 +190,7 @@ func parseLines(e *execution) ([]string, error) {
 		}
 	}
 	e.logResult(len(lines))
-	return lines, nil
+	return lines, e.timeoutErr()
 }
 
 // runLinesStdin pipes stdin into a command and returns its stdout lines.

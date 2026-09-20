@@ -224,6 +224,18 @@ func (s *Store) FailTask(ctx context.Context, taskID, leaseToken uuid.UUID, msg 
 	return err
 }
 
+// FailTaskPermanently fails a task whatever its attempts: the worker said a
+// retry would only repeat the failure. The observations it did report before
+// giving up are already ingested; only the retry is forgone.
+func (s *Store) FailTaskPermanently(ctx context.Context, taskID, leaseToken uuid.UUID, msg string) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE scan_task SET
+		  status = 'failed', error=$3, lease_token=NULL, worker_id=NULL, lease_expires_at=NULL,
+		  finished_at = now()
+		WHERE id=$1 AND lease_token=$2`, taskID, leaseToken, msg)
+	return err
+}
+
 // ReapExpiredLeases returns expired-lease tasks to pending (or fails them past
 // max_attempts). Returns the number reaped. Run by the scheduler.
 //

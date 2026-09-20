@@ -485,7 +485,7 @@ paths:
   /api/v1/runs/{runID}/activity:
     get:
       operationId: getRunsByRunIDActivity
-      summary: "{tasks, stages, workers} — what is running where, right now"
+      summary: "{tasks, stages, workers} — what is running where, right now. Each stage carries found and found_kind (names, addresses, open ports, web endpoints) and, for discovery stages, sources (names per source: subfinder:crtsh, shuffledns, seed); each task carries result with the same counts"
       x-required-role: viewer
       parameters:
         - {name: runID, in: path, required: true, schema: {type: string}}
@@ -593,7 +593,7 @@ paths:
   /api/v1/scopes/{scopeID}/hostrows:
     get:
       operationId: getScopesByScopeIDHostrows
-      summary: "the Hosts table: one row per name→address pair, ?q= and ?unresolved=true to include names that resolve to nothing. Returns {rows, unresolved_hidden}"
+      summary: "the Hosts table: one row per name→address pair, ?q= and ?unresolved=true to include names that resolve to nothing. Returns {rows, unresolved_hidden}; each row's sources says how the name was found (seed, subfinder:<provider>, shuffledns, dns)"
       x-required-role: viewer
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}

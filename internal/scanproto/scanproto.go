@@ -232,6 +232,12 @@ type Result struct {
 	Observations []Observation `json:"observations"`
 	Artifacts    []Artifact    `json:"artifacts"`
 	Errors       []string      `json:"errors,omitempty"`
+	// Permanent says the error would recur on a retry — a tool that could
+	// not finish a list in its time budget will not finish it next time
+	// either — so the task should fail now rather than spend two more
+	// attempts on it. Older workers never set it, and the gateway retries
+	// as before.
+	Permanent bool `json:"permanent,omitempty"`
 }
 
 // WorkerRef identifies the reporting worker.

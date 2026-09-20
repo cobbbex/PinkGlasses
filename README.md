@@ -141,7 +141,10 @@ default templates on first use, which is part of why the first nuclei task of a 
 takes minutes.
 
 **DNS bruteforce is a separate task per wordlist**, so several lists spread across
-workers instead of grinding through one after another. See
+workers instead of grinding through one after another. Each task's time budget grows
+with its list (an hour plus a second per thousand names) and it runs 1000 queries in
+flight by default; a task that cannot finish its list in that time fails with the reason
+rather than reading "done" with nothing. See
 [Wordlists and resolvers](#wordlists-and-resolvers).
 
 **Port scanning is batched and incremental.** Resolution feeds addresses forward as

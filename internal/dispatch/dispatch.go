@@ -46,6 +46,11 @@ func (d *Dispatcher) Fail(ctx context.Context, taskID, leaseToken uuid.UUID, msg
 	return d.st.FailTask(ctx, taskID, leaseToken, msg)
 }
 
+// FailForGood records a failure the worker said a retry would only repeat.
+func (d *Dispatcher) FailForGood(ctx context.Context, taskID, leaseToken uuid.UUID, msg string) error {
+	return d.st.FailTaskPermanently(ctx, taskID, leaseToken, msg)
+}
+
 // CanRun reports whether a worker's capabilities satisfy a stage's requirements.
 func CanRun(caps []string, stage scanproto.Stage) bool {
 	have := map[string]bool{}

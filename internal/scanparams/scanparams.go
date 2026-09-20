@@ -115,7 +115,8 @@ var Specs = []Spec{
 		Default: "true",
 		Help:    "Brute-force subdomains with the selected wordlists, as a separate task per list. Very high DNS volume — turn it off for a quick, quiet scan."},
 	{Key: "shuffledns_threads", Tool: "shuffledns", Label: "Bruteforce threads", Kind: KindInt,
-		Min: 1, Max: 1000, Default: "100", Help: "Concurrent resolutions while brute-forcing."},
+		Min: 1, Max: 10000, Default: "1000",
+		Help: "In-flight DNS queries while brute-forcing (massdns is asynchronous, so this is not CPU). 1000 gets through a 10M-name list in well under an hour against public resolvers; at 100 the same list takes most of a day and the task is stopped at its time budget with nothing to show."},
 
 	{Key: "dnsx_threads", Tool: "dnsx", Label: "Resolver threads", Kind: KindInt,
 		Min: 1, Max: 500, Default: "100", Help: "Concurrent DNS resolutions."},

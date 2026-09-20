@@ -602,8 +602,12 @@ func (g *Gateway) results(w http.ResponseWriter, r *http.Request) {
 			msg = "worker reported an error with no detail"
 		}
 		slog.Warn("task failed on the worker", "task", taskID, "stage", task.stage,
-			"worker", workerID, "err", msg)
-		_ = g.disp.Fail(r.Context(), taskID, leaseTok, msg)
+			"worker", workerID, "err", msg, "permanent", res.Permanent)
+		if res.Permanent {
+			_ = g.disp.FailForGood(r.Context(), taskID, leaseTok, msg)
+		} else {
+			_ = g.disp.Fail(r.Context(), taskID, leaseTok, msg)
+		}
 	case res.Final:
 		_ = g.disp.Complete(r.Context(), taskID, leaseTok, merged)
 	default:
