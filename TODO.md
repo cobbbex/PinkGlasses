@@ -944,3 +944,12 @@ Asked 2026-09-22: the MCP server runs inside the api, at /mcp on the web app's o
 (8080), one server per request bound to the caller's token, reaching the router in
 process (mcpserver.NewInProcessClient). The separate "mcp" compose profile is gone; the
 mcp binary stays for stdio clients. ASM_MCP_ALLOW_DELETE_COMPANY moved to the api service.
+
+Reported 2026-09-22: an agent could not connect to /mcp. Claude Code connected fine over
+streamable HTTP; the endpoint refused GET with 405, which is how the older SSE transport
+connects, and clients differ in which they try first. Both transports are now served on
+/mcp (a GET, or a POST carrying ?sessionid=, is the old one). The SDK's DNS-rebinding
+guard is off: it 403s a loopback request with a non-loopback Host, i.e. a same-box
+reverse proxy, and this server has no ambient credential to protect. The wiki gained an
+"If a client cannot connect" list; the other likely cause is an install not yet
+redeployed, where /mcp still returns the web page.

@@ -71,6 +71,12 @@ in front before exposing it beyond the host, and if a reverse proxy sits in
 front, forward `/mcp` with the `Authorization` header and without response
 buffering, as for the run events stream.
 
+Both HTTP transports are answered on that one path: streamable HTTP (a POST
+per message, the current transport) and the older SSE transport (a hanging
+GET for the event stream, then POSTs to the session endpoint it names).
+Clients differ in which they speak, and some try the old one first, so a
+client needs no transport setting beyond the URL.
+
 ```bash
 claude mcp add --transport http pinkglasses http://localhost:8080/mcp \
   --header "Authorization: Bearer pgt_…"
@@ -114,6 +120,30 @@ Point `ASM_API_URL` at wherever the api answers. The same command in Cursor's
 The binary's own `ASM_MCP_TRANSPORT=http` / `ASM_MCP_ADDR` mode still exists
 for running it apart from the api; the api's `/mcp` is the same server and
 needs none of that.
+
+## If a client cannot connect
+
+- **The page comes back instead of a server** — the response to `/mcp` is
+  HTML. That install predates the built-in endpoint; redeploy it. Until then
+  the endpoint does not exist there.
+- **Connected, but every tool answers "sign in to continue"** — the token is
+  missing or wrong. The connection itself needs no token; the calls do. Check
+  the `Authorization: Bearer pgt_…` header, and that the token has not been
+  revoked under Accounts → API tokens.
+- **A reverse proxy in front** must forward `/mcp` as well as `/api/`, pass
+  the `Authorization` header through, and not buffer responses on that path
+  (they are event streams). With those three in place the proxy's address
+  and TLS are what the client uses.
+- **What to try by hand** — a bare request that needs no client:
+
+  ```bash
+  curl -s -X POST http://localhost:8080/mcp \
+    -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+  ```
+
+  An `event: message` line with the server's capabilities means the endpoint
+  is up; anything else says what is in the way.
 
 ## A first conversation
 

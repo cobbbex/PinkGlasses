@@ -48,10 +48,7 @@ func main() {
 	// A request without a token gets the API's own refusal in the tool
 	// result. Nothing extra to deploy; it is up whenever the web app is.
 	mcpOpts := mcpserver.Options{AllowDeleteCompany: os.Getenv("ASM_MCP_ALLOW_DELETE_COMPANY") == "true"}
-	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		return mcpserver.NewServer(mcpserver.NewInProcessClient(routes, token), mcpOpts)
-	}, &mcp.StreamableHTTPOptions{Stateless: true}))
+	mux.Handle("/mcp", mcpHandler(routes, mcpOpts))
 	// Serve the built SPA if present.
 	if _, err := os.Stat("web/dist"); err == nil {
 		mux.Handle("/", spaHandler("web/dist"))
@@ -72,6 +69,39 @@ func main() {
 	shutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutCtx)
+}
+
+// mcpHandler serves the MCP server on one path over both HTTP transports.
+//
+// Streamable HTTP (the current transport) is a POST per message. The older
+// SSE transport opens a hanging GET for the event stream and POSTs messages
+// to a per-session endpoint, here /mcp?sessionid=…. Clients differ in which
+// they speak — some try the old one first and give up on a 405 — so both are
+// answered on the same path: a GET, or a POST carrying a session id, is the
+// old transport; anything else is the new one. Either way each session is
+// bound to the token on the request that opened it.
+func mcpHandler(routes http.Handler, opts mcpserver.Options) http.Handler {
+	getServer := func(r *http.Request) *mcp.Server {
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		return mcpserver.NewServer(mcpserver.NewInProcessClient(routes, token), opts)
+	}
+	// The SDK's DNS-rebinding guard rejects a request that arrives on a
+	// loopback address with a non-loopback Host header — which is what a
+	// reverse proxy on the same box sends. The guard protects servers with
+	// ambient credentials; this one has none: every session is bound to the
+	// bearer token on its own request, and the browser's session cookie is
+	// never read here, so a page on another origin gains nothing by reaching
+	// it. Off, so a proxy in front works.
+	streamable := mcp.NewStreamableHTTPHandler(getServer, &mcp.StreamableHTTPOptions{
+		Stateless: true, DisableLocalhostProtection: true})
+	legacy := mcp.NewSSEHandler(getServer, &mcp.SSEOptions{DisableLocalhostProtection: true})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.URL.Query().Get("sessionid") != "" {
+			legacy.ServeHTTP(w, r)
+			return
+		}
+		streamable.ServeHTTP(w, r)
+	})
 }
 
 // spaHandler serves static files, falling back to index.html for client routes.
