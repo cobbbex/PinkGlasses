@@ -65,25 +65,29 @@ claude mcp add pinkglasses -e ASM_API_URL=http://localhost:8080 -e ASM_MCP_TOKEN
 Point `ASM_API_URL` at wherever the api answers. Claude Desktop takes the same
 command in its MCP servers configuration.
 
-**On the network over streamable HTTP**, for several clients or a remote
-install: enable the `mcp` compose profile.
+**On the network over streamable HTTP**: the api serves it itself, at `/mcp`
+on the same address as the web app — `http://<host>:8080/mcp`. There is
+nothing to enable and nothing else to deploy; it is up whenever the web app
+is, and requests reach the router in-process rather than over a second hop.
+Each request carries its own token as `Authorization: Bearer pgt_…`; the
+server holds no credential of its own, and a request without a token gets the
+API's own refusal. Put TLS in front before exposing it beyond the host, as with
+the api.
 
 ```bash
-docker compose --profile mcp up -d mcp
+claude mcp add --transport http pinkglasses http://localhost:8080/mcp \
+  --header "Authorization: Bearer pgt_…"
 ```
-
-It listens on `:8092` at `/mcp`. Each request carries its own token as
-`Authorization: Bearer pgt_…`; the server holds no credential of its own, and
-a request without a token gets the API's own refusal. Put TLS in front before
-exposing it beyond the host, as with the api.
 
 | Variable | Meaning |
 |---|---|
-| `ASM_API_URL` | Where the api answers (default `http://localhost:8080`) |
-| `ASM_MCP_TOKEN` | The API token, stdio mode only |
-| `ASM_MCP_TRANSPORT` | `stdio` (default) or `http` |
-| `ASM_MCP_ADDR` | Listen address in http mode (default `:8092`) |
-| `ASM_MCP_ALLOW_DELETE_COMPANY` | `true` adds the `delete_company` tool |
+| `ASM_MCP_ALLOW_DELETE_COMPANY` | On the api: `true` adds the `delete_company` tool |
+| `ASM_API_URL` | stdio binary: where the api answers (default `http://localhost:8080`) |
+| `ASM_MCP_TOKEN` | stdio binary: the API token |
+
+The `mcp` binary's own `ASM_MCP_TRANSPORT=http` mode still exists for running
+it apart from the api; the api's `/mcp` is the same server and needs none of
+that.
 
 ## A first conversation
 

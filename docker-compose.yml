@@ -53,6 +53,9 @@ services:
       # published default, which the UI and the startup log both complain about
       # until it is changed. "-" creates no account and asks on first visit.
       ASM_DEFAULT_ADMIN_PASSWORD: "${ASM_DEFAULT_ADMIN_PASSWORD:-}"
+      # The MCP server is served by this process at /mcp. "true" adds its
+      # delete_company tool; off by default.
+      ASM_MCP_ALLOW_DELETE_COMPANY: "${ASM_MCP_ALLOW_DELETE_COMPANY:-false}"
       # wordlist and resolver uploads are streamed into object storage
       ASM_S3_ENDPOINT: "http://minio:9000"
       ASM_S3_BUCKET: "${ASM_S3_BUCKET:-asm-artifacts}"
@@ -224,24 +227,6 @@ services:
       # on a volume so a worker restart does not take them with it
       - workerspool:/var/cache/asm/spool
     depends_on: [gateway]
-
-  # MCP server over streamable HTTP, for AI clients on the network. Off unless
-  # the "mcp" profile is enabled; each request carries its own PinkGlasses API
-  # token as Authorization: Bearer, nothing is shared. Local clients (Claude
-  # Code, Claude Desktop) run the same binary over stdio instead — see the wiki.
-  mcp:
-    profiles: ["mcp"]
-    build: .
-    entrypoint: ["/usr/local/bin/mcp"]
-    environment:
-      ASM_MCP_TRANSPORT: "http"
-      ASM_MCP_ADDR: ":8092"
-      ASM_API_URL: "http://api:8080"
-      # "true" adds the delete_company tool; off by default.
-      ASM_MCP_ALLOW_DELETE_COMPANY: "${ASM_MCP_ALLOW_DELETE_COMPANY:-false}"
-    ports: ["8092:8092"]
-    depends_on:
-      api: {condition: service_started}
 
 # Volume names are pinned to what they were before the project was renamed.
 # Compose derives volume names from the project, so without this the rename

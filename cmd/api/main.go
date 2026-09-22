@@ -12,9 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/benlik386/pinkglasses/internal/auth"
 	"github.com/benlik386/pinkglasses/internal/config"
 	"github.com/benlik386/pinkglasses/internal/httpapi"
+	"github.com/benlik386/pinkglasses/internal/mcpserver"
 	"github.com/benlik386/pinkglasses/internal/store"
 )
 
@@ -37,8 +40,18 @@ func main() {
 	// change — and are fanned out to browsers subscribed to that run.
 	go st.Listen(ctx, "run_events", api.PublishRunEvent)
 	mux := http.NewServeMux()
-	mux.Handle("/api/", api.Routes())
-	mux.Handle("/healthz", api.Routes())
+	routes := api.Routes()
+	mux.Handle("/api/", routes)
+	mux.Handle("/healthz", routes)
+	// The MCP server, on this same port at /mcp: one server per request,
+	// bound to the caller's own API token, talking to the router in-process.
+	// A request without a token gets the API's own refusal in the tool
+	// result. Nothing extra to deploy; it is up whenever the web app is.
+	mcpOpts := mcpserver.Options{AllowDeleteCompany: os.Getenv("ASM_MCP_ALLOW_DELETE_COMPANY") == "true"}
+	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		return mcpserver.NewServer(mcpserver.NewInProcessClient(routes, token), mcpOpts)
+	}, &mcp.StreamableHTTPOptions{Stateless: true}))
 	// Serve the built SPA if present.
 	if _, err := os.Stat("web/dist"); err == nil {
 		mux.Handle("/", spaHandler("web/dist"))

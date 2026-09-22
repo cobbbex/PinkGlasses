@@ -885,8 +885,9 @@ scans, keep schedules. It is a thin adapter over the HTTP API, authenticated wit
 PinkGlasses API token, so every rule the UI obeys applies unchanged and every action is
 audited under that account; a viewer token gives a read-only server. Destructive tools
 require `confirm: true`; credentials (workers, VPN bodies, accounts, tokens) are not
-exposed. Run it over stdio from the published image, or as the `mcp` compose profile
-over HTTP. See the wiki page [MCP server](wiki/MCP.md).
+exposed. The api serves it at `/mcp` on the same address as the web app, so it is up
+whenever the app is; a local client can run it over stdio from the published image
+instead. See the wiki page [MCP server](wiki/MCP.md).
 
 ## Develop
 

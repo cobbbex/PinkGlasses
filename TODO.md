@@ -939,3 +939,8 @@ Asked 2026-09-21: the Hosts table fits the screen by default — fixed layout, a
 sharing the width among the visible columns by weight, dragged widths honoured, long
 values clipped with the full text on hover — with a "Fit screen" toggle back to natural
 widths and sideways scrolling (asm.hosts.fit).
+
+Asked 2026-09-22: the MCP server runs inside the api, at /mcp on the web app's own port
+(8080), one server per request bound to the caller's token, reaching the router in
+process (mcpserver.NewInProcessClient). The separate "mcp" compose profile is gone; the
+mcp binary stays for stdio clients. ASM_MCP_ALLOW_DELETE_COMPANY moved to the api service.
