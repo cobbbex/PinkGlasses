@@ -58,6 +58,30 @@ Resources for the read side: `pinkglasses://companies`,
 PNG), `pinkglasses://scan-parameters`. Prompts: `triage_changes`,
 `explain_host`, `plan_scan`.
 
+## In the app
+
+**MCP** in the sidebar is the page for all of this: the server's address on this
+install, a *Create token* form (viewer for a read-only server, operator to let
+it scan; the token is shown once and the snippets carry it while it is on
+screen), copy-ready snippets for Claude Code, Cursor and a stdio client, the
+skill download, and the list of tools this install exposes.
+
+## The skill
+
+A **skill** is a folder an AI client reads to know how to use a tool well.
+The page's *Download the skill* gives a zip that unpacks into `pinkglasses/`:
+
+| File | What it holds |
+|---|---|
+| `SKILL.md` | when to reach for which tool; the scan model in short; destructive-tool rules; how to answer |
+| `reference/tools.md` | every tool with its parameters — **generated from the server's tool set**, so it never drifts |
+| `reference/search-query-language.md` | the `search` syntax |
+| `reference/scanning.md` | companies, target groups, authorization, profiles, exits; starting and following a run |
+
+Unpack it into `~/.claude/skills/` for Claude Code across every project, or
+`.claude/skills/` inside one project. Other clients that load `SKILL.md`
+folders take the same. The API serves it at `GET /api/v1/mcp/skill.zip`.
+
 ## Running it
 
 **Over HTTP, from the running app** — the usual way. The api serves the MCP

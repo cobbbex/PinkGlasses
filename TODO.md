@@ -975,3 +975,11 @@ Pages site once Settings → Pages → Source is "GitHub Actions". Still to do o
 About description, topics and website; a LICENSE; a first release tag; a social preview
 image; then links from outside (awesome lists, a post) — indexing follows links, and a
 three-week-old repository with one star has none.
+
+Asked 2026-09-22: an MCP page in the sidebar — the endpoint derived from the page's own
+origin, a Create-token form (role ≤ own, TTL, shown once, snippets carry it), Claude
+Code / Cursor / stdio snippets with Copy, the skill download and the tool list from
+GET /mcp/settings. The skill (internal/mcpserver/skill.go, GET /mcp/skill.zip) is
+SKILL.md plus a tool reference generated from Tools(), the search syntax and the scan
+model; a test checks every tool is documented. httpapi does not import mcpserver (its
+tests walk the router): cmd/api installs an MCPProvider.

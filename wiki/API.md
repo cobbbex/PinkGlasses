@@ -235,6 +235,13 @@ otherwise), and a schedule stays bound to its creator's configuration.
 | Route | Role | Purpose |
 |---|---|---|
 | `GET /vpn-configs` | viewer | your own: name, kind, endpoint host, last egress — **never the body** |
+
+## MCP page
+
+| Route | Role | Purpose |
+|---|---|---|
+| `GET /mcp/settings` | viewer | what the built-in MCP server (at `/mcp` on the api's address) exposes: `{path, tools: [{name, description, read_only, destructive}], allow_delete_company}` |
+| `GET /mcp/skill.zip` | viewer | the skill for AI clients, as a zip that unpacks into a `pinkglasses/` skill folder: `SKILL.md` plus a generated tool reference, the search query language and how scanning works |
 | `POST /vpn-configs` | operator | multipart `file` + `name`, or JSON `{name, config}`; kind (wireguard/openvpn) and endpoint are detected from the body; a WireGuard config without a default route is refused; 409 if you already have one by that name |
 | `DELETE /vpn-configs/{vpnID}` | operator | your own; an administrator may delete anyone's |
 

@@ -949,6 +949,38 @@ paths:
         "403": {$ref: "#/components/responses/e403"}
         "404": {$ref: "#/components/responses/e404"}
         "409": {$ref: "#/components/responses/e409"}
+  /api/v1/mcp/settings:
+    get:
+      operationId: getMcpSettings
+      summary: "what the built-in MCP server (at /mcp on the api's address) exposes: {path, tools: [{name, description, read_only, destructive}], allow_delete_company}"
+      x-required-role: viewer
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/mcp/skill.zip:
+    get:
+      operationId: getMcpSkill.Zip
+      summary: "the skill for AI clients, as a zip that unpacks into a pinkglasses/ skill folder: SKILL.md plus a generated tool reference, the search query language and how scanning works"
+      x-required-role: viewer
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
   /api/v1/tokens:
     get:
       operationId: getTokens

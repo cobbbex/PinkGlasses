@@ -918,7 +918,10 @@ audited under that account; a viewer token gives a read-only server. Destructive
 require `confirm: true`; credentials (workers, VPN bodies, accounts, tokens) are not
 exposed. The api serves it at `/mcp` on the same address as the web app, so it is up
 whenever the app is; a local client can run it over stdio from the published image
-instead. See the wiki page [MCP server](wiki/MCP.md).
+instead. **MCP** in the sidebar has the address, a token form, copy-ready client
+snippets and a downloadable **skill** — a folder that teaches an AI client how to use
+this server, with a tool reference generated from the server itself. See the wiki page
+[MCP server](wiki/MCP.md).
 
 ## Develop
 

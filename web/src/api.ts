@@ -228,6 +228,7 @@ export interface HostDetail {
   host: Host; names: HostName[]; services: HostService[]; findings: Finding[];
 }
 
+export interface MCPTool { name: string; description: string; read_only: boolean; destructive: boolean }
 export interface VPNConfig {
   id: string; scope_id: string; name: string; kind: "wireguard" | "openvpn";
   endpoint?: string | null; last_egress_ip?: string | null; last_checked_at?: string | null;
@@ -388,6 +389,10 @@ export const api = {
       .then((x) => (x ?? []).map((f) => ({ ...f, history: f.history ?? [] }))),
   // Configs are write-only: the body is sealed server-side and no endpoint
   // ever returns it.
+  /** What the built-in MCP server exposes, for the MCP page. */
+  mcpSettings: () => req<{ path: string; tools: MCPTool[]; allow_delete_company: boolean }>("/mcp/settings"),
+  /** The skill download; a plain link, since it is a file. */
+  mcpSkillURL: "/api/v1/mcp/skill.zip",
   /** The signed-in account's VPN configurations; usable in every company. */
   vpnConfigs: () =>
     req<{ configs: VPNConfig[] | null; secrets_ready: boolean; secrets_reason: string }>(

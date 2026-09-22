@@ -27,6 +27,8 @@ var notExposed = map[string]string{
 	"GET /tokens":                          "API tokens are credentials; the UI issues and revokes them",
 	"POST /tokens":                         "same",
 	"DELETE /tokens/{tokenID}":             "same",
+	"GET /mcp/settings":                    "describes this very server, for the app's MCP page",
+	"GET /mcp/skill.zip":                   "the skill download, for the app's MCP page",
 	"POST /vpn-configs":                    "a VPN configuration is a credential; the UI uploads it",
 	"DELETE /vpn-configs/{vpnID}":          "same",
 	"POST /scopes":                         "creating a company is done in the UI, where the picker follows it",

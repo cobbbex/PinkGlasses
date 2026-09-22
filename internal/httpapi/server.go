@@ -23,6 +23,9 @@ import (
 
 // Server holds dependencies for the API handlers.
 type Server struct {
+	// mcp describes the built-in MCP server for the app's MCP page; nil
+	// when cmd/api did not install one.
+	mcp      MCPProvider
 	st       *store.Store
 	planner  *planner.Planner
 	audit    *audit.Logger
@@ -124,6 +127,9 @@ func (s *Server) Routes() http.Handler {
 
 				// Your own tunnels' names and last egress, never a body.
 				v.Get("/vpn-configs", s.listVPNConfigs)
+				// The MCP page: the built-in server's tools, and the skill.
+				v.Get("/mcp/settings", s.mcpSettings)
+				v.Get("/mcp/skill.zip", s.mcpSkill)
 
 				// Your own tokens; an administrator sees everyone's.
 				v.Get("/tokens", s.listTokens)

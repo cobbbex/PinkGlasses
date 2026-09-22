@@ -48,11 +48,16 @@ func main() {
 	// A request without a token gets the API's own refusal in the tool
 	// result. Nothing extra to deploy; it is up whenever the web app is.
 	mcpOpts := mcpserver.Options{AllowDeleteCompany: os.Getenv("ASM_MCP_ALLOW_DELETE_COMPANY") == "true"}
-	mux.Handle("/mcp", mcpHandler(routes, mcpOpts))
-	// Serve the built SPA if present.
+	api.SetMCP(mcpProvider{opts: mcpOpts})
+	// Serve the built SPA if present. The app's own MCP page lives at /mcp
+	// too: a browser asking for HTML there gets the page, an MCP client
+	// asking for an event stream or posting messages gets the server.
+	var spa http.Handler = http.NotFoundHandler()
 	if _, err := os.Stat("web/dist"); err == nil {
-		mux.Handle("/", spaHandler("web/dist"))
+		spa = spaHandler("web/dist")
+		mux.Handle("/", spa)
 	}
+	mux.Handle("/mcp", mcpHandler(routes, mcpOpts, spa))
 
 	srv := &http.Server{Addr: cfg.Addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -71,16 +76,31 @@ func main() {
 	_ = srv.Shutdown(shutCtx)
 }
 
+// mcpProvider describes the MCP server to the router's MCP page.
+type mcpProvider struct{ opts mcpserver.Options }
+
+func (p mcpProvider) Tools() []httpapi.MCPTool {
+	var out []httpapi.MCPTool
+	for _, t := range mcpserver.Tools(p.opts) {
+		out = append(out, httpapi.MCPTool{Name: t.Name, Description: t.Description, ReadOnly: t.ReadOnly, Destructive: t.Destructive})
+	}
+	return out
+}
+func (p mcpProvider) SkillZip() ([]byte, error) { return mcpserver.SkillZip(p.opts) }
+func (p mcpProvider) AllowsDeleteCompany() bool { return p.opts.AllowDeleteCompany }
+
 // mcpHandler serves the MCP server on one path over both HTTP transports.
 //
 // Streamable HTTP (the current transport) is a POST per message. The older
 // SSE transport opens a hanging GET for the event stream and POSTs messages
 // to a per-session endpoint, here /mcp?sessionid=…. Clients differ in which
 // they speak — some try the old one first and give up on a 405 — so both are
-// answered on the same path: a GET, or a POST carrying a session id, is the
-// old transport; anything else is the new one. Either way each session is
-// bound to the token on the request that opened it.
-func mcpHandler(routes http.Handler, opts mcpserver.Options) http.Handler {
+// answered on the same path: a GET asking for an event stream, or a POST
+// carrying a session id, is the old transport; any other POST is the new one.
+// A GET asking for anything else is a browser opening the app's MCP page,
+// which shares the path. Either way each session is bound to the token on
+// the request that opened it.
+func mcpHandler(routes http.Handler, opts mcpserver.Options, page http.Handler) http.Handler {
 	getServer := func(r *http.Request) *mcp.Server {
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		return mcpserver.NewServer(mcpserver.NewInProcessClient(routes, token), opts)
@@ -96,6 +116,12 @@ func mcpHandler(routes http.Handler, opts mcpserver.Options) http.Handler {
 		Stateless: true, DisableLocalhostProtection: true})
 	legacy := mcp.NewSSEHandler(getServer, &mcp.SSEOptions{DisableLocalhostProtection: true})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A person's browser: it wants HTML, not an event stream.
+		if r.Method == http.MethodGet && r.URL.Query().Get("sessionid") == "" &&
+			!strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+			page.ServeHTTP(w, r)
+			return
+		}
 		if r.Method == http.MethodGet || r.URL.Query().Get("sessionid") != "" {
 			legacy.ServeHTTP(w, r)
 			return

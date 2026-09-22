@@ -13,6 +13,7 @@ import Findings from "./pages/Findings";
 import Search from "./pages/Search";
 import Alerts from "./pages/Alerts";
 import VPN from "./pages/VPN";
+import MCP from "./pages/MCP";
 import Host from "./pages/Host";
 import Auth from "./pages/Auth";
 import Users from "./pages/Users";
@@ -25,6 +26,7 @@ const NAV = [
   { to: "/search", label: "Search", ic: "⌕" },
   { to: "/wordlists", label: "Wordlists", ic: "≡" },
   { to: "/vpn", label: "VPN", ic: "⇄" },
+  { to: "/mcp", label: "MCP", ic: "✦" },
   { to: "/workers", label: "Workers", ic: "⬢" },
   { to: "/alerts", label: "Alerts", ic: "◎" },
   { to: "/accounts", label: "Accounts", ic: "☺", admin: true },
@@ -260,6 +262,8 @@ function Shell({ me, defaultPw, onSignedOut }: {
           <Route path="/wordlists" element={<Wordlists />} />
         {/* VPN configurations belong to the account, not to a company. */}
         <Route path="/vpn" element={<VPN />} />
+        {/* The MCP server is the install's; the token minted here is the account's. */}
+        <Route path="/mcp" element={<MCP me={me} />} />
           <Route path="/accounts" element={
             atLeast(me.role, "admin")
               ? <Users me={me} />
