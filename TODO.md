@@ -968,3 +968,10 @@ reported, heartbeat gaps, heartbeats naming a task the worker no longer holds, a
 results with the task's current state; the worker logs heartbeats failing and recovering,
 how long its channel was down, and what a refusal meant. A done task that once lost its
 lease shows a muted note, not a red error. README: "If a task says lease expired".
+
+Asked 2026-09-22: the project is not findable on Google. In the repo: a text H1 in the
+README (the name was only in an image) and pages.yml, which publishes wiki/ as a GitHub
+Pages site once Settings → Pages → Source is "GitHub Actions". Still to do on GitHub: the
+About description, topics and website; a LICENSE; a first release tag; a social preview
+image; then links from outside (awesome lists, a post) — indexing follows links, and a
+three-week-old repository with one star has none.

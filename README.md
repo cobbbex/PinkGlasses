@@ -9,6 +9,8 @@
   <a href="https://github.com/cobbbex/PinkGlasses/actions/workflows/ci.yml"><img src="https://github.com/cobbbex/PinkGlasses/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
+# PinkGlasses — self-hosted external attack surface management
+
 A self-hosted web application that discovers and continuously monitors the external attack
 surface of one organization — domains, DNS, hosts, open ports, services, technologies, TLS
 and findings. DNSDumpster-style discovery output; Shodan-style drill-down. Scanning runs on

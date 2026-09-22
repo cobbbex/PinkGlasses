@@ -1,0 +1,56 @@
+# Publishes the wiki/ folder as a GitHub Pages site — a real, indexable
+# documentation site with one URL per page, which is what search engines rank.
+# The GitHub wiki (wiki.yml) stays as the in-repo reading copy.
+#
+# One-time setup in the repository: Settings → Pages → Source: "GitHub Actions".
+name: docs site
+
+on:
+  push:
+    branches: [main]
+    paths: ["wiki/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lay out the site
+        run: |
+          mkdir -p site
+          cp -r wiki/. site/
+          mv site/Home.md site/index.md
+          cat > site/_config.yml <<'CFG'
+          title: PinkGlasses
+          description: Self-hosted external attack surface management — discover and continuously monitor an organization's domains, hosts, open ports, services, technologies, TLS certificates and findings, from scanning workers you own.
+          url: https://cobbbex.github.io
+          baseurl: /PinkGlasses
+          permalink: pretty
+          theme: minima
+          CFG
+      - uses: actions/configure-pages@v5
+      - uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./site
+          destination: ./_site
+      - uses: actions/upload-pages-artifact@v3
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
