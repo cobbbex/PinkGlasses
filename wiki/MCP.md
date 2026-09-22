@@ -77,7 +77,20 @@ claude mcp add --transport http pinkglasses http://localhost:8080/mcp \
 ```
 
 Claude Desktop and other clients take the same URL and header in their MCP
-servers configuration.
+servers configuration. In **Cursor**: Settings → MCP → *Add new global MCP
+server* opens `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project — keep
+it out of version control, it holds the token):
+
+```json
+{
+  "mcpServers": {
+    "pinkglasses": {
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer pgt_…" }
+    }
+  }
+}
+```
 
 **Locally over stdio**, for a client that cannot speak HTTP or a laptop that
 reaches the api through a tunnel of its own. The binary is in the published
@@ -89,7 +102,8 @@ claude mcp add pinkglasses -e ASM_API_URL=http://localhost:8080 -e ASM_MCP_TOKEN
      --entrypoint /usr/local/bin/mcp ghcr.io/cobbbex/pinkglasses:latest
 ```
 
-Point `ASM_API_URL` at wherever the api answers.
+Point `ASM_API_URL` at wherever the api answers. The same command in Cursor's
+`mcp.json` is `"command": "docker"` with those arguments under `"args"`.
 
 | Variable | Where | Meaning |
 |---|---|---|
