@@ -220,7 +220,8 @@ it is permanent — as is losing the password. If you lock yourself out,
 
 Every push to `main` publishes two images to the GitHub Container Registry, listed under
 the repository's **Packages**: `ghcr.io/cobbbex/pinkglasses` (the control plane — api,
-gateway, scheduler, provisioner and migrate are one image, chosen by entrypoint) and
+gateway, scheduler, provisioner, migrate and the stdio `mcp` binary are one image, chosen
+by entrypoint) and
 `ghcr.io/cobbbex/pinkglasses-worker` (the scanning agent with its tools). A tag `v1.2.3`
 also publishes `1.2.3`, `1.2` and `1`; every push publishes `sha-<short>`.
 
