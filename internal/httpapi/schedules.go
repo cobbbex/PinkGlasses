@@ -268,8 +268,9 @@ func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
 }
 
-// patchScope sets a company's default exit — what its schedules use and what
-// the launch dialog pre-selects.
+// patchScope edits a company: its name, and its default exit — what its
+// schedules use and what the launch dialog pre-selects. Each part is applied
+// only when sent, so a rename leaves the defaults alone and vice versa.
 func (s *Server) patchScope(w http.ResponseWriter, r *http.Request) {
 	scopeID, err := uuid.Parse(chi.URLParam(r, "scopeID"))
 	if err != nil {
@@ -277,7 +278,8 @@ func (s *Server) patchScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		DefaultExit        string  `json:"default_exit"`
+		Name               *string `json:"name"`
+		DefaultExit        *string `json:"default_exit"`
 		DefaultVPNConfigID *string `json:"default_vpn_config_id"`
 		DefaultPoolID      *string `json:"default_pool_id"`
 	}
@@ -285,7 +287,43 @@ func (s *Server) patchScope(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad body")
 		return
 	}
-	switch in.DefaultExit {
+	if in.Name != nil {
+		name := strings.TrimSpace(*in.Name)
+		if name == "" {
+			writeErr(w, http.StatusBadRequest, "name cannot be empty")
+			return
+		}
+		if len(name) > 120 {
+			writeErr(w, http.StatusBadRequest, "name is too long (120 characters at most)")
+			return
+		}
+		before, err := s.st.GetScope(r.Context(), scopeID)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "company not found")
+			return
+		}
+		if _, err := s.st.RenameScope(r.Context(), scopeID, name); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if before.Name != name {
+			s.auditReq(r, "scope.rename", scopeID.String(), map[string]any{"from": before.Name, "to": name})
+		}
+	}
+	if in.DefaultExit == nil && in.DefaultVPNConfigID == nil && in.DefaultPoolID == nil {
+		sc, err := s.st.GetScope(r.Context(), scopeID)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "company not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, sc)
+		return
+	}
+	exit := ""
+	if in.DefaultExit != nil {
+		exit = *in.DefaultExit
+	}
+	switch exit {
 	case "", "local", "remote":
 	default:
 		writeErr(w, http.StatusBadRequest, "default_exit must be \"local\", \"remote\" or empty")
@@ -312,7 +350,7 @@ func (s *Server) patchScope(w http.ResponseWriter, r *http.Request) {
 		}
 		poolID = &id
 	}
-	if err := s.st.SetScopeDefaults(r.Context(), scopeID, in.DefaultExit, vpnID, poolID); err != nil {
+	if err := s.st.SetScopeDefaults(r.Context(), scopeID, exit, vpnID, poolID); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

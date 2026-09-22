@@ -150,6 +150,26 @@ function Shell({ me, defaultPw, onSignedOut }: {
     try { localStorage.setItem(MINE_KEY, next ? "1" : "0"); } catch { /* private mode */ }
   }
 
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState("");
+  function openRename() {
+    setNewName(scopes.find((s) => s.id === scopeID)?.name ?? "");
+    setRenaming(true);
+  }
+  async function rename() {
+    const sc = scopes.find((s) => s.id === scopeID);
+    if (!sc || !newName.trim()) return;
+    try {
+      const updated = await api.renameScope(sc.id, newName.trim());
+      const swap = (list: Scope[]) => list.map((s) => (s.id === sc.id ? { ...s, name: updated.name } : s));
+      setScopes(swap); setAllScopes(swap);
+      setRenaming(false);
+      toast("ok", `Renamed "${sc.name}" to "${updated.name}"`);
+    } catch (e) {
+      toast("err", String(e).replace(/^Error:\s*/, ""));
+    }
+  }
+
   const [deleting, setDeleting] = useState(false);
   async function removeCurrent() {
     const sc = scopes.find((s) => s.id === scopeID);
@@ -205,6 +225,7 @@ function Shell({ me, defaultPw, onSignedOut }: {
           value={scopeID}
           onChange={setScopeID}
           onNew={() => setOpen(true)}
+          onRename={atLeast(me.role, "operator") && scopeID ? openRename : undefined}
           onDelete={atLeast(me.role, "admin") && scopeID ? () => setDeleting(true) : undefined}
           collapsed={collapsed}
           mine={mine}
@@ -273,6 +294,24 @@ function Shell({ me, defaultPw, onSignedOut }: {
       {deleting && scopeID && (
         <DeleteCompany scope={scopes.find((s) => s.id === scopeID)!} onClose={() => setDeleting(false)} onConfirm={removeCurrent} />
       )}
+
+      <Modal
+        title="Rename company" open={renaming} onClose={() => setRenaming(false)}
+        footer={<>
+          <button className="ghost" onClick={() => setRenaming(false)}>Cancel</button>
+          <button onClick={rename} disabled={!newName.trim()}>Rename</button>
+        </>}
+      >
+        <div className="field">
+          <label>Name</label>
+          <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && newName.trim() && rename()} />
+          <div className="hint">
+            Only the name changes. Targets, inventory, runs, findings, schedules and alert
+            channels stay with the company.
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         title="Add a company" open={open} onClose={() => setOpen(false)}

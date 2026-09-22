@@ -25,6 +25,13 @@ func (s *Store) CreateScope(ctx context.Context, name, createdBy string, ownerID
 	return sc, err
 }
 
+// RenameScope changes a company's name. Everything it owns is keyed by id, so
+// nothing else moves. False when there is no such company.
+func (s *Store) RenameScope(ctx context.Context, id uuid.UUID, name string) (bool, error) {
+	ct, err := s.Pool.Exec(ctx, `UPDATE scope SET name=$2 WHERE id=$1`, id, name)
+	return ct.RowsAffected() > 0, err
+}
+
 // AdoptOwnerlessScopes gives every unowned scope to a user, and is called once,
 // when the first administrator is created.
 //

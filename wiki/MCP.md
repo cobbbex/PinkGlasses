@@ -46,7 +46,7 @@ resource and is not on that list with a reason.
 
 | Group | Tools |
 |---|---|
-| Orientation | `list_companies`, `company_summary` |
+| Orientation | `list_companies`, `company_summary`, `rename_company` |
 | Inventory | `search` (the query language, with facets), `list_hosts`, `get_host`, `list_findings`, `update_finding` |
 | Targets | `list_target_groups`, `add_targets`, `edit_target_group`, `remove_target_group` |
 | Scanning | `start_scan` (now, once at a time, or on a repeat), `list_runs`, `get_run`, `wait_for_run`, `run_diff`, `pause_run`, `resume_run`, `stop_run`, `rerun`, `delete_run`, `list_schedules`, `edit_schedule`, `remove_schedule`, `scan_parameters` |

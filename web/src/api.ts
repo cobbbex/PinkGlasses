@@ -338,6 +338,7 @@ export const api = {
   scopes: (mine = false) =>
     req<Scope[] | null>("/scopes" + (mine ? "?mine=true" : "")).then((x) => x ?? []),
   createScope: (name: string) => req<Scope>("/scopes", { method: "POST", body: JSON.stringify({ name }) }),
+  renameScope: (s: string, name: string) => req<Scope>(`/scopes/${s}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   scopeFootprint: (s: string) => req<ScopeFootprint>(`/scopes/${s}/footprint`),
   deleteScope: (s: string) =>
     req<{ deleted: boolean; artifacts_removed: number; artifacts_failed: number }>(`/scopes/${s}`, { method: "DELETE" }),

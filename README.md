@@ -574,6 +574,9 @@ shared, and it needs no company selected to open.
 Services with a screenshot offer a **Screenshot** button — on the host page per service,
 and in the Hosts list per row — which opens the captured page image.
 
+**Renaming a company.** *Rename this company…* at the foot of the company picker (operator
+and up) changes the name and nothing else: everything the company owns is keyed by id.
+
 **Deleting a company.** An administrator can delete the selected company from the company
 picker (*Delete <name>…* at the foot of the list). The dialog counts what goes — target
 groups and entries, the whole inventory of names, hosts and services with its history, every

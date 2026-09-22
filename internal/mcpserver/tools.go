@@ -118,6 +118,16 @@ func Tools(o Options) []toolDef {
 			},
 		},
 		{
+			Name:        "rename_company",
+			Description: "Rename a company. Everything it owns stays with it; only the name changes.",
+			Schema:      obj(map[string]any{"company_id": str("Company id"), "name": str("The new name")}, "company_id", "name"),
+			Routes:      []string{"PATCH /scopes/{scopeID}"},
+			Run: func(ctx context.Context, c *Client, a args) (any, error) {
+				var out map[string]any
+				return out, c.patch(ctx, "/scopes/"+a.str("company_id"), map[string]any{"name": a.str("name")}, &out)
+			},
+		},
+		{
 			Name: "company_summary", ReadOnly: true,
 			Description: "Dashboard counters for a company: resolving names, hosts, services, open findings — and what it owns (target groups, runs, schedules) with whether a run is going.",
 			Schema:      obj(map[string]any{"company_id": str("Company id")}, "company_id"),

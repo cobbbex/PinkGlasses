@@ -1203,7 +1203,7 @@ paths:
         "409": {$ref: "#/components/responses/e409"}
     patch:
       operationId: patchScopesByScopeID
-      summary: "{default_exit, default_vpn_config_id, default_pool_id} — the exit the launch dialog pre-selects"
+      summary: "{name} renames the company (everything it owns stays; audited as scope.rename); {default_exit, default_vpn_config_id, default_pool_id} sets the exit the launch dialog pre-selects. Each part applies only when sent"
       x-required-role: operator
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}

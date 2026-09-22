@@ -216,6 +216,12 @@ h2 { margin: 0 0 16px; } h3 { margin: 0; font-size: 15px; }
   color: var(--muted); font-size: 12px; padding: 7px 9px; text-align: left; cursor: pointer;
 }
 .combo-del:hover { color: var(--crit); background: var(--panel2); filter: none; }
+/* The same quiet line for something harmless: rename. */
+.combo-quiet {
+  width: 100%; background: transparent; border: 0; border-top: 1px solid var(--border); border-radius: 0;
+  color: var(--muted); font-size: 12px; padding: 7px 9px; text-align: left; cursor: pointer;
+}
+.combo-quiet:hover { color: var(--fg); background: var(--panel2); filter: none; }
 .combo-caret { color: var(--muted); flex: none; margin-right: 3px; }
 .combo-panel {
   position: absolute; top: calc(100% + 5px); left: 0; right: 0; z-index: 40;

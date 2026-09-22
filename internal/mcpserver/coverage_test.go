@@ -14,7 +14,6 @@ import (
 var notExposed = map[string]string{
 	"GET /runs/{runID}/events":             "server-sent events: a browser stream; wait_for_run polls instead",
 	"GET /scopes/{scopeID}/graph":          "the name→address map drawing; list_hosts carries the same pairs",
-	"PATCH /scopes/{scopeID}":              "a company's default exit is a launch-dialog preselection",
 	"POST /scopes/{scopeID}/scan-profiles": "saving presets is a UI convenience; params on start_scan cover it",
 	"POST /scopes/{scopeID}/notifications": "alert channels carry webhook secrets; managed in the UI",
 	"PATCH /notifications/{channelID}":     "same",

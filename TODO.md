@@ -953,3 +953,7 @@ guard is off: it 403s a loopback request with a non-loopback Host, i.e. a same-b
 reverse proxy, and this server has no ambient credential to protect. The wiki gained an
 "If a client cannot connect" list; the other likely cause is an install not yet
 redeployed, where /mcp still returns the web page.
+
+Asked 2026-09-22: companies can be renamed — "Rename this company…" in the picker (operator
+and up), PATCH /scopes/{id} {name}, audited as scope.rename, rename_company in MCP. The
+PATCH applies only the parts sent, so a rename no longer touches the default exit.
