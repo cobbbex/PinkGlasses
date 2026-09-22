@@ -145,7 +145,7 @@ because it faces semi-trusted machines on the public internet:
 
 Leader-elected via a Postgres advisory lock — no etcd.
 - Recurring runs per scope/target-set (passive daily, standard weekly, deep monthly).
-- **Lease reaper:** requeues scan tasks whose lease expired (worker died or lost network).
+- **Lease reaper:** requeues scan tasks whose lease expired — no heartbeat naming the task for `ASM_LEASE_TTL` (default 5 m): the worker died, lost its control channel, or the gateway was down that long. Each reaped task is logged with its stage, target, holder and what became of it.
 - Non-scanning sweeps: cert expiry, finding SLA aging, cloud IP-range feed refresh.
 - Fleet health: marks workers stale after N missed heartbeats, drains their tasks.
 

@@ -49,18 +49,26 @@ type Gateway struct {
 
 	pmu       sync.Mutex
 	runParams map[string]map[string]string // runID -> effective params (cache)
+
+	// bmu guards the heartbeat bookkeeping: when each connected worker last
+	// beat (for gap warnings), and which lost leases have been logged.
+	bmu        sync.Mutex
+	lastBeat   map[uuid.UUID]time.Time
+	lostLeases map[string]bool
 }
 
 // New builds a Gateway.
 func New(st *store.Store, cfg config.Gateway) *Gateway {
 	return &Gateway{
-		st:        st,
-		cfg:       cfg,
-		disp:      dispatch.New(st, int(cfg.LeaseTTL.Seconds())),
-		ingest:    ingest.New(st),
-		obj:       obj.New(cfg.S3),
-		conns:     map[uuid.UUID]*websocket.Conn{},
-		runParams: map[string]map[string]string{},
+		st:         st,
+		cfg:        cfg,
+		disp:       dispatch.New(st, int(cfg.LeaseTTL.Seconds())),
+		ingest:     ingest.New(st),
+		obj:        obj.New(cfg.S3),
+		conns:      map[uuid.UUID]*websocket.Conn{},
+		runParams:  map[string]map[string]string{},
+		lastBeat:   map[uuid.UUID]time.Time{},
+		lostLeases: map[string]bool{},
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  4096,
 			WriteBufferSize: 4096,
@@ -494,12 +502,22 @@ const controlIdleTimeout = 45 * time.Second
 
 func (g *Gateway) readLoop(workerID uuid.UUID, conn *websocket.Conn) {
 	_ = conn.SetReadDeadline(time.Now().Add(controlIdleTimeout))
+	opened := time.Now()
+	lastRunning := 0
 	for {
 		var hb scanproto.Heartbeat
 		if err := conn.ReadJSON(&hb); err != nil {
-			slog.Info("control channel closed", "worker", workerID, "err", err)
+			// What the worker last said it was running is what is now at
+			// risk: those leases expire unless it is back within the TTL.
+			slog.Info("control channel closed", "worker", workerID, "err", err,
+				"open_for", time.Since(opened).Round(time.Second).String(),
+				"tasks_last_reported", lastRunning, "lease_ttl", g.cfg.LeaseTTL.String())
+			g.bmu.Lock()
+			delete(g.lastBeat, workerID)
+			g.bmu.Unlock()
 			return
 		}
+		lastRunning = len(hb.RunningTasks)
 		// Any message proves the worker is alive; push the deadline out.
 		_ = conn.SetReadDeadline(time.Now().Add(controlIdleTimeout))
 		ctx := context.Background()
@@ -518,15 +536,58 @@ func (g *Gateway) readLoop(workerID uuid.UUID, conn *websocket.Conn) {
 			return
 		}
 
+		// A late heartbeat is the early sign of the failures that show up
+		// later as expired leases; say so while the worker is still here.
+		if gap := g.beat(workerID); gap > 2*heartbeatEvery+5*time.Second {
+			slog.Warn("heartbeat gap", "worker", workerID, "gap", gap.Round(time.Second).String(),
+				"running_tasks", len(hb.RunningTasks), "lease_ttl", g.cfg.LeaseTTL.String())
+		}
 		_ = g.st.TouchWorker(ctx, workerID, "")
 		for _, tid := range hb.RunningTasks {
 			if id, err := uuid.Parse(tid); err == nil {
 				// The heartbeat proves ownership by worker identity, not by lease
 				// token (the agent does not echo it back), so extend on that.
-				_ = g.st.ExtendLeaseForWorker(ctx, id, workerID, int(g.cfg.LeaseTTL.Seconds()))
+				held, err := g.st.ExtendLeaseForWorker(ctx, id, workerID, int(g.cfg.LeaseTTL.Seconds()))
+				if err == nil && !held && g.noteLostLease(workerID, id) {
+					b, _ := g.st.TaskBrief(ctx, id)
+					slog.Warn("heartbeat names a task this worker no longer holds — its lease expired and the task was re-queued, or it was leased to another worker; the work in progress will be refused",
+						"worker", workerID, "task", id, "stage", b.Stage, "target", b.Target,
+						"task_status", b.Status, "now_held_by", b.WorkerName, "attempt", b.Attempts)
+				}
 			}
 		}
 	}
+}
+
+// heartbeatEvery is how often a worker sends a heartbeat (scanner.Agent).
+const heartbeatEvery = 15 * time.Second
+
+// beat records a heartbeat's arrival and returns the time since the previous
+// one from the same worker, or zero for the first after a connection.
+func (g *Gateway) beat(workerID uuid.UUID) time.Duration {
+	g.bmu.Lock()
+	defer g.bmu.Unlock()
+	now := time.Now()
+	var gap time.Duration
+	if last, ok := g.lastBeat[workerID]; ok {
+		gap = now.Sub(last)
+	}
+	g.lastBeat[workerID] = now
+	return gap
+}
+
+// noteLostLease reports whether this (worker, task) pair has not been logged
+// yet, so a worker grinding on a task it lost is logged once, not on every
+// heartbeat until it finishes.
+func (g *Gateway) noteLostLease(workerID, taskID uuid.UUID) bool {
+	g.bmu.Lock()
+	defer g.bmu.Unlock()
+	key := workerID.String() + "/" + taskID.String()
+	if g.lostLeases[key] {
+		return false
+	}
+	g.lostLeases[key] = true
+	return true
 }
 
 // results ingests a batch of observations under lease-token authentication and
@@ -559,9 +620,19 @@ func (g *Gateway) results(w http.ResponseWriter, r *http.Request) {
 	task, err := g.loadTask(r.Context(), taskID, workerID, leaseTok)
 	if err != nil {
 		// The observations in this batch are gone: the worker no longer holds
-		// the task, so nothing may be written under it.
-		slog.Warn("results refused: stale or invalid lease",
-			"worker", workerID, "task", taskID, "observations", len(res.Observations), "err", err)
+		// the task, so nothing may be written under it. Say what the task's
+		// state is now, so the line explains itself: re-queued after its
+		// lease expired, finished by another attempt, or simply gone.
+		b, _ := g.st.TaskBrief(r.Context(), taskID)
+		expired := ""
+		if b.LeaseExpiresAt != nil {
+			expired = time.Since(*b.LeaseExpiresAt).Round(time.Second).String() + " ago"
+		}
+		slog.Warn("results refused: the worker no longer holds this task's lease",
+			"worker", workerID, "task", taskID, "stage", b.Stage, "target", b.Target,
+			"task_status", b.Status, "now_held_by", b.WorkerName, "attempt", b.Attempts,
+			"current_lease_expires", expired, "observations_discarded", len(res.Observations),
+			"final", res.Final, "err", err)
 		http.Error(w, "stale or invalid lease", http.StatusConflict)
 		return
 	}
@@ -706,6 +777,7 @@ func (g *Gateway) register(id uuid.UUID, conn *websocket.Conn) {
 	g.mu.Lock()
 	g.conns[id] = conn
 	g.mu.Unlock()
+	slog.Info("control channel open", "worker", id)
 	// A worker holding an open channel is demonstrably alive, so lift a stale
 	// mark. Nothing else does, and the dispatcher only leases to active workers,
 	// so leaving it stale benches a healthy worker permanently. Pending,

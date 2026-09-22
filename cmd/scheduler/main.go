@@ -99,9 +99,25 @@ func main() {
 }
 
 func tick(ctx context.Context, st *store.Store, pl *planner.Planner, df *diff.Differ, nt *notify.Notifier) {
-	// 1. Reap expired leases so dead workers' tasks get reassigned.
-	if n, err := st.ReapExpiredLeases(ctx); err == nil && n > 0 {
-		slog.Info("reaped expired leases", "count", n)
+	// 1. Reap expired leases so dead workers' tasks get reassigned. Each one
+	// is logged in full: a lease expires only when no heartbeat naming the
+	// task reached the gateway for the whole lease TTL, which is a worker
+	// that died, lost its control channel, or a gateway that was down — and
+	// the gateway log around this time says which.
+	if reaped, err := st.ReapExpiredLeases(ctx); err == nil {
+		for _, r := range reaped {
+			what := "task re-queued for another attempt"
+			if r.Status == "failed" {
+				what = "task failed: no attempts left"
+			}
+			slog.Warn("lease expired — "+what,
+				"task", r.TaskID, "run", r.RunID, "stage", r.Stage, "target", r.Target,
+				"held_by", r.WorkerName, "attempt", r.Attempts, "max_attempts", r.MaxAttempts,
+				"noticed_after", r.Late.Round(time.Second).String(),
+				"why", "no heartbeat named this task for the lease TTL; look for 'control channel closed' or 'heartbeat gap' from that worker in the gateway log")
+		}
+	} else if err != nil {
+		slog.Error("reaping expired leases", "err", err)
 	}
 	// 2. Advance each running run through its stage machine.
 	runs, err := st.RunningRuns(ctx)

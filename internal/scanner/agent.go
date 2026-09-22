@@ -34,10 +34,13 @@ type AgentConfig struct {
 // Agent is the worker runtime: it enrolls, connects the control channel, runs
 // leased jobs, and posts confined results back to the gateway.
 type Agent struct {
-	cfg     AgentConfig
-	caps    map[scanproto.Capability]bool
-	scanner *Scanner
-	client  *http.Client
+	// downSince is when the control channel was last lost, zero while it is
+	// up; it lets the reconnect say how long the gateway went without us.
+	downSince time.Time
+	cfg       AgentConfig
+	caps      map[scanproto.Capability]bool
+	scanner   *Scanner
+	client    *http.Client
 
 	workerID string
 	cred     string
@@ -176,10 +179,15 @@ func (a *Agent) Run(ctx context.Context) error {
 			// The gateway closes with this code when it has no record of us any
 			// more. Forget the credential now rather than after the reconnect's
 			// 401, so the log says what happened instead of "dropped".
+			if a.downSince.IsZero() {
+				a.downSince = time.Now()
+			}
 			if websocket.IsCloseError(err, websocket.ClosePolicyViolation) {
 				a.forgetCredential("the control plane no longer knows this worker")
 			} else {
-				slog.Warn("control channel dropped; reconnecting", "err", err)
+				slog.Warn("control channel dropped; reconnecting", "err", err,
+					"running_tasks", len(a.runningTasks()),
+					"note", "the leases of running tasks are not extended while the channel is down; they expire after the gateway's lease TTL")
 			}
 		}
 		select {
@@ -304,7 +312,15 @@ func (a *Agent) connect(ctx context.Context, onConnected func(context.Context)) 
 		return err
 	}
 	defer conn.Close()
-	slog.Info("control channel up")
+	if a.downSince.IsZero() {
+		slog.Info("control channel up")
+	} else {
+		// How long the gateway did not hear from us is what decides whether
+		// the tasks we kept running still belong to us.
+		slog.Info("control channel up again", "was_down", time.Since(a.downSince).Round(time.Second).String(),
+			"tasks_kept_running", len(a.runningTasks()))
+		a.downSince = time.Time{}
+	}
 
 	// heartbeat ticker
 	hbCtx, cancel := context.WithCancel(ctx)
@@ -369,14 +385,27 @@ func (a *Agent) connect(ctx context.Context, onConnected func(context.Context)) 
 func (a *Agent) heartbeat(ctx context.Context, conn *websocket.Conn) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
+	failing := false
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			_ = a.sendControl(conn, scanproto.Heartbeat{
-				WorkerID: a.workerID, RunningTasks: a.runningTasks(), At: time.Now(),
+			running := a.runningTasks()
+			err := a.sendControl(conn, scanproto.Heartbeat{
+				WorkerID: a.workerID, RunningTasks: running, At: time.Now(),
 			})
+			// A heartbeat that cannot be sent is what an expired lease looks
+			// like from this side; log the first failure and the recovery,
+			// not every tick in between.
+			if err != nil && !failing {
+				failing = true
+				slog.Warn("heartbeat could not be sent; the leases of running tasks are not being extended",
+					"err", err, "running_tasks", len(running))
+			} else if err == nil && failing {
+				failing = false
+				slog.Info("heartbeats flowing again", "running_tasks", len(running))
+			}
 		}
 	}
 }
@@ -470,9 +499,13 @@ func (a *Agent) postResult(ctx context.Context, job scanproto.Job, res scanproto
 	switch o, why := a.post(ctx, url, res); o {
 	case delivered:
 	case refused:
+		note := ""
+		if strings.Contains(why, "lease") {
+			note = "this worker no longer holds the task: its lease expired while the control channel was down, or the task was reassigned; the gateway log for this task says which, and another attempt will redo the work"
+		}
 		slog.Error("gateway refused results — observations discarded",
-			"stage", job.Stage, "task", job.TaskID,
-			"observations", len(res.Observations), "reason", why)
+			"stage", job.Stage, "task", job.TaskID, "target", describeTarget(job),
+			"observations", len(res.Observations), "reason", why, "note", note)
 	case unreachable:
 		if err := a.spool.put(url, res); err != nil {
 			slog.Error("gateway unreachable and spool unavailable — observations lost",

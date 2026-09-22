@@ -80,11 +80,17 @@ func LoadAPI() API {
 // LoadGateway builds Gateway config from the environment.
 func LoadGateway() Gateway {
 	return Gateway{
-		DatabaseURL:         env("ASM_DATABASE_URL", "postgres://asm:asm@localhost:5432/asm?sslmode=disable"),
-		Addr:                env("ASM_GATEWAY_ADDR", ":8090"),
-		PublicGatewayURL:    env("ASM_PUBLIC_GATEWAY_URL", "http://localhost:8090"),
-		S3:                  s3FromEnv(),
-		LeaseTTL:            envDuration("ASM_LEASE_TTL", 2*time.Minute),
+		DatabaseURL:      env("ASM_DATABASE_URL", "postgres://asm:asm@localhost:5432/asm?sslmode=disable"),
+		Addr:             env("ASM_GATEWAY_ADDR", ":8090"),
+		PublicGatewayURL: env("ASM_PUBLIC_GATEWAY_URL", "http://localhost:8090"),
+		S3:               s3FromEnv(),
+		// How long a task stays a worker's without a heartbeat naming it.
+		// Heartbeats are every 15s, so two minutes was eight misses — but a
+		// gateway restart or a redeploy of the control plane takes longer
+		// than that, and every running task then expired and was redone.
+		// Five minutes rides that out; a worker that truly died costs the
+		// run five minutes before its tasks are re-queued.
+		LeaseTTL:            envDuration("ASM_LEASE_TTL", 5*time.Minute),
 		LocalBootstrapToken: env("ASM_LOCAL_BOOTSTRAP_TOKEN", ""),
 	}
 }

@@ -165,12 +165,20 @@ func (s *Store) LeaseTasks(ctx context.Context, workerID uuid.UUID, caps []strin
 // control channel and do not carry the lease token, so the worker id is what
 // proves ownership here. Without this a task that outlives the lease TTL —
 // subfinder alone can — is reaped and retried forever.
-func (s *Store) ExtendLeaseForWorker(ctx context.Context, taskID, workerID uuid.UUID, secs int) error {
-	_, err := s.Pool.Exec(ctx, `
+//
+// The bool says whether the task was still this worker's to extend. False
+// means the lease had already expired and the task was re-queued, or it was
+// leased to someone else — the worker is still working on something it no
+// longer holds, and its results will be refused.
+func (s *Store) ExtendLeaseForWorker(ctx context.Context, taskID, workerID uuid.UUID, secs int) (bool, error) {
+	ct, err := s.Pool.Exec(ctx, `
 		UPDATE scan_task SET lease_expires_at = now() + make_interval(secs => $3), status='running'
 		WHERE id=$1 AND worker_id=$2 AND status IN ('leased','running')`,
 		taskID, workerID, secs)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() > 0, nil
 }
 
 // ExtendLease pushes a task's lease expiry forward (heartbeat).
@@ -243,19 +251,78 @@ func (s *Store) FailTaskPermanently(ctx context.Context, taskID, leaseToken uuid
 // 'running', so covering only 'leased' strands every task whose worker dies
 // after its first heartbeat — and a stranded task holds the stage barrier, which
 // stalls the whole run rather than just losing one task.
-func (s *Store) ReapExpiredLeases(ctx context.Context) (int64, error) {
-	ct, err := s.Pool.Exec(ctx, `
-		UPDATE scan_task SET
-		  status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
+//
+// Each reaped task comes back described — stage, target, the worker that
+// held it, how long past its expiry it was noticed, and whether it was
+// re-queued or failed for good — so the scheduler can say exactly what
+// happened instead of a count. A lease expires when no heartbeat naming the
+// task reached the gateway for the lease TTL; the gateway log around that
+// time says why (a control channel closed, a heartbeat gap).
+func (s *Store) ReapExpiredLeases(ctx context.Context) ([]ReapedLease, error) {
+	rows, err := s.Pool.Query(ctx, `
+		WITH expired AS (
+		  SELECT t.id, t.run_id, t.stage,
+		         COALESCE(t.target->>'domain', t.target->>'ip', t.target->>'url', t.target->>'cidr', '') AS target,
+		         COALESCE(t.worker_name, '') AS worker_name, t.attempts, t.max_attempts,
+		         now() - t.lease_expires_at AS late
+		  FROM scan_task t
+		  WHERE t.status IN ('leased','running') AND t.lease_expires_at < now()
+		  FOR UPDATE SKIP LOCKED)
+		UPDATE scan_task s SET
+		  status = CASE WHEN s.attempts >= s.max_attempts THEN 'failed' ELSE 'pending' END,
 		  lease_token=NULL, worker_id=NULL, lease_expires_at=NULL,
-		  worker_name = CASE WHEN attempts >= max_attempts THEN worker_name END,
-		  worker_kind = CASE WHEN attempts >= max_attempts THEN worker_kind END,
-		  error = coalesce(error,'') || ' [lease expired]'
-		WHERE status IN ('leased','running') AND lease_expires_at < now()`)
+		  worker_name = CASE WHEN s.attempts >= s.max_attempts THEN s.worker_name END,
+		  worker_kind = CASE WHEN s.attempts >= s.max_attempts THEN s.worker_kind END,
+		  error = coalesce(s.error,'') || ' [lease expired]'
+		FROM expired e WHERE s.id = e.id
+		RETURNING e.id, e.run_id, e.stage, e.target, e.worker_name, e.attempts, e.max_attempts,
+		          EXTRACT(EPOCH FROM e.late), s.status`)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return ct.RowsAffected(), nil
+	defer rows.Close()
+	var out []ReapedLease
+	for rows.Next() {
+		var r ReapedLease
+		var late float64
+		if err := rows.Scan(&r.TaskID, &r.RunID, &r.Stage, &r.Target, &r.WorkerName,
+			&r.Attempts, &r.MaxAttempts, &late, &r.Status); err != nil {
+			return nil, err
+		}
+		r.Late = time.Duration(late * float64(time.Second))
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ReapedLease is one task whose lease ran out, as the reaper found it.
+type ReapedLease struct {
+	TaskID, RunID         uuid.UUID
+	Stage, Target         string
+	WorkerName            string
+	Attempts, MaxAttempts int
+	// Late is how long past the expiry the reaper noticed it.
+	Late time.Duration
+	// Status is what the task became: pending (re-queued) or failed.
+	Status string
+}
+
+// TaskBrief describes a task for a log line: what it is, who holds it and
+// until when. Used where a request about a task is being refused, so the
+// refusal can say what the task's state actually was.
+type TaskBrief struct {
+	Stage, Target, Status, WorkerName string
+	Attempts                          int
+	LeaseExpiresAt                    *time.Time
+}
+
+func (s *Store) TaskBrief(ctx context.Context, id uuid.UUID) (TaskBrief, error) {
+	var b TaskBrief
+	err := s.Pool.QueryRow(ctx, `
+		SELECT stage, COALESCE(target->>'domain', target->>'ip', target->>'url', target->>'cidr', ''),
+		       status, COALESCE(worker_name, ''), attempts, lease_expires_at
+		FROM scan_task WHERE id=$1`, id).Scan(&b.Stage, &b.Target, &b.Status, &b.WorkerName, &b.Attempts, &b.LeaseExpiresAt)
+	return b, err
 }
 
 // CancelRunTasks cancels all unfinished tasks of a run (kill switch / cancel).

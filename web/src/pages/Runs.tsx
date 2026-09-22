@@ -871,7 +871,16 @@ function RunWorkers({ runID }: { runID: string }) {
                   <td>
                     <Badge status={t.status} />
                     {t.attempts > 1 && <span className="muted"> retry {t.attempts}</span>}
-                    {t.error && <div className="sev-high" style={{ fontSize: 11.5 }}>{t.error}</div>}
+                    {t.error && (
+                      // A finished task whose text says a lease expired was
+                      // redone by a later attempt: a note, not a failure.
+                      <div className={t.status === "done" ? "muted" : "sev-high"} style={{ fontSize: 11.5 }}
+                           title={t.status === "done" && /lease expired/.test(t.error)
+                             ? "An earlier attempt's lease expired — no heartbeat named the task for the lease TTL — and this attempt redid the work. The scheduler and gateway logs say why."
+                             : undefined}>
+                        {t.status === "done" && /lease expired/.test(t.error) ? "an earlier attempt's lease expired; redone" : t.error}
+                      </div>
+                    )}
                   </td>
                   <td className="muted" style={{ fontSize: 12.5 }}>{resultText(t.stage, t.result)}</td>
                   <td className="muted">{took(t.started_at, t.finished_at)}</td>

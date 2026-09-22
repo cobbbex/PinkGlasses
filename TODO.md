@@ -957,3 +957,14 @@ redeployed, where /mcp still returns the web page.
 Asked 2026-09-22: companies can be renamed — "Rename this company…" in the picker (operator
 and up), PATCH /scopes/{id} {name}, audited as scope.rename, rename_company in MCP. The
 PATCH applies only the parts sent, so a rename no longer touches the default exit.
+
+Reported 2026-09-22: tasks marked "[lease expired]" around tech_detect. A lease expires
+when no heartbeat naming the task reaches the gateway for the lease TTL; the TTL was 2 m,
+which a gateway restart or a control-plane redeploy mid-run exceeds, expiring every running
+task at once. Now: TTL 5 m by default (ASM_LEASE_TTL on the gateway); the reaper logs every
+reaped task (stage, target, holder, attempt, how late, re-queued or failed); the gateway logs
+control channels opening and closing with how long they were open and what the worker had
+reported, heartbeat gaps, heartbeats naming a task the worker no longer holds, and refused
+results with the task's current state; the worker logs heartbeats failing and recovering,
+how long its channel was down, and what a refusal meant. A done task that once lost its
+lease shows a muted note, not a red error. README: "If a task says lease expired".

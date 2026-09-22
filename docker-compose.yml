@@ -73,6 +73,9 @@ services:
     build: .
     entrypoint: ["/usr/local/bin/gateway"]
     environment:
+      # How long a task stays a worker's without a heartbeat naming it
+      # (heartbeats are every 15s). Default 5m. See README "Watching a scan".
+      ASM_LEASE_TTL: "${ASM_LEASE_TTL:-5m}"
       # Seals VPN configurations at rest. Without it they cannot be stored.
       ASM_SECRET_KEY: "${ASM_SECRET_KEY:-}"
       ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable

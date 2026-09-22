@@ -532,7 +532,32 @@ The run fails with the gateway's own output:
 | `…stopped before its tunnel came up: …` | openvpn's or wg's own error — read it literally |
 | `the VPN configuration could not be decrypted` | `ASM_SECRET_KEY` differs from the one it was stored under |
 | `the provisioner is unreachable` | Provisioner settings missing on the **scheduler** |
-| `this run's own workers stopped reporting for 2m0s` | The tunnel dropped mid-scan |
+| `this run's own workers stopped reporting for 2m0s` | The tunnel dropped mid-scan, the gateway container stopped, or the control plane was down (a redeploy) for that long |
+
+### If a task says "lease expired"
+
+A worker holds a task on a **lease**, kept alive by its heartbeats (every 15 s, naming the
+tasks it is running). When no heartbeat naming a task reaches the gateway for the lease
+TTL (`ASM_LEASE_TTL`, default 5 m), the scheduler re-queues the task for another attempt
+— or fails it when none is left — and marks it `[lease expired]`. A task that later
+finished shows this as a muted note on the run page: the work was redone.
+
+So the message means one thing: **for five minutes the gateway did not hear from the
+worker that held the task**. The logs say why:
+
+```bash
+docker compose logs --since 2h scheduler | grep "lease expired"    # which tasks, held by whom, noticed when
+docker compose logs --since 2h gateway | grep -i "control channel\|heartbeat gap\|no longer holds\|refused"
+docker compose logs --since 2h worker | grep -i "heartbeat\|control channel\|refused"
+```
+
+The gateway log shows the worker's control channel closing and reopening, with how long
+it was open and how many tasks it had reported, and warns of heartbeat gaps before that.
+The usual causes: the control plane was redeployed or restarted while a run was going
+(every running task expires together), a run's own workers lost their gateway container,
+or a worker died. A worker that comes back after the TTL keeps working on tasks it no
+longer holds; the gateway refuses those results (`results refused: the worker no longer
+holds this task's lease`) and the re-queued attempt does the work again.
 
 A WireGuard config whose `AllowedIPs` carries no default route is rejected at
 upload. Config bodies are sealed with AES-256-GCM at rest, never returned by any
