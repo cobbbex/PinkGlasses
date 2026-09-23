@@ -134,10 +134,21 @@ type CancelMessage struct {
 // leases. An abrupt disconnect carries no such promise and falls back to the
 // lease timeout.
 type Heartbeat struct {
-	WorkerID     string    `json:"worker_id"`
-	RunningTasks []string  `json:"running_tasks"`
-	Stopping     bool      `json:"stopping,omitempty"`
-	At           time.Time `json:"at"`
+	WorkerID     string   `json:"worker_id"`
+	RunningTasks []string `json:"running_tasks"`
+	// Leases is RunningTasks with each task's lease token. With the token
+	// the gateway can hand a task back to the worker that is still working
+	// on it after its lease expired and nobody else took it, instead of
+	// refusing the work. Older workers send only RunningTasks.
+	Leases   []HeldLease `json:"leases,omitempty"`
+	Stopping bool        `json:"stopping,omitempty"`
+	At       time.Time   `json:"at"`
+}
+
+// HeldLease is one task a worker is running, with the lease it holds it on.
+type HeldLease struct {
+	TaskID     string `json:"task_id"`
+	LeaseToken string `json:"lease_token"`
 }
 
 // ---- job envelope (server -> worker) ----

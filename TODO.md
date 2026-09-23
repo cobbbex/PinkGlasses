@@ -983,3 +983,12 @@ GET /mcp/settings. The skill (internal/mcpserver/skill.go, GET /mcp/skill.zip) i
 SKILL.md plus a tool reference generated from Tools(), the search syntax and the scan
 model; a test checks every tool is documented. httpapi does not import mcpserver (its
 tests walk the router): cmd/api installs an MCPProvider.
+
+Reported 2026-09-23: lease trouble again. Now the worker heartbeats at once on (re)connect
+and carries each running task's lease token; when a task's lease has expired and the
+reaper re-queued it but nobody took it, the gateway hands it back to the worker on the
+token it still holds (ReadoptTask), so the work in progress is accepted rather than
+refused and redone. Only a task another worker already took is still refused.
+Also: the results endpoint re-adopts too (a worker can finish and deliver before its
+channel is back), and a worker whose channel drops reconnects at once, backing off only on
+repeated failures.

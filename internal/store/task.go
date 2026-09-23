@@ -232,6 +232,28 @@ func (s *Store) FailTask(ctx context.Context, taskID, leaseToken uuid.UUID, msg 
 	return err
 }
 
+// ReadoptTask gives a task back to the worker that is still working on it,
+// on the lease token it already holds, when the reaper had re-queued it and
+// nobody has picked it up since. The worker's results are then accepted as
+// if nothing had happened, and no other attempt redoes the work. False when
+// the task is no longer there to take back: leased to someone else, done,
+// cancelled, or never reaped.
+func (s *Store) ReadoptTask(ctx context.Context, taskID, workerID, leaseToken uuid.UUID, secs int) (bool, error) {
+	ct, err := s.Pool.Exec(ctx, `
+		UPDATE scan_task SET
+		  status='running', worker_id=$2, lease_token=$3,
+		  lease_expires_at = now() + make_interval(secs => $4),
+		  worker_name=(SELECT name FROM worker WHERE id=$2),
+		  worker_kind=(SELECT kind FROM worker WHERE id=$2)
+		WHERE id=$1 AND status='pending' AND lease_token IS NULL
+		  AND error LIKE '%[lease expired]%'`,
+		taskID, workerID, leaseToken, secs)
+	if err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() > 0, nil
+}
+
 // FailTaskPermanently fails a task whatever its attempts: the worker said a
 // retry would only repeat the failure. The observations it did report before
 // giving up are already ingested; only the retry is forgone.

@@ -557,9 +557,13 @@ The gateway log shows the worker's control channel closing and reopening, with h
 it was open and how many tasks it had reported, and warns of heartbeat gaps before that.
 The usual causes: the control plane was redeployed or restarted while a run was going
 (every running task expires together), a run's own workers lost their gateway container,
-or a worker died. A worker that comes back after the TTL keeps working on tasks it no
-longer holds; the gateway refuses those results (`results refused: the worker no longer
-holds this task's lease`) and the re-queued attempt does the work again.
+or a worker died. A worker that comes back after the TTL is still working on the task
+and still holds its lease: its first heartbeat, sent the moment it reconnects, names the
+task with that lease, and so does the delivery of its results. In either case, if the
+task is still waiting in the queue — nobody else took it — the gateway **hands it back**
+(`lease re-adopted` in its log) and the work lands as if nothing had happened. Only when
+another worker has already taken the task are the late results refused (`results refused:
+the worker no longer holds this task's lease`) and the work redone.
 
 A WireGuard config whose `AllowedIPs` carries no default route is rejected at
 upload. Config bodies are sealed with AES-256-GCM at rest, never returned by any

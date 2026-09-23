@@ -543,17 +543,47 @@ func (g *Gateway) readLoop(workerID uuid.UUID, conn *websocket.Conn) {
 				"running_tasks", len(hb.RunningTasks), "lease_ttl", g.cfg.LeaseTTL.String())
 		}
 		_ = g.st.TouchWorker(ctx, workerID, "")
-		for _, tid := range hb.RunningTasks {
-			if id, err := uuid.Parse(tid); err == nil {
-				// The heartbeat proves ownership by worker identity, not by lease
-				// token (the agent does not echo it back), so extend on that.
-				held, err := g.st.ExtendLeaseForWorker(ctx, id, workerID, int(g.cfg.LeaseTTL.Seconds()))
-				if err == nil && !held && g.noteLostLease(workerID, id) {
+		// What the worker says it is running: with lease tokens from a
+		// current worker, ids only from an older one.
+		held := hb.Leases
+		if len(held) == 0 {
+			for _, tid := range hb.RunningTasks {
+				held = append(held, scanproto.HeldLease{TaskID: tid})
+			}
+		}
+		ttl := int(g.cfg.LeaseTTL.Seconds())
+		for _, h := range held {
+			id, err := uuid.Parse(h.TaskID)
+			if err != nil {
+				continue
+			}
+			// The heartbeat proves ownership by worker identity, not by lease
+			// token, so extend on that.
+			ok, err := g.st.ExtendLeaseForWorker(ctx, id, workerID, ttl)
+			if err != nil || ok {
+				continue
+			}
+			// Not this worker's any more. If the reaper re-queued it and no
+			// one has taken it since, hand it back on the lease the worker
+			// still holds: the work in progress then lands instead of being
+			// refused and redone. That needs the token, which only current
+			// workers send.
+			if tok, err := uuid.Parse(h.LeaseToken); err == nil {
+				if back, err := g.st.ReadoptTask(ctx, id, workerID, tok, ttl); err == nil && back {
 					b, _ := g.st.TaskBrief(ctx, id)
-					slog.Warn("heartbeat names a task this worker no longer holds — its lease expired and the task was re-queued, or it was leased to another worker; the work in progress will be refused",
-						"worker", workerID, "task", id, "stage", b.Stage, "target", b.Target,
-						"task_status", b.Status, "now_held_by", b.WorkerName, "attempt", b.Attempts)
+					slog.Info("lease re-adopted: the task had expired and been re-queued, but its worker is back and nobody else took it, so it keeps the task",
+						"worker", workerID, "task", id, "stage", b.Stage, "target", b.Target)
+					continue
 				}
+			}
+			if g.noteLostLease(workerID, id) {
+				b, _ := g.st.TaskBrief(ctx, id)
+				if b.Status == "done" {
+					continue // it just finished; the heartbeat was in flight
+				}
+				slog.Warn("heartbeat names a task this worker no longer holds — its lease expired and another worker took it, or it was cancelled; the work in progress will be refused",
+					"worker", workerID, "task", id, "stage", b.Stage, "target", b.Target,
+					"task_status", b.Status, "now_held_by", b.WorkerName, "attempt", b.Attempts)
 			}
 		}
 	}
@@ -618,6 +648,19 @@ func (g *Gateway) results(w http.ResponseWriter, r *http.Request) {
 
 	// Verify the worker actually holds this task's lease.
 	task, err := g.loadTask(r.Context(), taskID, workerID, leaseTok)
+	if err != nil {
+		// The lease may have expired while the worker was cut off, and the
+		// task re-queued — but here is the worker, still holding the lease
+		// and delivering. If nobody else took the task, hand it back on that
+		// lease and accept the delivery: results arriving beat heartbeats
+		// arriving when a worker comes back mid-post.
+		if back, rerr := g.st.ReadoptTask(r.Context(), taskID, workerID, leaseTok, int(g.cfg.LeaseTTL.Seconds())); rerr == nil && back {
+			if task, err = g.loadTask(r.Context(), taskID, workerID, leaseTok); err == nil {
+				slog.Info("lease re-adopted on delivery: the task had expired and been re-queued, but its worker is back with results and nobody else took it",
+					"worker", workerID, "task", taskID, "stage", task.stage, "observations", len(res.Observations))
+			}
+		}
+	}
 	if err != nil {
 		// The observations in this batch are gone: the worker no longer holds
 		// the task, so nothing may be written under it. Say what the task's

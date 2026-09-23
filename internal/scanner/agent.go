@@ -37,6 +37,9 @@ type Agent struct {
 	// downSince is when the control channel was last lost, zero while it is
 	// up; it lets the reconnect say how long the gateway went without us.
 	downSince time.Time
+	// connected is set once a control channel came up, so a drop after a
+	// working session is retried at once rather than backed off.
+	connected bool
 	cfg       AgentConfig
 	caps      map[scanproto.Capability]bool
 	scanner   *Scanner
@@ -50,7 +53,7 @@ type Agent struct {
 	providerConfig string
 
 	mu      sync.Mutex
-	running map[string]bool
+	running map[string]string // task id -> lease token
 
 	// spool holds result batches the gateway could not be reached for, replayed
 	// when the control channel comes back and on a timer meanwhile.
@@ -116,7 +119,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 		scanner:        &Scanner{Detected: caps, ProviderConfig: pcPath},
 		// Upload set below once the Agent exists (needs a.cfg/a.cred).
 		client:  &http.Client{Timeout: 30 * time.Second},
-		running: map[string]bool{},
+		running: map[string]string{},
 	}
 	a.scanner.Upload = a.uploadArtifact
 	a.scanner.Authorize = func(req *http.Request) {
@@ -172,10 +175,20 @@ func (a *Agent) uploadArtifact(ctx context.Context, key string, data []byte) (st
 // Enrolment lives inside the loop so a worker whose server-side record has gone
 // can recover by enrolling again instead of retrying a dead credential forever.
 func (a *Agent) Run(ctx context.Context) error {
+	// A dropped channel is retried at once — the first heartbeat after a
+	// reconnect is what keeps, or wins back, the leases of running tasks —
+	// and only repeated failures back off.
+	wait := time.Duration(0)
 	for {
 		if err := a.ensureEnrolled(ctx); err != nil {
 			slog.Error("enrolment failed", "err", err)
+			wait = 5 * time.Second
 		} else if err := a.connect(ctx, a.prefetchWordlists); err != nil {
+			if a.connected {
+				wait, a.connected = 0, false // it worked until now: try again at once
+			} else if wait < 5*time.Second {
+				wait += time.Second
+			}
 			// The gateway closes with this code when it has no record of us any
 			// more. Forget the credential now rather than after the reconnect's
 			// 401, so the log says what happened instead of "dropped".
@@ -193,7 +206,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(5 * time.Second):
+		case <-time.After(wait):
 		}
 	}
 }
@@ -312,6 +325,7 @@ func (a *Agent) connect(ctx context.Context, onConnected func(context.Context)) 
 		return err
 	}
 	defer conn.Close()
+	a.connected = true
 	if a.downSince.IsZero() {
 		slog.Info("control channel up")
 	} else {
@@ -386,14 +400,22 @@ func (a *Agent) heartbeat(ctx context.Context, conn *websocket.Conn) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
 	failing := false
+	// The first beat goes at once, not a tick later: after a reconnect the
+	// gateway should learn what we are still running as soon as it can, so
+	// leases are extended — or handed back — before anything else expires.
+	first := make(chan struct{}, 1)
+	first <- struct{}{}
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-first:
 		case <-t.C:
+		}
+		{
 			running := a.runningTasks()
 			err := a.sendControl(conn, scanproto.Heartbeat{
-				WorkerID: a.workerID, RunningTasks: running, At: time.Now(),
+				WorkerID: a.workerID, RunningTasks: running, Leases: a.heldLeases(), At: time.Now(),
 			})
 			// A heartbeat that cannot be sent is what an expired lease looks
 			// like from this side; log the first failure and the recovery,
@@ -411,8 +433,8 @@ func (a *Agent) heartbeat(ctx context.Context, conn *websocket.Conn) {
 }
 
 func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
-	a.mark(job.TaskID, true)
-	defer a.mark(job.TaskID, false)
+	a.mark(job.TaskID, job.LeaseToken, true)
+	defer a.mark(job.TaskID, "", false)
 
 	// One line in, one line out per task, both carrying the target — enough to
 	// follow a scan in `docker compose logs worker` without turning on debug.
@@ -562,14 +584,26 @@ func (a *Agent) flushSpool(ctx context.Context) {
 	}
 }
 
-func (a *Agent) mark(taskID string, running bool) {
+func (a *Agent) mark(taskID, leaseToken string, running bool) {
 	a.mu.Lock()
 	if running {
-		a.running[taskID] = true
+		a.running[taskID] = leaseToken
 	} else {
 		delete(a.running, taskID)
 	}
 	a.mu.Unlock()
+}
+
+// heldLeases is what the heartbeat carries: every running task with the
+// lease it is held on.
+func (a *Agent) heldLeases() []scanproto.HeldLease {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]scanproto.HeldLease, 0, len(a.running))
+	for id, tok := range a.running {
+		out = append(out, scanproto.HeldLease{TaskID: id, LeaseToken: tok})
+	}
+	return out
 }
 
 // describeTarget renders a job's target for logs: whichever of domain, ip, url
