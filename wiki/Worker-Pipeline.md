@@ -75,14 +75,33 @@ out a task per (domain × wordlist), so several lists spread across workers rath
 grinding through one after another on a single box. Each task carries a presigned download
 for its wordlist and for the resolver list; the worker caches both by content hash.
 
-Each task has a time budget that grows with its list — an hour plus a second per thousand
-names, so the 9.5M-name assetnote list gets about 3.6 h — and runs shuffledns with 1000
-in-flight queries by default (*Bruteforce threads* under Customize scanning; massdns is
-asynchronous, so this is not CPU). At that rate a 10M-name list finishes well inside the
-budget; at the old default of 100 it took most of a day, and six tasks once ran for exactly
-their hour and finished "done" with nothing. A task that hits its budget now **fails, with
-the reason**, keeps the names it had found, and is not retried — the same list at the same
-rate would take the same time. The run's pipeline chip and Activity row say how many names
+**A brute force is kept from taking the host down with it.** It is thousands of DNS
+queries a second from the machine the worker runs on — for the standing worker, the same
+machine as the database and the web app. Four limits keep that in bounds:
+
+- **Rate.** *Bruteforce threads* (default 300) is the number of queries in flight, which
+  is the rate: roughly that many divided by the resolvers' round trip per second, a few
+  thousand. massdns has no queries-per-second flag of its own.
+- **Resolvers per task** (default 500), drawn at random from the resolver list. massdns
+  sends from one socket, so every resolver it talks to is one entry in each NAT and
+  connection-tracking table on the way out; a home router may hold only a few thousand
+  in total. This caps what one task can take.
+- **One brute-force task per worker at a time** (`ASM_BRUTE_PER_WORKER` on the gateway).
+  Three domains and two lists used to be six floods at once; the rest now wait in the
+  queue while every other stage leases as before.
+- **CPU and memory caps** on the standing worker (`ASM_WORKER_CPUS`, `ASM_WORKER_MEMORY`,
+  default 2 and 2g) and on each run's own workers (`ASM_FLEET_WORKER_CPUS`,
+  `ASM_FLEET_WORKER_MEMORY_MB` on the provisioner, default 2 and 2048).
+
+Every hit is **confirmed through the worker's own resolution** before it is reported: a
+public resolver list always holds some that answer for names that do not exist, and only
+a name that resolves again through trusted resolvers counts.
+
+Each task has a time budget that grows with its list and shrinks with its rate — an hour
+plus twice the list's length at ten queries a second per in-flight slot, so the 9.5M-name
+list at 300 gets about 7.3 h. A task that hits its budget **fails, with the reason**,
+keeps the names it had found, and is not retried — the same list at the same rate would
+take the same time. The run's pipeline chip and Activity row say how many names
 the brute force found and, on the chip, per source.
 
 Two flag details this codebase learned the hard way, both of which made the stage return

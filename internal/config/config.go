@@ -22,6 +22,7 @@ type Gateway struct {
 	PublicGatewayURL string
 	S3               S3
 	LeaseTTL         time.Duration
+	BrutePerWorker   int
 	// LocalBootstrapToken is shared with local worker containers so they can
 	// self-enroll; leave empty to disable local self-enrollment entirely.
 	LocalBootstrapToken string
@@ -90,7 +91,11 @@ func LoadGateway() Gateway {
 		// than that, and every running task then expired and was redone.
 		// Five minutes rides that out; a worker that truly died costs the
 		// run five minutes before its tasks are re-queued.
-		LeaseTTL:            envDuration("ASM_LEASE_TTL", 5*time.Minute),
+		LeaseTTL: envDuration("ASM_LEASE_TTL", 5*time.Minute),
+		// How many DNS brute-force tasks one worker runs at once. Each is a
+		// flood of queries from that worker's machine; the standing worker
+		// shares it with the database and the web app.
+		BrutePerWorker:      envInt("ASM_BRUTE_PER_WORKER", 1),
 		LocalBootstrapToken: env("ASM_LOCAL_BOOTSTRAP_TOKEN", ""),
 	}
 }

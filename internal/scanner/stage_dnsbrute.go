@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/benlik386/pinkglasses/internal/scanproto"
@@ -49,9 +52,19 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 	}
 
 	pr := jobParams(job)
-	threads := pr.intStr("shuffledns_threads", "1000")
+	threads := pr.intStr("shuffledns_threads", "300")
+	inflight, _ := strconv.Atoi(threads)
 	names := countLines(wordlist)
-	budget := bruteTimeout(names)
+	budget := bruteTimeout(names, inflight)
+	// A random subset of the resolver list, so one task holds at most that
+	// many NAT and conntrack entries on the host and on whatever router is
+	// in front of it — the thing a brute force can exhaust for the web app.
+	maxRes, _ := strconv.Atoi(pr.intStr("shuffledns_resolvers_max", "500"))
+	if sub, n, err := sampleLines(resolvers, maxRes); err == nil && sub != "" {
+		defer os.Remove(sub)
+		resolvers = sub
+		slog.Info("dns_brute resolvers", "using", n, "cap", maxRes)
+	}
 	slog.Info("dns_brute starting", "domain", root, "wordlist", job.Params.WordlistName,
 		"names", names, "threads", threads, "budget", budget.String())
 	// No -mode flag: this shuffledns build rejects it and exits with a usage
@@ -66,7 +79,6 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 		"-t", threads,
 		"-strict-wildcard", "-silent")
 
-	var obs []scanproto.Observation
 	seen := map[string]bool{}
 	for _, l := range lines {
 		name := normalizeHost(l)
@@ -74,16 +86,32 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 			continue
 		}
 		seen[name] = true
-		obs = append(obs, scanproto.Observation{
-			Type: scanproto.ObsSubdomain, Domain: name, Source: "shuffledns",
-		})
+	}
+
+	// Confirm every hit through the worker's own resolution before it is
+	// reported. A public resolver list always holds some that answer for
+	// names that do not exist; a brute force spread over a random few
+	// hundred of them surfaces those answers as "found" names. Only a name
+	// that resolves again, through trusted resolvers, is a name.
+	resolved := s.resolveNames(ctx, keysOf(seen), pr)
+	confirmed := map[string]bool{}
+	for _, o := range resolved {
+		if o.Type == scanproto.ObsDNSRecord && o.Domain != "" {
+			confirmed[o.Domain] = true
+		}
+	}
+	var obs []scanproto.Observation
+	for name := range seen {
+		if confirmed[name] {
+			obs = append(obs, scanproto.Observation{
+				Type: scanproto.ObsSubdomain, Domain: name, Source: "shuffledns",
+			})
+		}
 	}
 	slog.Info("dns_brute finished", "domain", root,
 		"wordlist", job.Params.WordlistName, "resolvers", job.Params.ResolversName,
-		"found", len(obs))
-
-	// Resolve what we found so the coalesce barrier downstream sees addresses.
-	obs = append(obs, s.resolveNames(ctx, keysOf(seen), pr)...)
+		"found", len(obs), "unconfirmed_dropped", len(seen)-len(obs))
+	obs = append(obs, resolved...)
 
 	// A list the tool could not get through in its budget is a failed task,
 	// said so, with what was found kept — not a task that reads "done" with
@@ -95,22 +123,53 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 			"shuffledns did not finish the %s-name list %q within %s at %s threads; "+
 				"%d names found before it was stopped — raise Bruteforce threads under "+
 				"Customize scanning, or brute-force with a smaller list",
-			humanCount(names), job.Params.WordlistName, budget.Round(time.Minute), threads, len(seen)))
+			humanCount(names), job.Params.WordlistName, budget.Round(time.Minute), threads, len(confirmed)))
 	}
 	return obs, nil
 }
 
-// bruteTimeout is how long a brute force over `names` candidates may take:
-// an hour, plus a second per thousand names — 9.5M names get about 3.6 h.
-// At the default 1000 in-flight queries massdns gets through a list of that
-// size in well under an hour; the budget is there for slow resolvers, not
-// as the expected duration.
-func bruteTimeout(names int) time.Duration {
-	d := time.Hour + time.Duration(names/1000)*time.Second
-	if d < time.Hour {
-		return time.Hour
+// bruteTimeout is how long a brute force over `names` candidates at
+// `inflight` concurrent queries may take: an hour, plus twice the time the
+// list takes at a conservative ten queries per second per in-flight slot
+// (100 ms round trips). 9.5M names at 300 get about 7.3 h; at 1000, 3.6 h.
+// It is a ceiling for slow resolvers, not the expected duration.
+func bruteTimeout(names, inflight int) time.Duration {
+	if inflight < 1 {
+		inflight = 1
 	}
-	return d
+	return time.Hour + time.Duration(2*names/(inflight*10))*time.Second
+}
+
+// sampleLines writes up to n lines of path, chosen at random, to a temporary
+// file and returns it with the count. A list no longer than n is used as is
+// (empty path returned).
+func sampleLines(path string, n int) (string, int, error) {
+	if n <= 0 {
+		return "", 0, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", 0, err
+	}
+	var lines []string
+	for _, l := range strings.Split(string(data), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) <= n {
+		return "", len(lines), nil
+	}
+	rand.Shuffle(len(lines), func(i, j int) { lines[i], lines[j] = lines[j], lines[i] })
+	f, err := os.CreateTemp("", "asm-resolvers-*.txt")
+	if err != nil {
+		return "", 0, err
+	}
+	defer f.Close()
+	if _, err := f.WriteString(strings.Join(lines[:n], "\n") + "\n"); err != nil {
+		return "", 0, err
+	}
+	return f.Name(), n, nil
 }
 
 // countLines counts the newline-terminated lines in a file; 0 if unreadable.

@@ -85,6 +85,8 @@ func (s *Server) createFleet(w http.ResponseWriter, r *http.Request) {
 			NamePrefix:     "pinkglasses-run-" + short(in.RunID),
 			Concurrency:    in.Concurrency,
 			CacheVolume:    s.cfg.CacheVolume,
+			CPUs:           s.cfg.WorkerCPUs,
+			MemoryMB:       s.cfg.WorkerMemoryMB,
 			RunID:          in.RunID,
 			NetnsContainer: netns,
 			Role:           roleWorker,

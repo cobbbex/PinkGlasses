@@ -16,16 +16,53 @@ import (
 type Dispatcher struct {
 	st       *store.Store
 	leaseTTL int // seconds
+	// bruteCap is how many dns_brute tasks one worker may hold at once.
+	bruteCap int
 }
 
 // New builds a Dispatcher.
 func New(st *store.Store, leaseTTLSeconds int) *Dispatcher {
-	return &Dispatcher{st: st, leaseTTL: leaseTTLSeconds}
+	return &Dispatcher{st: st, leaseTTL: leaseTTLSeconds, bruteCap: 1}
+}
+
+// WithBruteCap sets how many brute-force tasks a worker may run at once.
+func (d *Dispatcher) WithBruteCap(n int) *Dispatcher {
+	if n < 1 {
+		n = 1
+	}
+	d.bruteCap = n
+	return d
 }
 
 // Lease claims up to `limit` tasks for a worker matching its capabilities.
+//
+// Brute-force tasks are leased apart from the rest and never more than the
+// worker's cap at a time. Each is thousands of DNS queries a second from the
+// machine the worker runs on; three domains and two wordlists used to mean
+// six at once on the standing worker, beside the database and the web app.
+// They wait in the queue instead, and discovery still starts at once: the
+// other stages lease as before.
 func (d *Dispatcher) Lease(ctx context.Context, workerID uuid.UUID, caps []string, poolID *uuid.UUID, limit int) ([]scanproto.Job, error) {
-	return d.st.LeaseTasks(ctx, workerID, caps, poolID, limit, d.leaseTTL)
+	var jobs []scanproto.Job
+	if room, err := d.st.BruteRoom(ctx, workerID, d.bruteCap); err == nil && room > 0 {
+		n := room
+		if n > limit {
+			n = limit
+		}
+		brute, err := d.st.LeaseTasksWhere(ctx, workerID, caps, poolID, n, d.leaseTTL, store.OnlyBrute)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, brute...)
+	}
+	if rest := limit - len(jobs); rest > 0 {
+		more, err := d.st.LeaseTasksWhere(ctx, workerID, caps, poolID, rest, d.leaseTTL, store.NoBrute)
+		if err != nil {
+			return jobs, err
+		}
+		jobs = append(jobs, more...)
+	}
+	return jobs, nil
 }
 
 // Heartbeat extends the lease on a running task.

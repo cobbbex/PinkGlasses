@@ -3,6 +3,9 @@ package scanner
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -43,22 +46,40 @@ func TestPermanentError(t *testing.T) {
 	}
 }
 
-// The brute-force budget grows with the list: an hour for anything small,
-// about 3.6 h for the 9.5M-name assetnote list.
+// The brute-force budget grows with the list and shrinks with the rate.
 func TestBruteTimeout(t *testing.T) {
 	cases := []struct {
-		names int
-		want  time.Duration
+		names, inflight int
+		want            time.Duration
 	}{
-		{0, time.Hour},
-		{4_751, time.Hour + 4*time.Second},
-		{3_244_387, time.Hour + 3244*time.Second},
-		{9_544_235, time.Hour + 9544*time.Second},
+		{0, 300, time.Hour},
+		{4_751, 300, time.Hour + 3*time.Second},
+		{9_544_235, 300, time.Hour + 6362*time.Second},
+		{9_544_235, 1000, time.Hour + 1908*time.Second},
+		{1000, 0, time.Hour + 200*time.Second},
 	}
 	for _, c := range cases {
-		if got := bruteTimeout(c.names); got != c.want {
-			t.Errorf("bruteTimeout(%d) = %s, want %s", c.names, got, c.want)
+		if got := bruteTimeout(c.names, c.inflight); got != c.want {
+			t.Errorf("bruteTimeout(%d, %d) = %s, want %s", c.names, c.inflight, got, c.want)
 		}
+	}
+	dir := t.TempDir()
+	p := dir + "/r.txt"
+	var b strings.Builder
+	for i := 0; i < 50; i++ {
+		fmt.Fprintf(&b, "10.0.0.%d\n", i)
+	}
+	_ = os.WriteFile(p, []byte(b.String()), 0o600)
+	sub, n, err := sampleLines(p, 10)
+	if err != nil || sub == "" || n != 10 {
+		t.Fatalf("sampleLines: %q %d %v", sub, n, err)
+	}
+	got, _ := os.ReadFile(sub)
+	if c := strings.Count(string(got), "\n"); c != 10 {
+		t.Errorf("sample holds %d lines, want 10", c)
+	}
+	if sub, n, _ := sampleLines(p, 100); sub != "" || n != 50 {
+		t.Errorf("a list within the cap is used as is: %q %d", sub, n)
 	}
 	if humanCount(9_544_235) != "9.5M" || humanCount(4_751) != "4.8k" || humanCount(12) != "12" {
 		t.Errorf("humanCount: %s %s %s", humanCount(9_544_235), humanCount(4_751), humanCount(12))

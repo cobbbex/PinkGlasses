@@ -62,7 +62,7 @@ func New(st *store.Store, cfg config.Gateway) *Gateway {
 	return &Gateway{
 		st:         st,
 		cfg:        cfg,
-		disp:       dispatch.New(st, int(cfg.LeaseTTL.Seconds())),
+		disp:       dispatch.New(st, int(cfg.LeaseTTL.Seconds())).WithBruteCap(cfg.BrutePerWorker),
 		ingest:     ingest.New(st),
 		obj:        obj.New(cfg.S3),
 		conns:      map[uuid.UUID]*websocket.Conn{},

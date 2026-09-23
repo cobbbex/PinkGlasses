@@ -79,6 +79,34 @@ func (s *Store) InsertTasks(ctx context.Context, runID uuid.UUID, specs []TaskSp
 // batch cannot starve the rest. FOR UPDATE SKIP LOCKED lets many workers claim
 // concurrently without blocking each other (wiki/Architecture.md §8.1).
 func (s *Store) LeaseTasks(ctx context.Context, workerID uuid.UUID, caps []string, poolID *uuid.UUID, limit, leaseSecs int) ([]scanproto.Job, error) {
+	return s.LeaseTasksWhere(ctx, workerID, caps, poolID, limit, leaseSecs, AnyStage)
+}
+
+// StageFilter narrows a lease to some stages. The values are fixed SQL
+// fragments, never input.
+type StageFilter string
+
+const (
+	AnyStage  StageFilter = "TRUE"
+	OnlyBrute StageFilter = "t.stage = 'dns_brute'"
+	NoBrute   StageFilter = "t.stage <> 'dns_brute'"
+)
+
+// BruteRoom is how many more brute-force tasks this worker may take: the cap
+// less those it already holds.
+func (s *Store) BruteRoom(ctx context.Context, workerID uuid.UUID, limit int) (int, error) {
+	var n int
+	err := s.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM scan_task
+		WHERE worker_id=$1 AND stage='dns_brute' AND status IN ('leased','running')`, workerID).Scan(&n)
+	return limit - n, err
+}
+
+// LeaseTasksWhere is LeaseTasks restricted by a stage filter.
+func (s *Store) LeaseTasksWhere(ctx context.Context, workerID uuid.UUID, caps []string, poolID *uuid.UUID, limit, leaseSecs int, only StageFilter) ([]scanproto.Job, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
 	rows, err := s.Pool.Query(ctx, `
 		UPDATE scan_task SET
 		  status='leased',
@@ -104,6 +132,7 @@ func (s *Store) LeaseTasks(ctx context.Context, workerID uuid.UUID, caps []strin
 		    -- it through the tunnel. A worker with no pool counts as the default
 		    -- pool; a task with no pool (pre-00022, never leased) matches nothing.
 		    AND t.pool_id = COALESCE($3::uuid, (SELECT id FROM worker_pool WHERE is_default LIMIT 1))
+		    AND `+string(only)+`
 		    AND r.status='running'
 		  ORDER BY
 		    -- fairness: prefer tasks whose run_target has the fewest in-flight

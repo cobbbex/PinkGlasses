@@ -992,3 +992,11 @@ refused and redone. Only a task another worker already took is still refused.
 Also: the results endpoint re-adopts too (a worker can finish and deliver before its
 channel is back), and a worker whose channel drops reconnects at once, backing off only on
 repeated failures.
+
+Asked 2026-09-23: can the brute force take the web app down? It shares the host. Now:
+300 in flight by default (the rate; massdns has no qps flag), 500 random resolvers per task
+(one NAT/conntrack entry each — a home router is the likely victim, not the kernel table),
+one dns_brute per worker at a time (ASM_BRUTE_PER_WORKER, leased apart in dispatch), CPU and
+memory caps on the standing worker (compose) and on run workers (provisioner), budget from
+list size and rate. Found while testing: lying resolvers in a random subset reported 84
+names that do not exist; hits are now confirmed through the worker's own resolution.

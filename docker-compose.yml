@@ -76,6 +76,9 @@ services:
       # How long a task stays a worker's without a heartbeat naming it
       # (heartbeats are every 15s). Default 5m. See README "Watching a scan".
       ASM_LEASE_TTL: "${ASM_LEASE_TTL:-5m}"
+      # DNS brute-force tasks one worker runs at once (each is a flood of
+      # queries from that worker's machine).
+      ASM_BRUTE_PER_WORKER: "${ASM_BRUTE_PER_WORKER:-1}"
       # Seals VPN configurations at rest. Without it they cannot be stored.
       ASM_SECRET_KEY: "${ASM_SECRET_KEY:-}"
       ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
@@ -137,6 +140,9 @@ services:
       # The wordlist cache every worker shares: filled by the standing worker
       # at start, mounted into a run's workers so they download nothing.
       ASM_WORKER_CACHE_VOLUME: "scan_tool_wordlistcache"
+      # CPU and memory cap for each run's own workers; 0 lifts it.
+      ASM_FLEET_WORKER_CPUS: "${ASM_FLEET_WORKER_CPUS:-2}"
+      ASM_FLEET_WORKER_MEMORY_MB: "${ASM_FLEET_WORKER_MEMORY_MB:-2048}"
       ASM_GATEWAY_URL: "http://gateway:8090"
       ASM_LOCAL_BOOTSTRAP_TOKEN: "${ASM_LOCAL_BOOTSTRAP_TOKEN:-change-me-local-bootstrap}"
     volumes:
@@ -159,6 +165,11 @@ services:
   worker:
     build: {context: ., dockerfile: deploy/Dockerfile.worker}
     cap_add: ["NET_RAW"]
+    # The standing worker shares this host with the database and the web app;
+    # a brute force or a crawl must not be able to starve them.
+    cpus: "${ASM_WORKER_CPUS:-2}"
+    mem_limit: "${ASM_WORKER_MEMORY:-2g}"
+    memswap_limit: "${ASM_WORKER_MEMORY:-2g}"
     environment:
       ASM_GATEWAY_URL: "http://gateway:8090"
       ASM_ENROLL_TOKEN: "${ASM_LOCAL_BOOTSTRAP_TOKEN:-change-me-local-bootstrap}"

@@ -23,6 +23,9 @@ type Config struct {
 	MaxWorkers  int // hard ceiling, so a UI bug cannot fork-bomb the host
 	// CacheVolume is the wordlist cache volume every worker shares.
 	CacheVolume string
+	// WorkerCPUs and WorkerMemoryMB cap each run worker; zero is unlimited.
+	WorkerCPUs     float64
+	WorkerMemoryMB int
 }
 
 // Server exposes the narrow provisioning API.

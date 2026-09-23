@@ -169,11 +169,3 @@ needs none of that.
   An `event: message` line with the server's capabilities means the endpoint
   is up; anything else says what is in the way.
 
-## A first conversation
-
-*"Which companies can you see?"* → `list_companies`. *"What does lanet.ua
-expose on 443?"* → `search` with `port:443 company:lanet.ua`, or with the
-company id. *"Run a passive scan of it and tell me what changed."* →
-`start_scan` with `profile: passive`, then `wait_for_run`, which returns the
-diff. An active scan needs an exit; `start_scan` returns the API's sentence
-saying so if none is possible, and `plan_scan` walks through what exists first.

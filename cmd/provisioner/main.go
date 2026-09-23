@@ -23,9 +23,13 @@ func main() {
 		Image:       env("ASM_WORKER_IMAGE", "pinkglasses-worker"),
 		Network:     env("ASM_WORKER_NETWORK", "pinkglasses_default"),
 		CacheVolume: env("ASM_WORKER_CACHE_VOLUME", "scan_tool_wordlistcache"),
-		GatewayURL:  env("ASM_GATEWAY_URL", "http://gateway:8090"),
-		EnrollToken: env("ASM_LOCAL_BOOTSTRAP_TOKEN", ""),
-		MaxWorkers:  envInt("ASM_PROVISIONER_MAX_WORKERS", 20),
+		// Each run worker is capped so a scan cannot starve the database and
+		// the web app on the same host. 0 lifts a limit.
+		WorkerCPUs:     envFloat("ASM_FLEET_WORKER_CPUS", 2),
+		WorkerMemoryMB: envInt("ASM_FLEET_WORKER_MEMORY_MB", 2048),
+		GatewayURL:     env("ASM_GATEWAY_URL", "http://gateway:8090"),
+		EnrollToken:    env("ASM_LOCAL_BOOTSTRAP_TOKEN", ""),
+		MaxWorkers:     envInt("ASM_PROVISIONER_MAX_WORKERS", 20),
 	}
 	if cfg.Token == "" {
 		slog.Error("ASM_PROVISIONER_TOKEN is required; refusing to expose the Docker socket unauthenticated")
@@ -47,6 +51,15 @@ func main() {
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	return def
+}
+
+func envFloat(k string, def float64) float64 {
+	if v := os.Getenv(k); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
 	}
 	return def
 }

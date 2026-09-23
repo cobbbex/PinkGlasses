@@ -164,6 +164,11 @@ type Spec struct {
 	// wordlist cache, shared with the standing worker, so a run's workers find
 	// every list already on disk instead of downloading it mid-scan.
 	CacheVolume string
+	// CPUs and MemoryMB cap a container; zero leaves it unlimited. A run's
+	// workers share the host with the database and the web app, and a
+	// brute force or a crawl must not be able to starve them.
+	CPUs     float64
+	MemoryMB int
 	// VPNKind and VPNConfig are the tunnel a gateway container carries.
 	//
 	// The configuration reaches the container through its environment, which
@@ -232,6 +237,15 @@ func (d *Docker) Create(ctx context.Context, sp Spec, index int) (string, error)
 	}
 	if sp.CacheVolume != "" && role == roleWorker {
 		host["Binds"] = []string{sp.CacheVolume + ":/var/cache/asm/wordlists"}
+	}
+	if role == roleWorker {
+		if sp.CPUs > 0 {
+			host["NanoCpus"] = int64(sp.CPUs * 1e9)
+		}
+		if sp.MemoryMB > 0 {
+			host["Memory"] = int64(sp.MemoryMB) << 20
+			host["MemorySwap"] = int64(sp.MemoryMB) << 20 // no swap on top
+		}
 	}
 
 	body := map[string]any{

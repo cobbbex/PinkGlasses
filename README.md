@@ -142,12 +142,13 @@ service; the workers a run builds for itself start from the worker image and fet
 default templates on first use, which is part of why the first nuclei task of a fleet
 takes minutes.
 
-**DNS bruteforce is a separate task per wordlist**, so several lists spread across
-workers instead of grinding through one after another. Each task's time budget grows
-with its list (an hour plus a second per thousand names) and it runs 1000 queries in
-flight by default; a task that cannot finish its list in that time fails with the reason
-rather than reading "done" with nothing. See
-[Wordlists and resolvers](#wordlists-and-resolvers).
+**DNS bruteforce is a separate task per wordlist**, run one at a time per worker and
+kept in bounds so it cannot take the host — and the web app on it — down: 300 queries
+in flight, 500 resolvers per task (each is a NAT entry on your router), CPU and memory
+caps on every worker container, and every hit confirmed through trusted resolvers before
+it is reported. A task that cannot finish its list in its time budget fails with the
+reason rather than reading "done" with nothing. Details and the settings are in the wiki's
+[Worker pipeline](wiki/Worker-Pipeline.md); see also [Wordlists and resolvers](#wordlists-and-resolvers).
 
 **Port scanning is batched and incremental.** Resolution feeds addresses forward as
 they appear rather than waiting for every name to resolve, and each port-scan task
