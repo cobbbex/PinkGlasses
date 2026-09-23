@@ -103,7 +103,7 @@ asset route is under a scope.
 | `GET /scan-params` | viewer | every tunable a run accepts, with type, range, default and help |
 | `GET /scopes/{scopeID}/scan-profiles` | viewer | saved parameter presets |
 | `POST /scopes/{scopeID}/scan-profiles` | operator | `{name, params, global, default}` |
-| `GET /scopes/{scopeID}/runs` | viewer | runs with progress counters |
+| `GET /scopes/{scopeID}/runs` | viewer | runs with progress counters; each run carries `started_by` (the account; a scheduled run's is the schedule's creator) and `started_via` (`session`, `token`, `proxy` or `schedule`) |
 | `POST /scopes/{scopeID}/runs` | operator | start a run; the fields are under *Starting a run* |
 | `GET /runs/{runID}` | viewer | `{run, progress, fleet?}` — `fleet` is present when the run has its own containers, and carries the reason if it is waiting or failed |
 | `GET /runs/{runID}/targets` | viewer | per-target status, counters, skip reasons |

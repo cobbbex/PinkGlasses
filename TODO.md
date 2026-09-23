@@ -1000,3 +1000,8 @@ one dns_brute per worker at a time (ASM_BRUTE_PER_WORKER, leased apart in dispat
 memory caps on the standing worker (compose) and on run workers (provisioner), budget from
 list size and rate. Found while testing: lying resolvers in a random subset reported 84
 names that do not exist; hits are now confirmed through the worker's own resolution.
+
+Asked 2026-09-23: who ran the scan. scan_run records started_by (name, kept after the
+account changes), started_by_user_id and started_via (session, token, proxy, schedule —
+a scheduled run is its schedule's creator). Migration 00036 backfills from the audit log's
+run.create/run.rerun and from schedules. The Runs table has a "By" column.

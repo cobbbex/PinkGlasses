@@ -37,19 +37,23 @@ type Schedule struct {
 	LastRunAt      *time.Time  `json:"last_run_at,omitempty"`
 	// LastError is why the most recent attempt did not start a run — a deleted
 	// VPN config, an empty pool. Cleared when a run does start.
-	LastError *string   `json:"last_error,omitempty"`
+	LastError *string `json:"last_error,omitempty"`
+	// CreatedBy is the account that saved the schedule; its runs are
+	// recorded as started by it.
+	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
 const scheduleCols = `id, scope_id, profile, exit, vpn_config_id, pool_id, worker_count, every_hours,
-	enabled, next_run_at, last_run_id, last_run_at, last_error, created_at, profile_id, params, wordlist_ids, targets, target_group_ids`
+	enabled, next_run_at, last_run_id, last_run_at, last_error, created_at, profile_id, params, wordlist_ids, targets, target_group_ids,
+	COALESCE(created_by, '')`
 
 func scanSchedule(row interface{ Scan(...any) error }) (Schedule, error) {
 	var sc Schedule
 	var raw []byte
 	err := row.Scan(&sc.ID, &sc.ScopeID, &sc.Profile, &sc.Exit, &sc.VPNConfigID, &sc.PoolID,
 		&sc.WorkerCount, &sc.EveryHours, &sc.Enabled, &sc.NextRunAt, &sc.LastRunID,
-		&sc.LastRunAt, &sc.LastError, &sc.CreatedAt, &sc.ProfileID, &raw, &sc.WordlistIDs, &sc.Targets, &sc.TargetGroupIDs)
+		&sc.LastRunAt, &sc.LastError, &sc.CreatedAt, &sc.ProfileID, &raw, &sc.WordlistIDs, &sc.Targets, &sc.TargetGroupIDs, &sc.CreatedBy)
 	if err != nil {
 		return sc, err
 	}

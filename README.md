@@ -813,7 +813,9 @@ scans are for: it only accumulates if scans recur.
 
 ## Watching a scan
 
-The **Runs** table gives each run a line: when it started, what it is scanning, how far
+The **Runs** table gives each run a line: when it started, **who started it** — the account,
+marked *API token* when a script or an MCP client did it through a token, and *schedule*
+for a scheduled run, which is recorded as the account that saved the schedule — what it is scanning, how far
 along it is, and its status. The target cell names the first few targets and counts the
 rest; the progress bar counts failed tasks as finished — the run has dealt with them —
 but marks them separately, because a full bar should not hide whether everything worked.

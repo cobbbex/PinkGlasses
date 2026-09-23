@@ -159,16 +159,23 @@ func (t ScopeTarget) Authorized() bool {
 
 // ScanRun is a batch scan over a set of targets.
 type ScanRun struct {
-	ID             uuid.UUID  `json:"id"`
-	ScopeID        uuid.UUID  `json:"scope_id"`
-	Profile        RunProfile `json:"profile"`
-	Trigger        string     `json:"trigger"`
-	Status         RunStatus  `json:"status"`
-	PoolID         *uuid.UUID `json:"pool_id,omitempty"`
-	MaxConcurrency int        `json:"max_concurrency"`
-	StartedAt      *time.Time `json:"started_at,omitempty"`
-	FinishedAt     *time.Time `json:"finished_at,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
+	ID      uuid.UUID  `json:"id"`
+	ScopeID uuid.UUID  `json:"scope_id"`
+	Profile RunProfile `json:"profile"`
+	Trigger string     `json:"trigger"`
+	// StartedBy is the account that started the run — for a scheduled run,
+	// the schedule's creator. StartedVia says how: "session" (the app),
+	// "token" (an API token: a script or an MCP client), "proxy", or
+	// "schedule". Empty for runs from before this was recorded.
+	StartedBy       *string    `json:"started_by,omitempty"`
+	StartedByUserID *uuid.UUID `json:"started_by_user_id,omitempty"`
+	StartedVia      string     `json:"started_via,omitempty"`
+	Status          RunStatus  `json:"status"`
+	PoolID          *uuid.UUID `json:"pool_id,omitempty"`
+	MaxConcurrency  int        `json:"max_concurrency"`
+	StartedAt       *time.Time `json:"started_at,omitempty"`
+	FinishedAt      *time.Time `json:"finished_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 // RunTarget is one domain/CIDR within a batch run, tracked independently.

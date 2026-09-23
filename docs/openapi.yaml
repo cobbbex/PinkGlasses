@@ -342,7 +342,7 @@ paths:
   /api/v1/scopes/{scopeID}/runs:
     get:
       operationId: getScopesByScopeIDRuns
-      summary: "runs with progress counters"
+      summary: "runs with progress counters; each run carries started_by (the account; a scheduled run's is the schedule's creator) and started_via (session, token, proxy or schedule)"
       x-required-role: viewer
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}

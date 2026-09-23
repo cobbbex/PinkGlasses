@@ -20,10 +20,12 @@ func (s *Store) CreateRun(ctx context.Context, run domain.ScanRun, targets []dom
 	defer tx.Rollback(ctx)
 
 	err = tx.QueryRow(ctx, `
-		INSERT INTO scan_run (scope_id, profile, trigger, status, pool_id, max_concurrency)
-		VALUES ($1,$2,$3,'queued',$4,$5)
+		INSERT INTO scan_run (scope_id, profile, trigger, status, pool_id, max_concurrency,
+		                      started_by, started_by_user_id, started_via)
+		VALUES ($1,$2,$3,'queued',$4,$5,$6,$7,NULLIF($8,''))
 		RETURNING id, status, created_at`,
 		run.ScopeID, run.Profile, run.Trigger, run.PoolID, run.MaxConcurrency,
+		run.StartedBy, run.StartedByUserID, run.StartedVia,
 	).Scan(&run.ID, &run.Status, &run.CreatedAt)
 	if err != nil {
 		return run, nil, err
@@ -49,10 +51,10 @@ func (s *Store) CreateRun(ctx context.Context, run domain.ScanRun, targets []dom
 func (s *Store) GetRun(ctx context.Context, id uuid.UUID) (domain.ScanRun, error) {
 	var r domain.ScanRun
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at
+		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, '')
 		FROM scan_run WHERE id=$1`, id,
 	).Scan(&r.ID, &r.ScopeID, &r.Profile, &r.Trigger, &r.Status, &r.PoolID,
-		&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt)
+		&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia)
 	return r, err
 }
 
@@ -258,6 +260,7 @@ func (s *Store) ListRunSummaries(ctx context.Context, scopeID uuid.UUID, limit i
 	rows, err := s.Pool.Query(ctx, `
 		SELECT r.id, r.scope_id, r.profile, r.trigger, r.status, r.pool_id,
 		       r.max_concurrency, r.started_at, r.finished_at, r.created_at,
+		       r.started_by, r.started_by_user_id, COALESCE(r.started_via, ''),
 		       COALESCE(t.cnt, 0), COALESCE(t.names, '{}'),
 		       COALESCE(p.total, 0), COALESCE(p.done, 0),
 		       COALESCE(p.failed, 0), COALESCE(p.outstanding, 0)
@@ -284,7 +287,7 @@ func (s *Store) ListRunSummaries(ctx context.Context, scopeID uuid.UUID, limit i
 		var it RunListItem
 		r := &it.ScanRun
 		if err := rows.Scan(&r.ID, &r.ScopeID, &r.Profile, &r.Trigger, &r.Status, &r.PoolID,
-			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt,
+			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia,
 			&it.TargetCount, &it.Targets,
 			&it.Total, &it.Done, &it.Failed, &it.Outstanding); err != nil {
 			return nil, err
@@ -299,7 +302,7 @@ func (s *Store) ListRuns(ctx context.Context, scopeID uuid.UUID, limit int) ([]d
 		limit = 50
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at
+		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, '')
 		FROM scan_run WHERE scope_id=$1 ORDER BY created_at DESC LIMIT $2`, scopeID, limit)
 	if err != nil {
 		return nil, err
@@ -309,7 +312,7 @@ func (s *Store) ListRuns(ctx context.Context, scopeID uuid.UUID, limit int) ([]d
 	for rows.Next() {
 		var r domain.ScanRun
 		if err := rows.Scan(&r.ID, &r.ScopeID, &r.Profile, &r.Trigger, &r.Status, &r.PoolID,
-			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt); err != nil {
+			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -320,7 +323,7 @@ func (s *Store) ListRuns(ctx context.Context, scopeID uuid.UUID, limit int) ([]d
 // QueuedRuns returns runs waiting to be planned/started (used by scheduler).
 func (s *Store) QueuedRuns(ctx context.Context) ([]domain.ScanRun, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at
+		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, '')
 		FROM scan_run WHERE status='queued' ORDER BY created_at LIMIT 20`)
 	if err != nil {
 		return nil, err
@@ -330,7 +333,7 @@ func (s *Store) QueuedRuns(ctx context.Context) ([]domain.ScanRun, error) {
 	for rows.Next() {
 		var r domain.ScanRun
 		if err := rows.Scan(&r.ID, &r.ScopeID, &r.Profile, &r.Trigger, &r.Status, &r.PoolID,
-			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt); err != nil {
+			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -358,7 +361,7 @@ var _ = time.Now
 // advance the stage machine).
 func (s *Store) RunningRuns(ctx context.Context) ([]domain.ScanRun, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at
+		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, '')
 		FROM scan_run WHERE status='running' ORDER BY created_at LIMIT 100`)
 	if err != nil {
 		return nil, err
@@ -368,7 +371,7 @@ func (s *Store) RunningRuns(ctx context.Context) ([]domain.ScanRun, error) {
 	for rows.Next() {
 		var r domain.ScanRun
 		if err := rows.Scan(&r.ID, &r.ScopeID, &r.Profile, &r.Trigger, &r.Status, &r.PoolID,
-			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt); err != nil {
+			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

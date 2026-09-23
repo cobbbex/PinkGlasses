@@ -43,6 +43,10 @@ type Options struct {
 	// which VPN configurations may be named. A scheduled run has none; its
 	// config was checked against its creator when the schedule was saved.
 	UserID *uuid.UUID
+	// StartedBy and StartedVia record who started the run and how, for the
+	// run's record; see domain.ScanRun.
+	StartedBy  string
+	StartedVia string
 	// Exit is where the active stages leave from: "local" (needs VPNConfigID)
 	// or "remote" (needs PoolID). A passive profile needs neither.
 	Exit        string
@@ -190,7 +194,12 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 		}
 	}
 
-	run := domain.ScanRun{ScopeID: scopeID, Profile: profile, Trigger: o.Trigger, MaxConcurrency: 32}
+	run := domain.ScanRun{ScopeID: scopeID, Profile: profile, Trigger: o.Trigger, MaxConcurrency: 32,
+		StartedByUserID: o.UserID, StartedVia: o.StartedVia}
+	if o.StartedBy != "" {
+		by := o.StartedBy
+		run.StartedBy = &by
+	}
 	run, saved, err := l.st.CreateRun(ctx, run, runTargets)
 	if err != nil {
 		return domain.ScanRun{}, refuse(http.StatusInternalServerError, "%v", err)
@@ -462,6 +471,7 @@ func (l *Launcher) Due(ctx context.Context) {
 			Profile: sc.Profile, All: len(sc.Targets) == 0 && len(sc.TargetGroupIDs) == 0, Targets: sc.Targets,
 			Exit: sc.Exit, WorkerCount: sc.WorkerCount,
 			Params: sc.Params, Trigger: "scheduled",
+			StartedBy: sc.CreatedBy, StartedVia: "schedule",
 		}
 		for _, g := range sc.TargetGroupIDs {
 			o.TargetGroupIDs = append(o.TargetGroupIDs, g.String())

@@ -80,6 +80,10 @@ export interface Run {
   id: string; scope_id: string; profile: string; status: string;
   /** "manual" when a person started it, "scheduled" when a schedule did. */
   trigger?: string;
+  /** The account that started it; for a scheduled run, the schedule's creator. */
+  started_by?: string | null;
+  /** How: "session" (the app), "token" (API token — a script or MCP client), "proxy", "schedule". */
+  started_via?: string | null;
   started_at?: string | null; finished_at?: string | null; created_at: string;
   /** A label for the row — the first few targets, not the whole list. */
   targets?: string[] | null; target_count?: number;

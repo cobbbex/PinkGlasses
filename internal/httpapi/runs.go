@@ -46,6 +46,7 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		ProfileID: in.ProfileID, Params: in.Params, WordlistIDs: in.WordlistIDs,
 		Exit: in.Exit, VPNConfigID: in.VPNConfigID, PoolID: in.PoolID, WorkerCount: in.WorkerCount,
 		Trigger: "manual", UserID: userIDOf(r),
+		StartedBy: actor(r), StartedVia: currentUser(r).Via,
 	})
 	if ref != nil {
 		writeErr(w, ref.Status, ref.Msg)
@@ -246,7 +247,8 @@ func (s *Server) rerunRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	o := launch.Options{Profile: sp.Profile, All: len(sp.Targets) == 0, Targets: sp.Targets,
-		Params: sp.Params, Exit: sp.Exit, WorkerCount: sp.Workers, Trigger: "manual"}
+		Params: sp.Params, Exit: sp.Exit, WorkerCount: sp.Workers, Trigger: "manual",
+		StartedBy: actor(r), StartedVia: currentUser(r).Via, UserID: userIDOf(r)}
 	if sp.ProfileID != nil {
 		o.ProfileID = sp.ProfileID.String()
 	}

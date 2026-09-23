@@ -55,7 +55,7 @@ export default function Runs({ scopeID }: { scopeID: string }) {
         <div className="table-wrap">
           <table>
             <thead><tr>
-              <th>Started</th><th>Target</th><th>Profile</th>
+              <th>Started</th><th>By</th><th>Target</th><th>Profile</th>
               <th style={{ width: 190 }}>Progress</th><th>Status</th><th></th>
             </tr></thead>
             <tbody>
@@ -63,6 +63,7 @@ export default function Runs({ scopeID }: { scopeID: string }) {
                 <Fragment key={r.id}>
                   <tr style={{ cursor: "pointer" }} onClick={() => setOpen(open === r.id ? "" : r.id)}>
                     <td className="muted">{new Date(r.created_at).toLocaleString()}</td>
+                    <td><StartedBy run={r} /></td>
                     <td className="mono"><TargetLabel run={r} /></td>
                     <td>
                       {r.profile}
@@ -78,7 +79,7 @@ export default function Runs({ scopeID }: { scopeID: string }) {
                     </td>
                   </tr>
                   {open === r.id && (
-                    <tr><td colSpan={6} style={{ background: "var(--bg)" }}><RunDetail runID={r.id} /></td></tr>
+                    <tr><td colSpan={7} style={{ background: "var(--bg)" }}><RunDetail runID={r.id} /></td></tr>
                   )}
                 </Fragment>
               ))}
@@ -956,5 +957,32 @@ function DeleteFootprint({ runID }: { runID: string }) {
     <ul style={{ margin: "6px 0 10px", paddingLeft: 20, fontSize: 13 }}>
       {items.map((it) => <li key={it} style={{ margin: "2px 0" }}>{it}</li>)}
     </ul>
+  );
+}
+
+/**
+ * Who started a run, and how: the account's name, with a note when it was
+ * not a person in the app — an API token (a script or an MCP client) or a
+ * schedule, which runs as the account that saved it.
+ */
+function StartedBy({ run }: { run: Run }) {
+  if (!run.started_by) {
+    return run.trigger === "scheduled"
+      ? <span className="muted" title="Started by a schedule">schedule</span>
+      : <span className="muted" title="Recorded before runs kept who started them">—</span>;
+  }
+  const via = run.started_via === "token" ? "API token"
+    : run.started_via === "schedule" ? "schedule"
+    : run.started_via === "proxy" ? "sign-in proxy" : "";
+  const title = run.started_via === "token"
+    ? `Started by ${run.started_by} through an API token — a script or an MCP client`
+    : run.started_via === "schedule"
+      ? `Started by a schedule ${run.started_by} saved`
+      : `Started by ${run.started_by}`;
+  return (
+    <span title={title} style={{ whiteSpace: "nowrap" }}>
+      {run.started_by}
+      {via && <span className="muted" style={{ fontSize: 11.5 }}> · {via}</span>}
+    </span>
   );
 }
