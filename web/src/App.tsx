@@ -212,7 +212,7 @@ function Shell({ me, defaultPw, onSignedOut }: {
               heading is gone, so the mark has to carry the name itself. */}
           <img className="brand-mark" src="/logo.svg" alt={collapsed ? "PinkGlasses" : ""} />
           {!collapsed && (
-            <h1 className="brand">PinkGlasses<small>external attack surface</small></h1>
+            <h1 className="brand">PinkGlasses<small>External Attack Surface</small></h1>
           )}
           <button
             className="collapse-btn"

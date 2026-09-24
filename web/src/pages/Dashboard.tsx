@@ -33,7 +33,7 @@ export default function Dashboard({ scopeID }: { scopeID: string }) {
       <div className="page-head">
         <div>
           <h2>Dashboard</h2>
-          <div className="sub">Your external attack surface at a glance.</div>
+          <div className="sub">Your External Attack Surface at a glance.</div>
         </div>
       </div>
 

@@ -20,7 +20,7 @@ export default function Auth({ status, onSignedIn }: {
         <div style={{ textAlign: "center", marginBottom: 22 }}>
           <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: -0.4 }}>PinkGlasses</div>
           <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>
-            External attack surface, continuously watched.
+            External Attack Surface, continuously watched.
           </div>
         </div>
         {status.setup_required
