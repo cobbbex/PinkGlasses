@@ -50,6 +50,19 @@ func main() {
 			}
 		}
 	}()
+	// Liveness for the health page, with how many workers hold a channel.
+	go func() {
+		t := time.NewTicker(15 * time.Second)
+		defer t.Stop()
+		for {
+			_ = st.BeatComponent(ctx, "gateway", map[string]any{"connected_workers": gw.Connected()})
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
 	srv := &http.Server{Addr: cfg.Addr, Handler: gw.Routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		slog.Info("gateway listening", "addr", cfg.Addr)

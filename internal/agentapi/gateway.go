@@ -816,6 +816,13 @@ func (g *Gateway) reloadWorker(ctx context.Context, id uuid.UUID) (domain.Worker
 	}
 }
 
+// Connected is how many workers hold a control channel right now.
+func (g *Gateway) Connected() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return len(g.conns)
+}
+
 func (g *Gateway) register(id uuid.UUID, conn *websocket.Conn) {
 	g.mu.Lock()
 	g.conns[id] = conn

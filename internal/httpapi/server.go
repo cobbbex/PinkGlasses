@@ -187,6 +187,8 @@ func (s *Server) Routes() http.Handler {
 				a := roled(r, "admin", s)
 
 				a.Get("/users", s.listUsers)
+				// Is every part of the install up, and is work flowing.
+				a.Get("/system/health", s.systemHealth)
 				a.Post("/users", s.createUser)
 				a.Patch("/users/{userID}", s.patchUser)
 				a.Delete("/users/{userID}", s.deleteUser)

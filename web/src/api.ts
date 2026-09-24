@@ -238,6 +238,16 @@ export interface HostDetail {
   host: Host; names: HostName[]; services: HostService[]; findings: Finding[];
 }
 
+export interface SystemHealth {
+  status: "ok" | "degraded" | "down"; checked_at: string;
+  components: { name: string; status: "ok" | "degraded" | "down" | "off"; detail: string; extra?: Record<string, unknown> }[];
+  counts: { runs_going: number; live_fleets: number; lease_expiries_24h: number; failed_tasks_24h: number;
+    failed_runs_24h: number; workers_active: number; workers_stale: number };
+  queue: { stage: string; pending: number; in_flight: number; oldest_pending_s: number }[] | null;
+  workers: { name: string; kind: string; status: string; run_fleet: boolean; running_tasks: number;
+    heartbeat_age_s: number; version: string }[] | null;
+  stranded: { RunID: string; Stage: string; Tasks: number; Oldest: string }[] | null;
+}
 export interface MCPTool { name: string; description: string; read_only: boolean; destructive: boolean }
 export interface VPNConfig {
   id: string; scope_id: string; name: string; kind: "wireguard" | "openvpn";
@@ -399,6 +409,8 @@ export const api = {
       .then((x) => (x ?? []).map((f) => ({ ...f, history: f.history ?? [] }))),
   // Configs are write-only: the body is sealed server-side and no endpoint
   // ever returns it.
+  /** Admin: is every part of the install up, and is work flowing. */
+  systemHealth: () => req<SystemHealth>("/system/health"),
   /** What the built-in MCP server exposes, for the MCP page. */
   mcpSettings: () => req<{ path: string; tools: MCPTool[]; allow_delete_company: boolean }>("/mcp/settings"),
   /** The skill download; a plain link, since it is a file. */

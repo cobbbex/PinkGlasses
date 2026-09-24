@@ -26,6 +26,9 @@ import (
 
 const schedulerLockKey = 0x4153_4d31 // "ASM1"
 
+// cfgTick is the configured tick, reported on the health page.
+var cfgTick time.Duration
+
 func main() {
 	cfg := config.LoadScheduler()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -71,6 +74,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
+	cfgTick = cfg.Tick
 	ticker := time.NewTicker(cfg.Tick)
 	defer ticker.Stop()
 	slog.Info("scheduler started", "tick", cfg.Tick)
@@ -99,6 +103,8 @@ func main() {
 }
 
 func tick(ctx context.Context, st *store.Store, pl *planner.Planner, df *diff.Differ, nt *notify.Notifier) {
+	// Liveness for the health page: the scheduler has no endpoint to call.
+	_ = st.BeatComponent(ctx, "scheduler", map[string]any{"tick_s": cfgTick.Seconds()})
 	// 1. Reap expired leases so dead workers' tasks get reassigned. Each one
 	// is logged in full: a lease expires only when no heartbeat naming the
 	// task reached the gateway for the whole lease TTL, which is a worker

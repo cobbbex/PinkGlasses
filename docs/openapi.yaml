@@ -1405,6 +1405,22 @@ paths:
         "403": {$ref: "#/components/responses/e403"}
         "404": {$ref: "#/components/responses/e404"}
         "409": {$ref: "#/components/responses/e409"}
+  /api/v1/system/health:
+    get:
+      operationId: getSystemHealth
+      summary: "{status, components, counts, queue, workers, stranded}: each service (api with its version, database with schema version and round trip, object storage, gateway and scheduler by heartbeat age, provisioner) as ok/degraded/down/off; runs going, live fleets, lease expiries, failed runs and tasks in …"
+      x-required-role: admin
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
   /api/v1/users/{userID}:
     delete:
       operationId: deleteUsersByUserID

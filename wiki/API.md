@@ -236,6 +236,12 @@ otherwise), and a schedule stays bound to its creator's configuration.
 |---|---|---|
 | `GET /vpn-configs` | viewer | your own: name, kind, endpoint host, last egress — **never the body** |
 
+## System health
+
+| Route | Role | Purpose |
+|---|---|---|
+| `GET /system/health` | admin | `{status, components, counts, queue, workers, stranded}`: each service (api with its version, database with schema version and round trip, object storage, gateway and scheduler by heartbeat age, provisioner) as `ok`/`degraded`/`down`/`off`; runs going, live fleets, lease expiries, failed runs and tasks in the last 24 h; the queue by stage with the oldest waiting age; every worker's heartbeat age; tasks no active worker can lease |
+
 ## MCP page
 
 | Route | Role | Purpose |

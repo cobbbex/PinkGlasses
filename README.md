@@ -883,6 +883,14 @@ ASM_LOG_LEVEL=debug docker compose up -d worker
 `info` (the default) is every tool invocation and stage summary; `warn` and `error`
 narrow it further.
 
+### The System page
+
+Administrators have **System** in the sidebar: each service of the install (api and its
+version, database, object storage, gateway, scheduler, provisioner) with a status, every
+worker's last heartbeat, the queue by stage with how long the oldest task has waited, and
+the last day's lease expiries and failures. Refreshed every 10 seconds; the first place to
+look when something is off.
+
 ### If a run does not move
 
 A run that says *running* while its progress bar stays put is waiting for a worker,

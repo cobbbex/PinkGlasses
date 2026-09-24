@@ -1013,7 +1013,7 @@ Order of work: what protects the data and speeds diagnosis first.
 - [x] 26.1 **Fleet death evidence.** Before a failed fleet is torn down, record the VPN gateway's
       and workers' exit codes, OOM-killed flag and last log lines on the run's fleet record, and
       show them in the run view.
-- [ ] 26.2 **Health page (admin).** Gateway, scheduler, provisioner, Postgres, object storage;
+- [x] 26.2 **Health page (admin).** Gateway, scheduler, provisioner, Postgres, object storage;
       each worker's heartbeat age; queue length by stage; lease expiries in the last 24 h.
 - [ ] 26.3 **Backups.** A scheduled `pg_dump` plus the artifact bucket to a configurable
       location, retention, and a documented restore.
