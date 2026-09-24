@@ -91,7 +91,8 @@ deploy; it is up whenever the web app is. Each request carries its own token as
 `Authorization: Bearer pgt_…`; the server holds no credential of its own, and
 a request without a token gets the API's own refusal. It is reachable wherever
 the web app is — the same address, port and hostname, plus `/mcp` — so put TLS
-in front before exposing it beyond the host, and if a reverse proxy sits in
+in front before exposing it beyond the host (the compose **https** profile does, see the
+README's "HTTPS"), and if a reverse proxy sits in
 front, forward `/mcp` with the `Authorization` header and without response
 buffering, as for the run events stream.
 

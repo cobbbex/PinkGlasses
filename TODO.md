@@ -1019,7 +1019,7 @@ Order of work: what protects the data and speeds diagnosis first.
       location, retention, and a documented restore.
 - [x] 26.4 **Versioned releases.** The running version in the UI and the API; release notes that
       say when a redeploy needs a migration or a browser reload; a first tag.
-- [ ] 26.5 **HTTPS in the default deployment.** Optional Caddy service with automatic
+- [x] 26.5 **HTTPS in the default deployment.** Optional Caddy service with automatic
       certificates in front of the api, `/mcp` and SSE unbuffered.
 - [ ] 26.6 **Findings with real severity.** Expired and expiring certificates, exposed admin
       panels, default pages, outdated server versions, services that newly appeared.

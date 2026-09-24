@@ -241,6 +241,30 @@ too. The first publish creates each package **private**; to let others pull with
 token, open the package on GitHub → *Package settings* → *Change visibility* → Public,
 once per image. The packages link to this repository through the image source label.
 
+## HTTPS
+
+Turn on the **https** profile and Caddy serves the app, the API, the run event streams and
+the MCP server on 443, redirects 80, and serves the worker gateway on 8443:
+
+```bash
+# .env
+PINKGLASSES_DOMAIN=asm.example.com       # the name the app is reached at
+PINKGLASSES_TLS=you@example.com          # Let's Encrypt; or "internal" (see below)
+ASM_API_PUBLISH=127.0.0.1:8080           # the app only through Caddy
+ASM_GATEWAY_PUBLISH=127.0.0.1:8090       # workers only through 8443
+ASM_PUBLIC_GATEWAY_URL=https://asm.example.com:8443   # what VPS workers are told
+
+docker compose --profile https up -d
+```
+
+With an email address Caddy gets and renews a Let's Encrypt certificate: the name needs
+public DNS pointing at the host and ports 80 and 443 open to the internet. For a host
+reached only by address, `PINKGLASSES_TLS=internal` uses Caddy's own authority; browsers
+and clients such as Cursor then refuse the connection until Caddy's root certificate
+(`docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .`) is trusted on
+the machine. Event streams and MCP responses are passed on unbuffered, and the session
+cookie is marked Secure. MCP clients then use `https://asm.example.com/mcp`.
+
 ## Upgrade it
 
 Releases are tagged `vX.Y.Z`; [CHANGELOG.md](CHANGELOG.md) and the GitHub release say

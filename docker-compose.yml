@@ -68,7 +68,9 @@ services:
       # lets the fleet UI create local workers via the isolated provisioner
       ASM_PROVISIONER_URL: "http://provisioner:8091"
       ASM_PROVISIONER_TOKEN: "${ASM_PROVISIONER_TOKEN:-change-me-provisioner}"
-    ports: ["8080:8080"]
+    # Set ASM_API_PUBLISH=127.0.0.1:8080 behind the https profile, so the app
+    # is reachable only through Caddy.
+    ports: ["${ASM_API_PUBLISH:-8080}:8080"]
     depends_on:
       postgres: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}
@@ -94,7 +96,9 @@ services:
       # Shared with local worker containers so they self-enroll with no manual
       # token step. Only honoured for connections from private addresses.
       ASM_LOCAL_BOOTSTRAP_TOKEN: "${ASM_LOCAL_BOOTSTRAP_TOKEN:-change-me-local-bootstrap}"
-    ports: ["8090:8090"]  # the only internet-facing service in production
+    # The only internet-facing service in production. Behind the https
+    # profile set ASM_GATEWAY_PUBLISH=127.0.0.1:8090: workers then use 8443.
+    ports: ["${ASM_GATEWAY_PUBLISH:-8090}:8090"]
     depends_on:
       postgres: {condition: service_healthy}
       # The bootstrap-token seed writes columns later migrations add; racing
@@ -255,6 +259,22 @@ services:
       - workerspool:/var/cache/asm/spool
     depends_on: [gateway]
 
+  # HTTPS in front of the app, /mcp and the worker gateway. Off unless the
+  # "https" profile is enabled: docker compose --profile https up -d.
+  # See README "HTTPS".
+  caddy:
+    profiles: ["https"]
+    image: caddy:2-alpine
+    environment:
+      PINKGLASSES_DOMAIN: "${PINKGLASSES_DOMAIN:-localhost}"
+      PINKGLASSES_TLS: "${PINKGLASSES_TLS:-internal}"
+    ports: ["80:80", "443:443", "${PINKGLASSES_GATEWAY_HTTPS_PORT:-8443}:8443"]
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+    depends_on: [api, gateway]
+    restart: unless-stopped
+
   # Scheduled backups of the database and the artifact store into
   # ASM_BACKUP_DIR (default ./backups) on the host. See README "Backups".
   backup:
@@ -287,3 +307,4 @@ volumes:
     name: scan_tool_pgdata
   miniodata:
     name: scan_tool_miniodata
+  caddydata:

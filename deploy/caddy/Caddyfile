@@ -1,0 +1,32 @@
+# HTTPS in front of PinkGlasses (compose profile "https").
+#
+#   PINKGLASSES_DOMAIN  the name (or address) the app is reached at
+#   PINKGLASSES_TLS     an email address: a Let's Encrypt certificate for the
+#                       domain (needs public DNS and ports 80/443 reachable);
+#                       "internal": a certificate from Caddy's own authority,
+#                       for an address with no public name — clients must
+#                       trust Caddy's root, or they refuse the connection.
+{
+	# Caddy's own admin API stays inside the container.
+	admin off
+}
+
+# The app, its API, the run event streams and the MCP server.
+{$PINKGLASSES_DOMAIN:localhost} {
+	tls {$PINKGLASSES_TLS:internal}
+	encode gzip
+	reverse_proxy api:8080 {
+		# Server-sent events and MCP responses are streams: pass every
+		# byte on as it comes, never buffer.
+		flush_interval -1
+	}
+}
+
+# The worker gateway, for workers on other machines: the same name, port
+# 8443. Point a remote worker's ASM_GATEWAY_URL at https://<domain>:8443.
+{$PINKGLASSES_DOMAIN:localhost}:8443 {
+	tls {$PINKGLASSES_TLS:internal}
+	reverse_proxy gateway:8090 {
+		flush_interval -1
+	}
+}
