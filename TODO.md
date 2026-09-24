@@ -1033,3 +1033,11 @@ Order of work: what protects the data and speeds diagnosis first.
       Hosts.
 - [ ] 26.11 **End-to-end test in CI.** Start the stack in compose, scan a local test target,
       assert the run completes with the expected services.
+
+Asked 2026-09-24: private companies. scope.visibility (shared | private) and scope_member;
+one SQL function scope_visible(scope, user) — shared, owner, member, or an admin once the
+owner is gone — used by a guard on every route naming a company or anything in one (runs,
+schedules, channels, findings, hosts, services; 404 when not visible), by the company list,
+global search and the fleet list. Routes: GET /scopes/{id}/access, POST .../members {username},
+DELETE .../members/{userID}, PATCH /scopes/{id} {visibility}; POST /scopes {private}. The
+owner deletes a private company, an admin a shared one. Tokens and MCP act as their account.

@@ -121,7 +121,7 @@ type FleetView struct {
 // ListFleetViews returns every fleet still up or being built, plus those that
 // ended in the last day, newest first — enough to see what a run did with its
 // containers after the fact.
-func (s *Store) ListFleetViews(ctx context.Context) ([]FleetView, error) {
+func (s *Store) ListFleetViews(ctx context.Context, viewer uuid.UUID) ([]FleetView, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT f.run_id, r.scope_id, sc.name, r.profile, r.status, f.status, f.error, f.egress_ip,
 		       f.workers, f.workers_auto, v.name, v.kind, f.created_at, f.ready_at, f.torn_down_at,
@@ -130,10 +130,11 @@ func (s *Store) ListFleetViews(ctx context.Context) ([]FleetView, error) {
 		JOIN scan_run r ON r.id = f.run_id
 		JOIN scope sc ON sc.id = r.scope_id
 		LEFT JOIN vpn_config v ON v.id = f.vpn_config_id
-		WHERE f.status IN ('requested','up')
-		   OR COALESCE(f.torn_down_at, f.created_at) > now() - interval '24 hours'
+		WHERE (f.status IN ('requested','up')
+		   OR COALESCE(f.torn_down_at, f.created_at) > now() - interval '24 hours')
+		  AND scope_visible(r.scope_id, $1)
 		ORDER BY (f.status IN ('requested','up')) DESC, f.created_at DESC
-		LIMIT 20`)
+		LIMIT 20`, viewer)
 	if err != nil {
 		return nil, err
 	}

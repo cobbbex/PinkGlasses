@@ -287,6 +287,24 @@ paths:
         "403": {$ref: "#/components/responses/e403"}
         "404": {$ref: "#/components/responses/e404"}
         "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/access:
+    get:
+      operationId: getScopesByScopeIDAccess
+      summary: "{visibility, owner, owner_id, members: [{user_id, username, role, added_by, created_at}], can_manage}"
+      x-required-role: viewer
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
   /api/v1/scan-params:
     get:
       operationId: getScanParams
@@ -1218,8 +1236,8 @@ paths:
   /api/v1/scopes/{scopeID}:
     delete:
       operationId: deleteScopesByScopeID
-      summary: "delete the company with everything it owns — inventory, runs, findings, schedules, alert channels — and remove its runs' screenshots and raw output from object storage. 409 while a run of it is going; answers {deleted, artifacts_removed, artifacts_failed}"
-      x-required-role: admin
+      summary: "delete the company with everything it owns — a shared company needs the admin role, a private one its owner — — inventory, runs, findings, schedules, alert channels — and remove its runs' screenshots and raw output from object storage. 409 while a run of it is going; answers {deleted, art…"
+      x-required-role: operator
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}
       security:
@@ -1235,10 +1253,48 @@ paths:
         "409": {$ref: "#/components/responses/e409"}
     patch:
       operationId: patchScopesByScopeID
-      summary: "{name} renames the company (everything it owns stays; audited as scope.rename); {default_exit, default_vpn_config_id, default_pool_id} sets the exit the launch dialog pre-selects. Each part applies only when sent"
+      summary: "{visibility} (shared or private, the owner only) changes who can see it; {name} renames the company (everything it owns stays; audited as scope.rename); {default_exit, default_vpn_config_id, default_pool_id} sets the exit the launch dialog pre-selects. Each part applies only when sent"
       x-required-role: operator
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/members:
+    post:
+      operationId: postScopesByScopeIDMembers
+      summary: "{username} — share the company with that account; the owner only (an administrator once the owner's account is gone). Answers with the access record"
+      x-required-role: operator
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/scopes/{scopeID}/members/{userID}:
+    delete:
+      operationId: deleteScopesByScopeIDMembersByUserID
+      summary: "stop sharing with that account; the owner, or the member themselves"
+      x-required-role: operator
+      parameters:
+        - {name: scopeID, in: path, required: true, schema: {type: string}}
+        - {name: userID, in: path, required: true, schema: {type: string}}
       security:
         - session: []
         - token: []

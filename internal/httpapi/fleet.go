@@ -113,7 +113,7 @@ func (s *Server) createEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 // listFleets is the Workers page's view of runs' own containers: the VPN
 // gateway (never a worker, so listed nowhere else) and the workers beside it.
 func (s *Server) listFleets(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListFleetViews(r.Context())
+	list, err := s.st.ListFleetViews(r.Context(), viewerOf(r))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

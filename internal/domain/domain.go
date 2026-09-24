@@ -105,6 +105,13 @@ type Scope struct {
 	DefaultExit        string     `json:"default_exit"`
 	DefaultVPNConfigID *uuid.UUID `json:"default_vpn_config_id,omitempty"`
 	DefaultPoolID      *uuid.UUID `json:"default_pool_id,omitempty"`
+	// Visibility is "shared" (every account sees it) or "private" (its owner
+	// and the accounts it is shared with).
+	Visibility string     `json:"visibility"`
+	OwnerID    *uuid.UUID `json:"owner_id,omitempty"`
+	Owner      string     `json:"owner,omitempty"`
+	// Members is how many accounts a private company is shared with.
+	Members int `json:"members"`
 }
 
 // ScopeTarget is a domain/CIDR/ASN/IP the scope is allowed to look at.

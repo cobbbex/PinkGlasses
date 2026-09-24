@@ -279,6 +279,7 @@ func (s *Server) patchScope(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Name               *string `json:"name"`
+		Visibility         *string `json:"visibility"`
 		DefaultExit        *string `json:"default_exit"`
 		DefaultVPNConfigID *string `json:"default_vpn_config_id"`
 		DefaultPoolID      *string `json:"default_pool_id"`
@@ -309,6 +310,22 @@ func (s *Server) patchScope(w http.ResponseWriter, r *http.Request) {
 		if before.Name != name {
 			s.auditReq(r, "scope.rename", scopeID.String(), map[string]any{"from": before.Name, "to": name})
 		}
+	}
+	if in.Visibility != nil {
+		v := *in.Visibility
+		if v != "shared" && v != "private" {
+			writeErr(w, http.StatusBadRequest, "visibility must be \"shared\" or \"private\"")
+			return
+		}
+		if ok, _ := s.canManageAccess(r, scopeID); !ok {
+			writeErr(w, http.StatusForbidden, "only the company's owner decides who can see it")
+			return
+		}
+		if err := s.st.SetScopeVisibility(r.Context(), scopeID, v); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.auditReq(r, "scope.visibility", scopeID.String(), map[string]any{"visibility": v})
 	}
 	if in.DefaultExit == nil && in.DefaultVPNConfigID == nil && in.DefaultPoolID == nil {
 		sc, err := s.st.GetScope(r.Context(), scopeID)

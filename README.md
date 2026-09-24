@@ -636,6 +636,16 @@ shared, and it needs no company selected to open.
 Services with a screenshot offer a **Screenshot** button — on the host page per service,
 and in the Hosts list per row — which opens the captured page image.
 
+**Private companies.** A company is **shared** — every account on the install sees it —
+or **private**: only the account that created it and the accounts it is shared with. Tick
+*Private* when adding one, or open *Share this company…* in the company picker to switch it
+and to add or remove accounts by username. Nobody else sees a private company exist —
+administrators included — in the app, through API tokens or through MCP: its runs, hosts,
+findings, schedules and alerts answer "not found", and it is left out of global search and
+the fleet list. Account roles still apply inside, so sharing with a viewer lets them read,
+not scan. The owner deletes a private company; a shared one still needs an administrator.
+If the owner's account is removed, the company falls to the administrators.
+
 **Renaming a company.** *Rename this company…* at the foot of the company picker (operator
 and up) changes the name and nothing else: everything the company owns is keyed by id.
 

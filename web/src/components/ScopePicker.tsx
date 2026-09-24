@@ -7,7 +7,7 @@ import { Scope } from "../api";
  * search box makes the list navigable by typing.
  */
 export default function ScopePicker({
-  scopes, value, onChange, onNew, onRename, onDelete, collapsed = false, mine, onMineChange, hiddenCount = 0,
+  scopes, value, onChange, onNew, onRename, onShare, onDelete, collapsed = false, mine, onMineChange, hiddenCount = 0,
 }: {
   scopes: Scope[];
   value: string;
@@ -15,6 +15,8 @@ export default function ScopePicker({
   onNew: () => void;
   /** Rename the selected company; offered when the caller passes it (operators). */
   onRename?: () => void;
+  /** See, and for its owner change, who the selected company is shared with. */
+  onShare?: () => void;
   /** Delete the selected company; only offered when the caller passes it (admins). */
   onDelete?: () => void;
   collapsed?: boolean;
@@ -146,7 +148,13 @@ export default function ScopePicker({
                 onMouseEnter={() => setActive(i)}
                 onClick={() => choose(s.id)}
               >
-                <span className="combo-item-name">{s.name}</span>
+                <span className="combo-item-name">
+                  {s.name}
+                  {s.visibility === "private" && (
+                    <span className="muted" title={`Private — ${s.owner ? s.owner + " and " : ""}${s.members ?? 0} account${s.members === 1 ? "" : "s"} it is shared with`}
+                      style={{ marginLeft: 6, fontSize: 11 }}>🔒 private</span>
+                  )}
+                </span>
                 {s.id === value && <span className="combo-check">✓</span>}
               </button>
             ))}
@@ -166,6 +174,12 @@ export default function ScopePicker({
             <button type="button" className="combo-new" onClick={() => { setOpen(false); onNew(); }}>
               + Add company
             </button>
+            {onShare && current && (
+              <button type="button" className="combo-quiet" onClick={() => { setOpen(false); onShare(); }}
+                title={`Who can see ${current.name}`}>
+                {current.visibility === "private" ? "Share this company…" : "Access: shared with everyone…"}
+              </button>
+            )}
             {onRename && current && (
               <button type="button" className="combo-quiet" onClick={() => { setOpen(false); onRename(); }}
                 title={`Rename ${current.name}`}>

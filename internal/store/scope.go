@@ -13,15 +13,20 @@ import (
 )
 
 // CreateScope inserts a scope.
-func (s *Store) CreateScope(ctx context.Context, name, createdBy string, ownerID *uuid.UUID) (domain.Scope, error) {
+func (s *Store) CreateScope(ctx context.Context, name, createdBy string, ownerID *uuid.UUID, visibility string) (domain.Scope, error) {
+	if visibility != "private" {
+		visibility = "shared"
+	}
 	if createdBy == "" {
 		createdBy = "local"
 	}
 	var sc domain.Scope
 	err := s.Pool.QueryRow(ctx,
-		`INSERT INTO scope (name, created_by, owner_id) VALUES ($1,$2,$3)
-		 RETURNING id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id`, name, createdBy, ownerID,
-	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID)
+		`INSERT INTO scope (name, created_by, owner_id, visibility) VALUES ($1,$2,$3,$4)
+		 RETURNING id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id, visibility, owner_id,
+		       COALESCE((SELECT username FROM app_user u WHERE u.id = scope.owner_id), ''),
+		       (SELECT count(*) FROM scope_member m WHERE m.scope_id = scope.id)`, name, createdBy, ownerID, visibility,
+	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID, &sc.Visibility, &sc.OwnerID, &sc.Owner, &sc.Members)
 	return sc, err
 }
 
@@ -52,10 +57,13 @@ func (s *Store) AdoptOwnerlessScopes(ctx context.Context, ownerID uuid.UUID) (in
 // An empty owner means every company. The filter is on a free-text actor rather
 // than a user id because there is no users table yet (Phase 17); the shape is
 // what matters, so the UI does not change when identity becomes verified.
-func (s *Store) ListScopes(ctx context.Context, owner string) ([]domain.Scope, error) {
+// Only companies the viewer may see are listed (scope_visible).
+func (s *Store) ListScopes(ctx context.Context, owner string, viewer uuid.UUID) ([]domain.Scope, error) {
 	rows, err := s.Pool.Query(ctx,
-		`SELECT id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id FROM scope
-		 WHERE ($1 = '' OR created_by = $1) ORDER BY created_at`, owner)
+		`SELECT id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id, visibility, owner_id,
+		       COALESCE((SELECT username FROM app_user u WHERE u.id = scope.owner_id), ''),
+		       (SELECT count(*) FROM scope_member m WHERE m.scope_id = scope.id) FROM scope
+		 WHERE ($1 = '' OR created_by = $1) AND scope_visible(scope.id, $2) ORDER BY created_at`, owner, viewer)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +71,7 @@ func (s *Store) ListScopes(ctx context.Context, owner string) ([]domain.Scope, e
 	var out []domain.Scope
 	for rows.Next() {
 		var sc domain.Scope
-		if err := rows.Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID); err != nil {
+		if err := rows.Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID, &sc.Visibility, &sc.OwnerID, &sc.Owner, &sc.Members); err != nil {
 			return nil, err
 		}
 		out = append(out, sc)
@@ -75,8 +83,10 @@ func (s *Store) ListScopes(ctx context.Context, owner string) ([]domain.Scope, e
 func (s *Store) GetScope(ctx context.Context, id uuid.UUID) (domain.Scope, error) {
 	var sc domain.Scope
 	err := s.Pool.QueryRow(ctx,
-		`SELECT id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id FROM scope WHERE id=$1`, id,
-	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID)
+		`SELECT id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id, visibility, owner_id,
+		       COALESCE((SELECT username FROM app_user u WHERE u.id = scope.owner_id), ''),
+		       (SELECT count(*) FROM scope_member m WHERE m.scope_id = scope.id) FROM scope WHERE id=$1`, id,
+	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID, &sc.Visibility, &sc.OwnerID, &sc.Owner, &sc.Members)
 	return sc, err
 }
 
@@ -301,4 +311,68 @@ func (s *Store) SetScopeDefaults(ctx context.Context, id uuid.UUID, exit string,
 	_, err := s.Pool.Exec(ctx, `UPDATE scope SET default_exit=$2, default_vpn_config_id=$3, default_pool_id=$4 WHERE id=$1`,
 		id, exit, vpnID, poolID)
 	return err
+}
+
+// ScopeVisibleTo is the access rule: may this account see this company? False
+// also when the company does not exist.
+func (s *Store) ScopeVisibleTo(ctx context.Context, scopeID, userID uuid.UUID) (bool, error) {
+	var ok bool
+	err := s.Pool.QueryRow(ctx, `SELECT scope_visible($1, $2)`, scopeID, userID).Scan(&ok)
+	return ok, err
+}
+
+// ScopeOfEntity resolves what company an entity belongs to, by the table it
+// lives in. The query is one of the fixed ones in httpapi's guard.
+func (s *Store) ScopeOfEntity(ctx context.Context, query string, id uuid.UUID) (uuid.UUID, error) {
+	var sc uuid.UUID
+	err := s.Pool.QueryRow(ctx, query, id).Scan(&sc)
+	return sc, err
+}
+
+// SetScopeVisibility makes a company shared or private.
+func (s *Store) SetScopeVisibility(ctx context.Context, id uuid.UUID, visibility string) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE scope SET visibility=$2 WHERE id=$1`, id, visibility)
+	return err
+}
+
+// ScopeMember is an account a private company is shared with.
+type ScopeMember struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Username  string    `json:"username"`
+	Display   string    `json:"display_name"`
+	Role      string    `json:"role"`
+	AddedBy   string    `json:"added_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (s *Store) ScopeMembers(ctx context.Context, scopeID uuid.UUID) ([]ScopeMember, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT m.user_id, u.username, COALESCE(u.display_name,''), u.role, m.added_by, m.created_at
+		FROM scope_member m JOIN app_user u ON u.id = m.user_id
+		WHERE m.scope_id=$1 ORDER BY lower(u.username)`, scopeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ScopeMember{}
+	for rows.Next() {
+		var m ScopeMember
+		if err := rows.Scan(&m.UserID, &m.Username, &m.Display, &m.Role, &m.AddedBy, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) AddScopeMember(ctx context.Context, scopeID, userID uuid.UUID, addedBy string) error {
+	_, err := s.Pool.Exec(ctx, `
+		INSERT INTO scope_member (scope_id, user_id, added_by) VALUES ($1,$2,$3)
+		ON CONFLICT DO NOTHING`, scopeID, userID, addedBy)
+	return err
+}
+
+func (s *Store) RemoveScopeMember(ctx context.Context, scopeID, userID uuid.UUID) (bool, error) {
+	ct, err := s.Pool.Exec(ctx, `DELETE FROM scope_member WHERE scope_id=$1 AND user_id=$2`, scopeID, userID)
+	return ct.RowsAffected() > 0, err
 }

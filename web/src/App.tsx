@@ -14,6 +14,7 @@ import Search from "./pages/Search";
 import Alerts from "./pages/Alerts";
 import VPN from "./pages/VPN";
 import MCP from "./pages/MCP";
+import ShareCompany from "./components/ShareCompany";
 import System from "./pages/System";
 import Host from "./pages/Host";
 import Auth from "./pages/Auth";
@@ -113,6 +114,8 @@ function Shell({ me, defaultPw, onSignedOut }: {
   });
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [makePrivate, setMakePrivate] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem(COLLAPSE_KEY) === "1"; } catch { return false; }
   });
@@ -124,6 +127,11 @@ function Shell({ me, defaultPw, onSignedOut }: {
       return next;
     });
   }
+
+  // Bumped when a company's access changes, so the picker's lock and the
+  // list follow at once.
+  const [scopesRev, setScopesRev] = useState(0);
+  const reloadScopes = () => setScopesRev((n) => n + 1);
 
   useEffect(() => {
     // Both lists: the filtered one drives the picker, the full one tells the
@@ -139,7 +147,7 @@ function Shell({ me, defaultPw, onSignedOut }: {
         setScopeID((cur) => (cur && list.some((s) => s.id === cur) ? cur : (list[0]?.id ?? "")));
       })
       .catch(() => toast("err", "Could not load scopes — is the API running?"));
-  }, [mine]);
+  }, [mine, scopesRev]);
 
   // Mirrored from the state rather than written by each setter, so the fallback
   // above is remembered too — and a scope that has been deleted, or hidden by
@@ -192,7 +200,7 @@ function Shell({ me, defaultPw, onSignedOut }: {
 
   async function create() {
     try {
-      const sc = await api.createScope(name);
+      const sc = await api.createScope(name, makePrivate);
       setScopes((p) => [...p, sc]);
       setAllScopes((p) => [...p, sc]);
       setScopeID(sc.id);
@@ -230,7 +238,8 @@ function Shell({ me, defaultPw, onSignedOut }: {
           onChange={setScopeID}
           onNew={() => setOpen(true)}
           onRename={atLeast(me.role, "operator") && scopeID ? openRename : undefined}
-          onDelete={atLeast(me.role, "admin") && scopeID ? () => setDeleting(true) : undefined}
+          onShare={scopeID ? () => setSharing(true) : undefined}
+          onDelete={scopeID && canDelete(scopes.find((s) => s.id === scopeID), me) ? () => setDeleting(true) : undefined}
           collapsed={collapsed}
           mine={mine}
           onMineChange={changeMine}
@@ -299,6 +308,11 @@ function Shell({ me, defaultPw, onSignedOut }: {
         </Routes>
       </main>
 
+      {sharing && scopeID && scopes.find((s) => s.id === scopeID) && (
+        <ShareCompany scope={scopes.find((s) => s.id === scopeID)!} meID={me.id}
+          onClose={() => setSharing(false)} onChanged={reloadScopes} />
+      )}
+
       {deleting && scopeID && (
         <DeleteCompany scope={scopes.find((s) => s.id === scopeID)!} onClose={() => setDeleting(false)} onConfirm={removeCurrent} />
       )}
@@ -338,6 +352,11 @@ function Shell({ me, defaultPw, onSignedOut }: {
             authorization is granted per company.
           </div>
         </div>
+        <label className="check">
+          <input type="checkbox" checked={makePrivate} onChange={(e) => setMakePrivate(e.target.checked)} />
+          <span><strong>Private</strong>
+            <div className="muted" style={{ fontSize: 12.5 }}>Only you, and the accounts you share it with, can see it — in the app, through API tokens and MCP.</div></span>
+        </label>
       </Modal>
     </div>
   );
@@ -536,4 +555,12 @@ function DeleteCompany({ scope, onClose, onConfirm }: { scope: Scope; onClose: (
       )}
     </Modal>
   );
+}
+
+// Who may delete a company: an administrator a shared one, the owner a
+// private one (an administrator too once its owner's account is gone).
+function canDelete(sc: Scope | undefined, me: User): boolean {
+  if (!sc) return false;
+  if (sc.visibility === "private") return sc.owner_id ? sc.owner_id === me.id : atLeast(me.role, "admin");
+  return atLeast(me.role, "admin");
 }

@@ -85,7 +85,10 @@ asset route is under a scope.
 | `GET /scopes` | viewer | all companies; `?mine=true` narrows to ones you created |
 | `POST /scopes` | operator | `{name}` |
 | `GET /scopes/{scopeID}/footprint` | viewer | what the company owns, as counts: target groups, targets, names, hosts, services, runs, findings, screenshots, schedules, alert channels — and `active_runs` / `live_fleets`, which block a delete |
-| `DELETE /scopes/{scopeID}` | admin | delete the company with everything it owns — inventory, runs, findings, schedules, alert channels — and remove its runs' screenshots and raw output from object storage. 409 while a run of it is going; answers `{deleted, artifacts_removed, artifacts_failed}` |
+| `GET /scopes/{scopeID}/access` | viewer | `{visibility, owner, owner_id, members: [{user_id, username, role, added_by, created_at}], can_manage}` |
+| `POST /scopes/{scopeID}/members` | operator | `{username}` — share the company with that account; the owner only (an administrator once the owner's account is gone). Answers with the access record |
+| `DELETE /scopes/{scopeID}/members/{userID}` | operator | stop sharing with that account; the owner, or the member themselves |
+| `DELETE /scopes/{scopeID}` | operator | delete the company with everything it owns — a shared company needs the admin role, a private one its owner — — inventory, runs, findings, schedules, alert channels — and remove its runs' screenshots and raw output from object storage. 409 while a run of it is going; answers `{deleted, artifacts_removed, artifacts_failed}` |
 | `GET /scopes/{scopeID}/summary` | viewer | dashboard counters: domains, ips, services, open_findings |
 | `GET /scopes/{scopeID}/target-groups` | viewer | the company's target groups, each with its entries and `authorized` (every entry active with a recorded authorization) |
 | `POST /scopes/{scopeID}/target-groups` | operator | `{name, values, tags, authorize}` — one group from a list of domains, IPs and CIDRs; `name` defaults to the first value; 409 if the name is taken |
@@ -155,7 +158,7 @@ started, so a slow run does not drift the cadence.
 | `POST /scopes/{scopeID}/schedules` | operator | `{profile, target_group_ids, targets, exit, vpn_config_id \| pool_id, worker_count, every_hours, start_at, profile_id, params, wordlist_ids, enabled}` — `targets` narrows each run to those values, empty is every non-excluded target at the time — `every_hours` 1…8784 repeats from `start_at` (default now); `0` runs once at `start_at`, then disables itself |
 | `PATCH /schedules/{scheduleID}` | operator | any of the same fields; disabling stops it without losing it; `start_at` moves the next run |
 | `DELETE /schedules/{scheduleID}` | operator | |
-| `PATCH /scopes/{scopeID}` | operator | `{name}` renames the company (everything it owns stays; audited as `scope.rename`); `{default_exit, default_vpn_config_id, default_pool_id}` sets the exit the launch dialog pre-selects. Each part applies only when sent |
+| `PATCH /scopes/{scopeID}` | operator | `{visibility}` (`shared` or `private`, the owner only) changes who can see it; `{name}` renames the company (everything it owns stays; audited as `scope.rename`); `{default_exit, default_vpn_config_id, default_pool_id}` sets the exit the launch dialog pre-selects. Each part applies only when sent |
 
 Runs a schedule starts carry `trigger: "scheduled"`.
 
@@ -241,6 +244,17 @@ otherwise), and a schedule stays bound to its creator's configuration.
 | Route | Role | Purpose |
 |---|---|---|
 | `GET /system/health` | admin | `{status, components, counts, queue, workers, stranded}`: each service (api with its version, database with schema version and round trip, object storage, gateway and scheduler by heartbeat age, provisioner) as `ok`/`degraded`/`down`/`off`; runs going, live fleets, lease expiries, failed runs and tasks in the last 24 h; the queue by stage with the oldest waiting age; every worker's heartbeat age; tasks no active worker can lease |
+
+## Private companies
+
+A company is **shared** — every account on the install sees it — or **private**: only its
+owner and the accounts it is shared with. `POST /scopes` takes `"private": true`. The rule
+is one database function, `scope_visible`, applied to every route that names a company
+or anything inside one (runs, schedules, alert channels, findings, hosts, services) and to
+the company list, global search and the fleet list. A company the requester may not see
+answers **404**, as if it did not exist. API tokens and the MCP server act as their account.
+Roles still apply inside: a viewer a company is shared with can read it, not scan it. A
+private company whose owner's account is removed falls to the administrators.
 
 ## MCP page
 

@@ -83,13 +83,15 @@ type Facets struct {
 // SearchFacets counts, over the rows a query matches, the values of each
 // facet — the "what did we find" summary beside the result list. scopeID nil
 // means every company.
-func (s *Store) SearchFacets(ctx context.Context, scopeID *uuid.UUID, whereSQL string, args []any) (Facets, error) {
+func (s *Store) SearchFacets(ctx context.Context, scopeID *uuid.UUID, viewer uuid.UUID, whereSQL string, args []any) (Facets, error) {
 	var f Facets
 	scopePh := len(args) + 1
-	full := append(append([]any{}, args...), scopeID)
+	viewerPh := len(args) + 2
+	full := append(append([]any{}, args...), scopeID, viewer)
 	matched := `WITH m AS (
 		SELECT DISTINCT sv.id AS service_id, so.host, so.product, so.version, so.http` + searchView + `
 		WHERE ($` + itoa(scopePh) + `::uuid IS NULL OR ip.scope_id = $` + itoa(scopePh) + `)
+		  AND scope_visible(ip.scope_id, $` + itoa(viewerPh) + `)
 		  AND (` + whereSQL + `)
 	)`
 	if err := s.Pool.QueryRow(ctx, matched+` SELECT count(DISTINCT service_id), count(*) FILTER (WHERE host <> '') FROM m`, full...).
@@ -135,13 +137,14 @@ func (s *Store) SearchFacets(ctx context.Context, scopeID *uuid.UUID, whereSQL s
 // SearchGlobal runs a compiled WHERE fragment across every company's inventory
 // (or a single company when scopeID is non-nil), returning the owning company
 // with each row. Powers the Shodan-style global search (Phase 14).
-func (s *Store) SearchGlobal(ctx context.Context, scopeID *uuid.UUID, whereSQL string, args []any, limit int) ([]SearchResult, error) {
+func (s *Store) SearchGlobal(ctx context.Context, scopeID *uuid.UUID, viewer uuid.UUID, whereSQL string, args []any, limit int) ([]SearchResult, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 500
 	}
 	scopePh := len(args) + 1
 	limitPh := len(args) + 2
-	full := append(append([]any{}, args...), scopeID, limit)
+	viewerPh := len(args) + 3
+	full := append(append([]any{}, args...), scopeID, limit, viewer)
 
 	q := `
 		SELECT DISTINCT sv.id, ip.id, sc.id, sc.name, host(ip.addr), sv.port, so.host, so.product, so.version,
@@ -149,6 +152,7 @@ func (s *Store) SearchGlobal(ctx context.Context, scopeID *uuid.UUID, whereSQL s
 		       COALESCE(NULLIF(so.host,''), (SELECT d.name FROM domain_ip di JOIN domain d ON d.id=di.domain_id
 		        WHERE di.ip_id=ip.id ORDER BY d.name LIMIT 1))` + searchView + `
 		WHERE ($` + itoa(scopePh) + `::uuid IS NULL OR ip.scope_id = $` + itoa(scopePh) + `)
+		  AND scope_visible(ip.scope_id, $` + itoa(viewerPh) + `)
 		  AND (` + whereSQL + `)
 		ORDER BY sc.name, host(ip.addr), sv.port, so.host
 		LIMIT $` + itoa(limitPh)

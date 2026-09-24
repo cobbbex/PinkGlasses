@@ -10,6 +10,11 @@ export interface ScopeFootprint {
 }
 export interface Scope {
   id: string; name: string; created_at: string;
+  /** "shared": every account sees it. "private": its owner and the accounts it is shared with. */
+  visibility?: "shared" | "private";
+  owner_id?: string | null; owner?: string;
+  /** How many accounts a private company is shared with. */
+  members?: number;
   /** Who created it. Free text until real accounts exist; "local" by default. */
   created_by?: string;
   /** The exit schedules use and the launch dialog pre-selects. "" until chosen. */
@@ -32,6 +37,10 @@ export interface Schedule {
 }
 /** What a signed-in person may do. Ordered: admin > operator > viewer. */
 export type Role = "admin" | "operator" | "viewer";
+export interface ScopeAccess {
+  visibility: "shared" | "private"; owner?: string; owner_id?: string | null; can_manage: boolean;
+  members: { user_id: string; username: string; display_name: string; role: Role; added_by: string; created_at: string }[];
+}
 export interface User {
   id: string; username: string; display_name: string; role: Role;
   disabled: boolean; created_at: string; last_login_at?: string | null;
@@ -360,7 +369,14 @@ export const api = {
   // not a permission: without verified identity anyone can ask for all of them.
   scopes: (mine = false) =>
     req<Scope[] | null>("/scopes" + (mine ? "?mine=true" : "")).then((x) => x ?? []),
-  createScope: (name: string) => req<Scope>("/scopes", { method: "POST", body: JSON.stringify({ name }) }),
+  createScope: (name: string, isPrivate = false) =>
+    req<Scope>("/scopes", { method: "POST", body: JSON.stringify({ name, private: isPrivate }) }),
+  scopeAccess: (s: string) => req<ScopeAccess>(`/scopes/${s}/access`),
+  shareScope: (s: string, username: string) =>
+    req<ScopeAccess>(`/scopes/${s}/members`, { method: "POST", body: JSON.stringify({ username }) }),
+  unshareScope: (s: string, userID: string) => req(`/scopes/${s}/members/${userID}`, { method: "DELETE" }),
+  setScopeVisibility: (s: string, visibility: "shared" | "private") =>
+    req<Scope>(`/scopes/${s}`, { method: "PATCH", body: JSON.stringify({ visibility }) }),
   renameScope: (s: string, name: string) => req<Scope>(`/scopes/${s}`, { method: "PATCH", body: JSON.stringify({ name }) }),
   scopeFootprint: (s: string) => req<ScopeFootprint>(`/scopes/${s}/footprint`),
   deleteScope: (s: string) =>

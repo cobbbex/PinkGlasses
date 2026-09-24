@@ -120,7 +120,7 @@ func (s *Server) searchGlobal(w http.ResponseWriter, r *http.Request) {
 			scopeID = &id
 		}
 	}
-	results, err := s.st.SearchGlobal(r.Context(), scopeID, compiled.Where, compiled.Args, 500)
+	results, err := s.st.SearchGlobal(r.Context(), scopeID, viewerOf(r), compiled.Where, compiled.Args, 500)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -149,7 +149,7 @@ func (s *Server) searchFacets(w http.ResponseWriter, r *http.Request) {
 			scopeID = &id
 		}
 	}
-	facets, err := s.st.SearchFacets(r.Context(), scopeID, compiled.Where, compiled.Args)
+	facets, err := s.st.SearchFacets(r.Context(), scopeID, viewerOf(r), compiled.Where, compiled.Args)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

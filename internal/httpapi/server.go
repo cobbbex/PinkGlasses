@@ -91,6 +91,8 @@ func (s *Server) Routes() http.Handler {
 				v.Get("/scopes/{scopeID}/targets", s.listTargets)
 				v.Get("/scopes/{scopeID}/target-groups", s.listTargetGroups)
 				v.Get("/scopes/{scopeID}/footprint", s.scopeFootprint)
+				// Who a company is shared with; the owner changes it.
+				v.Get("/scopes/{scopeID}/access", s.scopeAccess)
 
 				v.Get("/scan-params", s.listScanParamSpecs)
 				v.Get("/scopes/{scopeID}/scan-profiles", s.listScanProfiles)
@@ -163,6 +165,11 @@ func (s *Server) Routes() http.Handler {
 				o.Patch("/schedules/{scheduleID}", s.patchSchedule)
 				o.Delete("/schedules/{scheduleID}", s.deleteSchedule)
 				o.Patch("/scopes/{scopeID}", s.patchScope)
+				o.Post("/scopes/{scopeID}/members", s.addScopeMember)
+				o.Delete("/scopes/{scopeID}/members/{userID}", s.removeScopeMember)
+				// A private company its owner deletes; a shared one, an
+				// administrator (the handler decides which applies).
+				o.Delete("/scopes/{scopeID}", s.deleteScope)
 
 				o.Post("/scopes/{scopeID}/notifications", s.createChannel)
 				o.Patch("/notifications/{channelID}", s.patchChannel)
@@ -199,7 +206,6 @@ func (s *Server) Routes() http.Handler {
 				// creates containers on the host.
 				a.Post("/workers/enrollment-tokens", s.createEnrollmentToken)
 				// Deleting a company takes its whole inventory and history with it.
-				a.Delete("/scopes/{scopeID}", s.deleteScope)
 				a.Post("/workers/{workerID}/{action}", s.workerAction)
 				a.Delete("/workers/{workerID}", s.deleteWorker)
 			})
@@ -302,11 +308,29 @@ func roled(r chi.Router, role string, s *Server) roleRouter {
 func (rr roleRouter) rec(method, pattern string) {
 	rr.s.routes = append(rr.s.routes, RouteInfo{Method: method, Path: "/api/v1" + pattern, Role: rr.role})
 }
-func (rr roleRouter) Get(p string, h http.HandlerFunc)    { rr.rec("GET", p); rr.r.Get(p, h) }
-func (rr roleRouter) Post(p string, h http.HandlerFunc)   { rr.rec("POST", p); rr.r.Post(p, h) }
-func (rr roleRouter) Put(p string, h http.HandlerFunc)    { rr.rec("PUT", p); rr.r.Put(p, h) }
-func (rr roleRouter) Patch(p string, h http.HandlerFunc)  { rr.rec("PATCH", p); rr.r.Patch(p, h) }
-func (rr roleRouter) Delete(p string, h http.HandlerFunc) { rr.rec("DELETE", p); rr.r.Delete(p, h) }
+
+// Every route is registered through these, so every route that names a
+// company, or anything inside one, is checked for access (access.go).
+func (rr roleRouter) Get(p string, h http.HandlerFunc) {
+	rr.rec("GET", p)
+	rr.r.Get(p, rr.s.guardFor(p, h))
+}
+func (rr roleRouter) Post(p string, h http.HandlerFunc) {
+	rr.rec("POST", p)
+	rr.r.Post(p, rr.s.guardFor(p, h))
+}
+func (rr roleRouter) Put(p string, h http.HandlerFunc) {
+	rr.rec("PUT", p)
+	rr.r.Put(p, rr.s.guardFor(p, h))
+}
+func (rr roleRouter) Patch(p string, h http.HandlerFunc) {
+	rr.rec("PATCH", p)
+	rr.r.Patch(p, rr.s.guardFor(p, h))
+}
+func (rr roleRouter) Delete(p string, h http.HandlerFunc) {
+	rr.rec("DELETE", p)
+	rr.r.Delete(p, rr.s.guardFor(p, h))
+}
 
 // RouteTable returns every route with its role, in registration order. It
 // builds the router on a bare server, which touches no store.

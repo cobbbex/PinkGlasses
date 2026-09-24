@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"github.com/benlik386/pinkglasses/internal/auth"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -17,17 +18,27 @@ import (
 func (s *Server) createScope(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name string `json:"name"`
+		// Private: only the creator, and the accounts they share it with.
+		Private bool `json:"private"`
 	}
 	if err := readJSON(r, &in); err != nil || in.Name == "" {
 		writeErr(w, http.StatusBadRequest, "name required")
 		return
 	}
-	sc, err := s.st.CreateScope(r.Context(), in.Name, actor(r), userIDOf(r))
+	vis := "shared"
+	if in.Private {
+		if userIDOf(r) == nil {
+			writeErr(w, http.StatusBadRequest, "a private company needs an account to belong to")
+			return
+		}
+		vis = "private"
+	}
+	sc, err := s.st.CreateScope(r.Context(), in.Name, actor(r), userIDOf(r), vis)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.auditReq(r, "scope.create", sc.ID.String(), map[string]any{"name": sc.Name})
+	s.auditReq(r, "scope.create", sc.ID.String(), map[string]any{"name": sc.Name, "visibility": sc.Visibility})
 	writeJSON(w, http.StatusCreated, sc)
 }
 
@@ -61,6 +72,20 @@ func (s *Server) deleteScope(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "bad scope id")
 		return
+	}
+	// A shared company is everyone's, so deleting it is an administrator's
+	// call; a private one is its owner's (or an administrator's once the
+	// owner's account is gone).
+	if sc, err := s.st.GetScope(r.Context(), scopeID); err == nil {
+		if sc.Visibility == "private" {
+			if ok, _ := s.canManageAccess(r, scopeID); !ok {
+				writeErr(w, http.StatusForbidden, "only the owner of a private company can delete it")
+				return
+			}
+		} else if currentUser(r).Role != auth.RoleAdmin {
+			writeErr(w, http.StatusForbidden, "deleting a shared company needs the admin role")
+			return
+		}
 	}
 	f, ok, err := s.st.ScopeFootprint(r.Context(), scopeID)
 	if err != nil {
@@ -113,7 +138,7 @@ func (s *Server) listScopes(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("mine") == "true" {
 		owner = actor(r)
 	}
-	list, err := s.st.ListScopes(r.Context(), owner)
+	list, err := s.st.ListScopes(r.Context(), owner, viewerOf(r))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
