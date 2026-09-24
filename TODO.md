@@ -1005,3 +1005,31 @@ Asked 2026-09-23: who ran the scan. scan_run records started_by (name, kept afte
 account changes), started_by_user_id and started_via (session, token, proxy, schedule —
 a scheduled run is its schedule's creator). Migration 00036 backfills from the audit log's
 run.create/run.rerun and from schedules. The Runs table has a "By" column.
+
+## Phase 26 — Operations, quality and reporting (agreed 2026-09-24)
+
+Order of work: what protects the data and speeds diagnosis first.
+
+- [ ] 26.1 **Fleet death evidence.** Before a failed fleet is torn down, record the VPN gateway's
+      and workers' exit codes, OOM-killed flag and last log lines on the run's fleet record, and
+      show them in the run view.
+- [ ] 26.2 **Health page (admin).** Gateway, scheduler, provisioner, Postgres, object storage;
+      each worker's heartbeat age; queue length by stage; lease expiries in the last 24 h.
+- [ ] 26.3 **Backups.** A scheduled `pg_dump` plus the artifact bucket to a configurable
+      location, retention, and a documented restore.
+- [ ] 26.4 **Versioned releases.** The running version in the UI and the API; release notes that
+      say when a redeploy needs a migration or a browser reload; a first tag.
+- [ ] 26.5 **HTTPS in the default deployment.** Optional Caddy service with automatic
+      certificates in front of the api, `/mcp` and SSE unbuffered.
+- [ ] 26.6 **Findings with real severity.** Expired and expiring certificates, exposed admin
+      panels, default pages, outdated server versions, services that newly appeared.
+- [ ] 26.7 **Resolver health check.** Test the resolver list regularly; drop resolvers that lie
+      or time out, so brute-force false positives stop at the source.
+- [ ] 26.8 **Alerts that matter.** New open port, new subdomain, certificate expiring within 14
+      days, with a daily digest.
+- [ ] 26.9 **Reports.** Per-company HTML report (printable to PDF) of the current attack
+      surface and what changed over a period.
+- [ ] 26.10 **Column choice and fit-to-screen on every table** — Findings, Search, Runs — as on
+      Hosts.
+- [ ] 26.11 **End-to-end test in CI.** Start the stack in compose, scan a local test target,
+      assert the run completes with the expected services.
