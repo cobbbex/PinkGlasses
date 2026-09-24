@@ -119,6 +119,12 @@ export interface RunFleet {
   run_id: string; workers: number; workers_auto?: boolean; status: "requested" | "up" | "failed" | "torn_down";
   vpn_config_id?: string | null; error?: string | null; egress_ip?: string | null;
   created_at: string; ready_at?: string | null;
+  /** A failed fleet's containers as they were just before removal. */
+  evidence?: FleetContainer[] | null;
+}
+export interface FleetContainer {
+  name: string; role: string; state: string; health?: string; exit_code: number;
+  oom_killed: boolean; error?: string; finished_at?: string; logs?: string;
 }
 /** One run's verdict on a finding: it looked, and did or did not see it. */
 export interface FindingRun {

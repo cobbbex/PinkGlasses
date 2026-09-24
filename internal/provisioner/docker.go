@@ -315,14 +315,23 @@ type Inspected struct {
 	Health   string
 	EgressIP string
 	LastLog  string
+	// For a container that has stopped: how, and when.
+	ExitCode   int
+	OOMKilled  bool
+	Error      string
+	FinishedAt string
 }
 
 // Inspect reads a container's state and health.
 func (d *Docker) Inspect(ctx context.Context, id string) (Inspected, error) {
 	var raw struct {
 		State struct {
-			Status string `json:"Status"`
-			Health *struct {
+			Status     string `json:"Status"`
+			ExitCode   int    `json:"ExitCode"`
+			OOMKilled  bool   `json:"OOMKilled"`
+			Error      string `json:"Error"`
+			FinishedAt string `json:"FinishedAt"`
+			Health     *struct {
 				Status string `json:"Status"`
 				Log    []struct {
 					Output string `json:"Output"`
@@ -333,7 +342,11 @@ func (d *Docker) Inspect(ctx context.Context, id string) (Inspected, error) {
 	if err := d.do(ctx, http.MethodGet, "/containers/"+id+"/json", nil, &raw); err != nil {
 		return Inspected{}, err
 	}
-	out := Inspected{State: raw.State.Status}
+	out := Inspected{State: raw.State.Status, ExitCode: raw.State.ExitCode,
+		OOMKilled: raw.State.OOMKilled, Error: raw.State.Error}
+	if !strings.HasPrefix(raw.State.FinishedAt, "0001-") {
+		out.FinishedAt = raw.State.FinishedAt
+	}
 	if raw.State.Health != nil {
 		out.Health = strings.ToLower(raw.State.Health.Status)
 		if n := len(raw.State.Health.Log); n > 0 {

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -27,15 +28,28 @@ type RunFleet struct {
 	EgressIP    *string    `json:"egress_ip,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	ReadyAt     *time.Time `json:"ready_at,omitempty"`
+	// Evidence is what the fleet's containers looked like just before a
+	// failed fleet was removed: state, exit code, OOM kill, last log lines.
+	Evidence json.RawMessage `json:"evidence,omitempty"`
 }
 
-const fleetCols = `run_id, pool_id, workers, enroll_token, vpn_config_id, status, error, egress_ip, created_at, ready_at, workers_auto`
+const fleetCols = `run_id, pool_id, workers, enroll_token, vpn_config_id, status, error, egress_ip, created_at, ready_at, workers_auto, evidence`
 
 func scanFleet(row interface{ Scan(...any) error }) (RunFleet, error) {
 	var f RunFleet
+	var ev []byte
 	err := row.Scan(&f.RunID, &f.PoolID, &f.Workers, &f.EnrollToken, &f.VPNConfigID,
-		&f.Status, &f.Error, &f.EgressIP, &f.CreatedAt, &f.ReadyAt, &f.WorkersAuto)
+		&f.Status, &f.Error, &f.EgressIP, &f.CreatedAt, &f.ReadyAt, &f.WorkersAuto, &ev)
+	if len(ev) > 0 {
+		f.Evidence = ev
+	}
 	return f, err
+}
+
+// SetFleetEvidence keeps what a failed fleet's containers looked like.
+func (s *Store) SetFleetEvidence(ctx context.Context, runID uuid.UUID, evidence []byte) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE run_fleet SET evidence=$2 WHERE run_id=$1`, runID, evidence)
+	return err
 }
 
 // CreateRunPool makes a pool that exists only for one run, so the run's workers

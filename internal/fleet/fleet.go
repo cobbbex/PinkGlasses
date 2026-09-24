@@ -167,7 +167,17 @@ func (m *Manager) build(ctx context.Context, f store.RunFleet) bool {
 // forever waiting for them: its tasks are routed to a pool that will never have
 // a member, so nothing else can pick them up.
 func (m *Manager) fail(ctx context.Context, f store.RunFleet, reason string) {
-	slog.Error("run fleet could not be built", "run", f.RunID, "reason", reason)
+	// Ask the containers what happened before they are removed: teardown
+	// takes their state and logs with them, and "stopped reporting" alone
+	// does not say whether the tunnel died, a worker ran out of memory, or
+	// the control plane was away.
+	if cause, raw := m.evidence(ctx, f.RunID); raw != nil {
+		_ = m.st.SetFleetEvidence(ctx, f.RunID, raw)
+		if cause != "" {
+			reason += ". What the containers showed: " + cause
+		}
+	}
+	slog.Error("run fleet failed", "run", f.RunID, "reason", reason)
 	_ = m.st.SetFleetStatus(ctx, f.RunID, "failed", &reason, nil)
 	_ = m.st.CancelRunTasks(ctx, f.RunID)
 	_ = m.st.SetRunStatus(ctx, f.RunID, domain.RunFailed)
@@ -248,6 +258,81 @@ func (m *Manager) remove(ctx context.Context, f store.RunFleet) {
 	}
 	_ = m.st.MarkFleetTornDown(ctx, f.RunID)
 	slog.Info("run fleet torn down", "run", f.RunID, "worker_rows", n)
+}
+
+// containerEvidence mirrors provisioner.ContainerEvidence.
+type containerEvidence struct {
+	Name       string `json:"name"`
+	Role       string `json:"role"`
+	State      string `json:"state"`
+	Health     string `json:"health,omitempty"`
+	ExitCode   int    `json:"exit_code"`
+	OOMKilled  bool   `json:"oom_killed"`
+	Error      string `json:"error,omitempty"`
+	FinishedAt string `json:"finished_at,omitempty"`
+	Logs       string `json:"logs,omitempty"`
+}
+
+// evidence asks the provisioner about a run's containers and returns a
+// one-line cause for the run's error, plus the full record to keep.
+func (m *Manager) evidence(ctx context.Context, runID uuid.UUID) (string, []byte) {
+	var out struct {
+		Containers []containerEvidence `json:"containers"`
+	}
+	if err := m.call(ctx, "/v1/fleet/inspect", map[string]any{"run_id": runID.String()}, &out); err != nil {
+		slog.Warn("could not collect a failed fleet's evidence", "run", runID, "err", err)
+		return "", nil
+	}
+	raw, _ := json.Marshal(out.Containers)
+	return summarizeEvidence(out.Containers), raw
+}
+
+// summarizeEvidence says, in one line, what the failed fleet's containers
+// point at: the ones that stopped, how, and the gateway's last words.
+func summarizeEvidence(cs []containerEvidence) string {
+	if len(cs) == 0 {
+		return "no containers were left — they were removed outside the app (docker prune, a daemon restart)"
+	}
+	var parts []string
+	for _, c := range cs {
+		role := "worker"
+		if c.Role == "vpn-gateway" {
+			role = "VPN gateway"
+		}
+		switch {
+		case c.OOMKilled:
+			parts = append(parts, fmt.Sprintf("%s %s was killed for running out of memory", role, c.Name))
+		case c.State == "exited" || c.State == "dead":
+			how := fmt.Sprintf("exited with code %d", c.ExitCode)
+			switch c.ExitCode {
+			case 137:
+				how = "was killed from outside (exit 137: docker kill, a daemon restart, or the host shutting down)"
+			case 143:
+				how = "was stopped (exit 143: docker stop or compose down)"
+			}
+			if line := lastLine(c.Logs); line != "" && c.ExitCode != 137 && c.ExitCode != 143 {
+				how += " (" + line + ")"
+			}
+			parts = append(parts, fmt.Sprintf("%s %s %s", role, c.Name, how))
+		case c.Role == "vpn-gateway" && c.Health == "unhealthy":
+			parts = append(parts, fmt.Sprintf("VPN gateway %s is running but unhealthy: its tunnel no longer carries traffic", c.Name))
+		}
+	}
+	if len(parts) == 0 {
+		return "every container was still running — the workers could not reach the control plane (was it restarted or redeployed?)"
+	}
+	return strings.Join(parts, "; ")
+}
+
+func lastLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
+		s = s[i+1:]
+	}
+	if len(s) > 200 {
+		s = s[:200] + "…"
+	}
+	return s
 }
 
 // SweepOrphans removes containers whose run no longer wants them — what a

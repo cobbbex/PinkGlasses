@@ -47,9 +47,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/v1/scale", s.auth(s.scale))     // POST {count}
 	mux.HandleFunc("/v1/remove", s.auth(s.remove))   // POST {name}
 	// A run's own containers: created together, destroyed together.
-	mux.HandleFunc("/v1/fleet/create", s.auth(s.createFleet)) // POST FleetRequest
-	mux.HandleFunc("/v1/fleet/remove", s.auth(s.removeFleet)) // POST {run_id}
-	mux.HandleFunc("/v1/fleet/orphans", s.auth(s.orphans))    // GET
+	mux.HandleFunc("/v1/fleet/create", s.auth(s.createFleet))   // POST FleetRequest
+	mux.HandleFunc("/v1/fleet/remove", s.auth(s.removeFleet))   // POST {run_id}
+	mux.HandleFunc("/v1/fleet/orphans", s.auth(s.orphans))      // GET
+	mux.HandleFunc("/v1/fleet/inspect", s.auth(s.inspectFleet)) // POST {run_id}
 	return mux
 }
 

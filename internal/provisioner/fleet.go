@@ -193,6 +193,56 @@ func (s *Server) removeFleetContainers(ctx context.Context, runID string) int {
 	return n
 }
 
+// ContainerEvidence is what one of a run's containers looked like when asked:
+// the record kept of a failed fleet once its containers are gone.
+type ContainerEvidence struct {
+	Name       string `json:"name"`
+	Role       string `json:"role"`
+	State      string `json:"state"`
+	Health     string `json:"health,omitempty"`
+	ExitCode   int    `json:"exit_code"`
+	OOMKilled  bool   `json:"oom_killed"`
+	Error      string `json:"error,omitempty"`
+	FinishedAt string `json:"finished_at,omitempty"`
+	Logs       string `json:"logs,omitempty"`
+}
+
+// inspectFleet reports every container of a run with its state and last log
+// lines. The fleet manager asks just before it removes a failed fleet, so the
+// reason survives the containers.
+func (s *Server) inspectFleet(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.RunID == "" {
+		http.Error(w, "run_id required", http.StatusBadRequest)
+		return
+	}
+	list, err := s.d.List(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	out := []ContainerEvidence{}
+	for _, c := range list {
+		if c.RunID() != in.RunID {
+			continue
+		}
+		name := c.ID[:12]
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+		ev := ContainerEvidence{Name: name, Role: c.Role(), State: c.State}
+		if d, err := s.d.Inspect(r.Context(), c.ID); err == nil {
+			ev.State, ev.Health, ev.ExitCode, ev.OOMKilled = d.State, d.Health, d.ExitCode, d.OOMKilled
+			ev.Error, ev.FinishedAt = d.Error, d.FinishedAt
+		}
+		ev.Logs = s.d.Logs(r.Context(), c.ID, 25)
+		out = append(out, ev)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"containers": out})
+}
+
 // orphans lists run ids that still have containers, so the scheduler can tell
 // which fleets outlived their run — after a control-plane restart, say.
 func (s *Server) orphans(w http.ResponseWriter, r *http.Request) {

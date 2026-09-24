@@ -1010,7 +1010,7 @@ run.create/run.rerun and from schedules. The Runs table has a "By" column.
 
 Order of work: what protects the data and speeds diagnosis first.
 
-- [ ] 26.1 **Fleet death evidence.** Before a failed fleet is torn down, record the VPN gateway's
+- [x] 26.1 **Fleet death evidence.** Before a failed fleet is torn down, record the VPN gateway's
       and workers' exit codes, OOM-killed flag and last log lines on the run's fleet record, and
       show them in the run view.
 - [ ] 26.2 **Health page (admin).** Gateway, scheduler, provisioner, Postgres, object storage;

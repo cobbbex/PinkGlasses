@@ -734,6 +734,29 @@ function FleetBanner({ runID }: { runID: string }) {
       {f.error && f.status !== "requested" && (
         <div className="mono wrap" style={{ marginTop: 6, fontSize: 12 }}>{f.error}</div>
       )}
+      {f.evidence && f.evidence.length > 0 && (
+        <details style={{ marginTop: 8 }}>
+          <summary className="muted" style={{ cursor: "pointer", fontSize: 12.5 }}>
+            The containers as they were before removal ({f.evidence.length})
+          </summary>
+          {f.evidence.map((c) => (
+            <div key={c.name} style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12.5 }}>
+                <strong className="mono">{c.name}</strong>
+                <span className="muted"> · {c.role === "vpn-gateway" ? "VPN gateway" : "worker"} · {c.state}
+                  {c.health ? ` (${c.health})` : ""}
+                  {c.state !== "running" ? ` · exit code ${c.exit_code}` : ""}
+                  {c.finished_at ? ` · stopped ${new Date(c.finished_at).toLocaleString()}` : ""}</span>
+                {c.oom_killed && <span className="sev-high"> · killed: out of memory</span>}
+              </div>
+              {c.logs && (
+                <pre className="mono" style={{ margin: "4px 0 0", padding: 8, fontSize: 11.5, maxHeight: 220, overflow: "auto",
+                  background: "var(--panel2)", border: "1px solid var(--border)", borderRadius: 6, whiteSpace: "pre-wrap" }}>{c.logs}</pre>
+              )}
+            </div>
+          ))}
+        </details>
+      )}
     </div>
   );
 }
