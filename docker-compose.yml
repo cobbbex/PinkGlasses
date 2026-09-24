@@ -26,7 +26,9 @@ services:
     volumes: [miniodata:/data]
 
   migrate:
-    build: .
+    build:
+      context: .
+      args: {VERSION: "${PINKGLASSES_VERSION:-dev}", COMMIT: "${PINKGLASSES_COMMIT:-}"}
     entrypoint: ["/usr/local/bin/migrate", "up"]
     environment:
       ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
@@ -34,7 +36,9 @@ services:
       postgres: {condition: service_healthy}
 
   api:
-    build: .
+    build:
+      context: .
+      args: {VERSION: "${PINKGLASSES_VERSION:-dev}", COMMIT: "${PINKGLASSES_COMMIT:-}"}
     entrypoint: ["/usr/local/bin/api"]
     environment:
       # Seals VPN configurations at rest. Without it they cannot be stored.
@@ -70,7 +74,9 @@ services:
       migrate: {condition: service_completed_successfully}
 
   gateway:
-    build: .
+    build:
+      context: .
+      args: {VERSION: "${PINKGLASSES_VERSION:-dev}", COMMIT: "${PINKGLASSES_COMMIT:-}"}
     entrypoint: ["/usr/local/bin/gateway"]
     environment:
       # How long a task stays a worker's without a heartbeat naming it
@@ -97,7 +103,9 @@ services:
       migrate: {condition: service_completed_successfully}
 
   scheduler:
-    build: .
+    build:
+      context: .
+      args: {VERSION: "${PINKGLASSES_VERSION:-dev}", COMMIT: "${PINKGLASSES_COMMIT:-}"}
     entrypoint: ["/usr/local/bin/scheduler"]
     environment:
       # Lets the planner scan private addresses; must match the api's setting.
@@ -128,7 +136,9 @@ services:
   # Remove this service if you prefer `docker compose --scale`: the UI falls
   # back to showing that command when the provisioner is not configured.
   provisioner:
-    build: .
+    build:
+      context: .
+      args: {VERSION: "${PINKGLASSES_VERSION:-dev}", COMMIT: "${PINKGLASSES_COMMIT:-}"}
     entrypoint: ["/usr/local/bin/provisioner"]
     environment:
       ASM_PROVISIONER_ADDR: ":8091"
@@ -163,7 +173,10 @@ services:
   # internal ranges. Deliberately NO credential volume: replicas must not share
   # one credential file, and re-enrolling on recreate is cheap.
   worker:
-    build: {context: ., dockerfile: deploy/Dockerfile.worker}
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.worker
+      args: {VERSION: "${PINKGLASSES_VERSION:-dev}", COMMIT: "${PINKGLASSES_COMMIT:-}"}
     cap_add: ["NET_RAW"]
     # The standing worker shares this host with the database and the web app;
     # a brute force or a crawl must not be able to starve them.

@@ -1017,7 +1017,7 @@ Order of work: what protects the data and speeds diagnosis first.
       each worker's heartbeat age; queue length by stage; lease expiries in the last 24 h.
 - [x] 26.3 **Backups.** A scheduled `pg_dump` plus the artifact bucket to a configurable
       location, retention, and a documented restore.
-- [ ] 26.4 **Versioned releases.** The running version in the UI and the API; release notes that
+- [x] 26.4 **Versioned releases.** The running version in the UI and the API; release notes that
       say when a redeploy needs a migration or a browser reload; a first tag.
 - [ ] 26.5 **HTTPS in the default deployment.** Optional Caddy service with automatic
       certificates in front of the api, `/mcp` and SSE unbuffered.

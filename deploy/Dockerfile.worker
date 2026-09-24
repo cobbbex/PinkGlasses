@@ -40,8 +40,9 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-ARG VERSION=0.1.0
-RUN CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION}" -o /out/worker ./cmd/worker
+ARG VERSION=dev
+ARG COMMIT=
+RUN CGO_ENABLED=0 go build -ldflags "-s -w -X github.com/benlik386/pinkglasses/internal/version.Version=${VERSION} -X github.com/benlik386/pinkglasses/internal/version.Commit=${COMMIT}" -o /out/worker ./cmd/worker
 # The VPN gateway runs from the same image: one image to build and pull, and
 # the gateway shares the tunnel code the worker already carries. Which of the
 # two a container is comes from its entrypoint, not from a separate build.

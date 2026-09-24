@@ -251,6 +251,7 @@ function Shell({ me, defaultPw, onSignedOut }: {
 
       <main className="main">
         {defaultPw && <DefaultPasswordBanner />}
+        <NewVersionBanner />
         <Routes>
           {/* A host page names its own scope, so it renders before one is
               picked — otherwise opening a host in a new tab would land on the
@@ -350,6 +351,8 @@ function AccountMenu({ me, collapsed, onSignedOut }: {
   me: User; collapsed: boolean; onSignedOut: () => void;
 }) {
   const toast = useToast();
+  const [version, setVersion] = useState("");
+  useEffect(() => { api.authStatus().then((s) => setVersion(s.version ?? "")).catch(() => {}); }, []);
   const [pwOpen, setPwOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -394,6 +397,7 @@ function AccountMenu({ me, collapsed, onSignedOut }: {
               <button className="ghost sm" onClick={() => setPwOpen(true)}>Change password</button>}
             <button className="ghost sm" onClick={signOut}>Sign out</button>
           </div>
+          {version && <div className="muted mono" style={{ fontSize: 10.5, marginTop: 8 }} title="The version this install runs">PinkGlasses {version}</div>}
         </>
       )}
 
@@ -424,6 +428,35 @@ function AccountMenu({ me, collapsed, onSignedOut }: {
           account over. Every other session is signed out.
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * Notices a redeploy while this tab is open: the version the api reports is
+ * checked every few minutes against the one this page loaded with, and a
+ * change offers a reload — the page is still running the previous build.
+ */
+function NewVersionBanner() {
+  const [loaded, setLoaded] = useState<string | null>(null);
+  const [now, setNow] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    const check = () => api.authStatus().then((s) => {
+      if (!live || !s.version) return;
+      setLoaded((v) => v ?? s.version!);
+      setNow(s.version!);
+    }).catch(() => {});
+    check();
+    const iv = setInterval(check, 5 * 60 * 1000);
+    return () => { live = false; clearInterval(iv); };
+  }, []);
+  if (!loaded || !now || loaded === now) return null;
+  return (
+    <div role="status" style={{ border: "1px solid var(--accent)", borderRadius: 8, padding: "10px 14px",
+      marginBottom: 14, fontSize: 13, display: "flex", alignItems: "center", gap: 12 }}>
+      <span className="grow">A new version of PinkGlasses was deployed (<span className="mono">{now}</span>); this page is still running <span className="mono">{loaded}</span>.</span>
+      <button className="sm" onClick={() => window.location.reload()}>Reload</button>
     </div>
   );
 }

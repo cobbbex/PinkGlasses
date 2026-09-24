@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/benlik386/pinkglasses/internal/version"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -16,9 +17,6 @@ import (
 	"github.com/benlik386/pinkglasses/internal/config"
 	"github.com/benlik386/pinkglasses/internal/scanner"
 )
-
-// version is stamped at build time (-ldflags "-X main.version=...").
-var version = "0.1.0-dev"
 
 // setupLogging honours ASM_LOG_LEVEL (debug|info|warn|error). Scan runs are
 // long and mostly opaque, so the default is info — every tool invocation and
@@ -61,7 +59,7 @@ func main() {
 		Name:           cfg.Name,
 		EnrollToken:    os.Getenv("ASM_ENROLL_TOKEN"),
 		MaxConcurrency: cfg.MaxConcurrency,
-		Version:        version,
+		Version:        version.Version,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -70,7 +68,7 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	go func() { <-stop; cancel() }()
 
-	slog.Info("worker starting", "gateway", cfg.GatewayURL, "version", version)
+	slog.Info("worker starting", "gateway", cfg.GatewayURL, "version", version.Version)
 	if err := agent.Run(ctx); err != nil && ctx.Err() == nil {
 		slog.Error("worker exited", "err", err)
 		os.Exit(1)

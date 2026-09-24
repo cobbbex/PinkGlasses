@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"github.com/benlik386/pinkglasses/internal/version"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -27,7 +28,7 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	out := map[string]any{"setup_required": n == 0}
+	out := map[string]any{"setup_required": n == 0, "version": version.Version}
 	if id, ok := s.authenticate(r); ok {
 		out["user"] = map[string]any{
 			"id": id.UserID, "username": id.Username, "role": id.Role, "via": id.Via,

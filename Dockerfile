@@ -28,13 +28,15 @@ RUN apk add --no-cache git
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-ARG VERSION=0.1.0
-RUN CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/api       ./cmd/api      && \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/gateway   ./cmd/gateway  && \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/scheduler ./cmd/scheduler && \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/migrate   ./cmd/migrate && \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/provisioner ./cmd/provisioner && \
-    CGO_ENABLED=0 go build -ldflags "-s -w" -o /out/mcp       ./cmd/mcp
+ARG VERSION=dev
+ARG COMMIT=
+ENV LDFLAGS="-s -w -X github.com/benlik386/pinkglasses/internal/version.Version=${VERSION} -X github.com/benlik386/pinkglasses/internal/version.Commit=${COMMIT}"
+RUN CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/api       ./cmd/api      && \
+    CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/gateway   ./cmd/gateway  && \
+    CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/scheduler ./cmd/scheduler && \
+    CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/migrate   ./cmd/migrate && \
+    CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/provisioner ./cmd/provisioner && \
+    CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/mcp       ./cmd/mcp
 
 # --- runtime ---
 FROM alpine:3.20

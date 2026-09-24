@@ -43,6 +43,8 @@ export interface AuthStatus {
   /** True on a fresh install: there are no accounts yet. */
   setup_required: boolean;
   user?: { id: string; username: string; role: Role; via: string };
+  /** The version the api was built from: a release tag, main-<commit>, or dev. */
+  version?: string;
 }
 /** A credential for automation. The secret is returned once, at creation. */
 export interface ApiToken {

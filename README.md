@@ -243,6 +243,12 @@ once per image. The packages link to this repository through the image source la
 
 ## Upgrade it
 
+Releases are tagged `vX.Y.Z`; [CHANGELOG.md](CHANGELOG.md) and the GitHub release say
+what changed and **what an upgrade needs** beyond the commands below. The version an
+install runs is at the foot of the sidebar and on the System page, and a tab left open
+across a redeploy says so and offers a reload. A local build reports `dev` unless you set
+`PINKGLASSES_VERSION` (and optionally `PINKGLASSES_COMMIT`) in `.env`.
+
 ```bash
 git pull && docker compose up --build -d        # built locally
 docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull && \
