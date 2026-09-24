@@ -55,16 +55,14 @@ export default function App() {
 
   async function refreshAuth() {
     try {
+      // Both answers before either is shown: setting the status first left
+      // a moment with "checked, but no account yet", which drew the sign-in
+      // page for a frame on every reload of a signed-in tab.
       const st = await api.authStatus();
+      const m = st.user ? await api.me() : null;
+      setMe(m ? m.user : null);
+      setDefaultPw(!!m?.must_change_password);
       setStatus(st);
-      if (st.user) {
-        const m = await api.me();
-        setMe(m.user);
-        setDefaultPw(!!m.must_change_password);
-      } else {
-        setMe(null);
-        setDefaultPw(false);
-      }
     } catch {
       setStatus({ setup_required: false });
       setMe(null);
@@ -82,8 +80,10 @@ export default function App() {
     return () => window.removeEventListener(UNAUTHENTICATED, onLost);
   }, []);
 
+  // Nothing until the session is known: a "Loading…" that flashes for a
+  // few milliseconds is as distracting as the sign-in page was.
   if (!status) {
-    return <div className="empty" style={{ marginTop: 80 }}>Loading…</div>;
+    return null;
   }
   if (!me) {
     return <Auth status={status} onSignedIn={refreshAuth} />;
