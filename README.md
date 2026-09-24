@@ -883,6 +883,37 @@ ASM_LOG_LEVEL=debug docker compose up -d worker
 `info` (the default) is every tool invocation and stage summary; `warn` and `error`
 narrow it further.
 
+### Backups
+
+The **backup** service writes a set every `ASM_BACKUP_EVERY_HOURS` (default 24) into
+`ASM_BACKUP_DIR` on the host (default `./backups`) and keeps `ASM_BACKUP_KEEP_DAYS` (default
+14) of them:
+
+| File | What it holds |
+|---|---|
+| `pg-<timestamp>.dump` | the whole database — companies, targets, inventory, runs, findings, accounts, sealed VPN configurations — as `pg_dump -Fc` |
+| `artifacts-<timestamp>.tgz` | the object store: screenshots, raw tool output, uploaded wordlists |
+
+Each finished set is reported to the System page, which turns amber when one is overdue
+and red when two are, or the last one failed. Take one now with
+`docker compose run --rm backup once`. Keep the directory on another disk, or copy it off
+the machine: a backup on the same disk goes with it. Keep `ASM_SECRET_KEY` somewhere safe
+too — without it the restored VPN configurations cannot be opened.
+
+**Restoring** onto a fresh install (the same or a newer version):
+
+```bash
+docker compose down
+docker volume rm scan_tool_pgdata scan_tool_miniodata        # the data being replaced
+docker compose up -d postgres minio && sleep 10
+docker compose exec -T postgres pg_restore -U asm -d asm --clean --if-exists --no-owner \
+  < backups/pg-<timestamp>.dump
+docker compose stop minio
+docker run --rm -v scan_tool_miniodata:/data -v "$PWD/backups:/b" alpine \
+  sh -c 'cd /data && tar -xzf /b/artifacts-<timestamp>.tgz'
+docker compose up -d                                          # migrate brings the schema forward
+```
+
 ### The System page
 
 Administrators have **System** in the sidebar: each service of the install (api and its

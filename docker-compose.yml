@@ -242,6 +242,26 @@ services:
       - workerspool:/var/cache/asm/spool
     depends_on: [gateway]
 
+  # Scheduled backups of the database and the artifact store into
+  # ASM_BACKUP_DIR (default ./backups) on the host. See README "Backups".
+  backup:
+    image: postgres:16-alpine
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: asm
+      PGPASSWORD: asm
+      PGDATABASE: asm
+      ASM_BACKUP_EVERY_HOURS: "${ASM_BACKUP_EVERY_HOURS:-24}"
+      ASM_BACKUP_KEEP_DAYS: "${ASM_BACKUP_KEEP_DAYS:-14}"
+    volumes:
+      - ./deploy/backup/backup.sh:/backup.sh:ro
+      - miniodata:/minio:ro
+      - "${ASM_BACKUP_DIR:-./backups}:/backups"
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: unless-stopped
+
 # Volume names are pinned to what they were before the project was renamed.
 # Compose derives volume names from the project, so without this the rename
 # would silently start against empty volumes and leave the existing database,

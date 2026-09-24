@@ -1015,7 +1015,7 @@ Order of work: what protects the data and speeds diagnosis first.
       show them in the run view.
 - [x] 26.2 **Health page (admin).** Gateway, scheduler, provisioner, Postgres, object storage;
       each worker's heartbeat age; queue length by stage; lease expiries in the last 24 h.
-- [ ] 26.3 **Backups.** A scheduled `pg_dump` plus the artifact bucket to a configurable
+- [x] 26.3 **Backups.** A scheduled `pg_dump` plus the artifact bucket to a configurable
       location, retention, and a documented restore.
 - [ ] 26.4 **Versioned releases.** The running version in the UI and the API; release notes that
       say when a redeploy needs a migration or a browser reload; a first tag.

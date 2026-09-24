@@ -31,3 +31,4 @@ credential
 /migrate
 /pwhash
 /openapi
+/backups/

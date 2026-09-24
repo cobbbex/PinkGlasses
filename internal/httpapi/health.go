@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/benlik386/pinkglasses/internal/version"
 	"net/http"
 	"os"
@@ -62,6 +63,39 @@ func (s *Server) systemHealth(w http.ResponseWriter, r *http.Request) {
 				Detail: "last heartbeat " + age.Round(time.Second).String() + " ago",
 				Extra:  map[string]any{"detail": b.Detail}})
 		}
+	}
+
+	// Backups: the backup service reports each finished set, with how often
+	// it runs; overdue by half an interval is worth a look, by two is down.
+	if b, ok := beats["backup"]; !ok {
+		comps = append(comps, component{Name: "backups", Status: "off",
+			Detail: "no backup has run — the backup service is not running (docker compose up -d backup)"})
+	} else {
+		var d struct {
+			Status     string  `json:"status"`
+			Detail     string  `json:"detail"`
+			EveryHours float64 `json:"every_hours"`
+		}
+		_ = json.Unmarshal(b.Detail, &d)
+		if d.EveryHours <= 0 {
+			d.EveryHours = 24
+		}
+		every := time.Duration(d.EveryHours * float64(time.Hour))
+		age := time.Since(b.LastSeen)
+		st := "ok"
+		switch {
+		case d.Status == "failed":
+			st = "down"
+		case age > 2*every:
+			st = "down"
+		case age > every+every/2:
+			st = "degraded"
+		}
+		msg := "last set " + age.Round(time.Minute).String() + " ago: " + d.Detail
+		if d.Status == "failed" {
+			msg = "the last backup failed " + age.Round(time.Minute).String() + " ago: " + d.Detail
+		}
+		comps = append(comps, component{Name: "backups", Status: st, Detail: msg})
 	}
 
 	// Provisioner: its own health endpoint, when this install has one.
