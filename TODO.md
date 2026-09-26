@@ -1041,3 +1041,20 @@ schedules, channels, findings, hosts, services; 404 when not visible), by the co
 global search and the fleet list. Routes: GET /scopes/{id}/access, POST .../members {username},
 DELETE .../members/{userID}, PATCH /scopes/{id} {visibility}; POST /scopes {private}. The
 owner deletes a private company, an admin a shared one. Tokens and MCP act as their account.
+
+## Phase 27 — Many clients scanning at once (agreed 2026-09-26)
+
+Background in the local, git-ignored SCALING-NOTES.md.
+
+- [ ] 27.1 **Fleet registration token issued when the workers are built**, not when the
+      run starts — a run queued behind the fleet ceiling for over 30 minutes gets its
+      workers refused with 401. (Open: not done in this session.)
+- [ ] 27.2 **More capacity by default:** more run slots (`ASM_MAX_RUN_FLEETS`) and
+      several standing workers for discovery (`ASM_STANDING_WORKERS`).
+- [ ] 27.3 **Fair across companies:** the queue rotates across companies by tasks in
+      flight, and each company has a cap on tasks in flight (`ASM_TASKS_PER_COMPANY`).
+- [ ] 27.4 **Scheduler leader lock:** a Postgres advisory lock; a second scheduler
+      stands by and takes over when the first stops.
+- [ ] 27.5 **Discovery on remote pools:** a pool of enrolled workers can be marked to
+      take discovery work too, so scanning can move off the control-plane host.
+- [ ] 27.6 **Test: four or more runs at the same time.**
