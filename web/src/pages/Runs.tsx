@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, Run, RunTarget, RunActivity, RunFleet, Schedule, TaskResult } from "../api";
+import { useTableLayout, PlainTh, LayoutDef } from "../components/table";
 import { Badge, useToast, Modal } from "../components/ui";
 import ScanSettings from "../components/ScanSettings";
 
@@ -35,6 +36,7 @@ export default function Runs({ scopeID }: { scopeID: string }) {
   const [open, setOpen] = useState("");
   const [launch, setLaunch] = useState(false);
   const closeLaunch = () => setLaunch(false);
+  const lay = useTableLayout("asm.runs", RUN_COLUMNS);
 
   return (
     <div>
@@ -43,7 +45,10 @@ export default function Runs({ scopeID }: { scopeID: string }) {
           <h2>Scan runs</h2>
           <div className="sub">One run covers many targets at once; each is tracked independently.</div>
         </div>
-        <button onClick={() => setLaunch(true)}>+ New scan</button>
+        <div className="row" style={{ margin: 0 }}>
+          {(runs ?? []).length > 0 && lay.controls}
+          <button onClick={() => setLaunch(true)}>+ New scan</button>
+        </div>
       </div>
 
       {(runs ?? []).length === 0 ? (
@@ -52,34 +57,40 @@ export default function Runs({ scopeID }: { scopeID: string }) {
           <button onClick={() => setLaunch(true)}>Start your first scan</button>
         </div>
       ) : (
-        <div className="table-wrap">
-          <table>
+        <div className="table-wrap" ref={lay.wrapRef}>
+          <table className={lay.tableClass}>
+            {lay.colgroup}
             <thead><tr>
-              <th>Started</th><th>By</th><th>Target</th><th>Profile</th>
-              <th style={{ width: 190 }}>Progress</th><th>Status</th><th></th>
+              <PlainTh k="started" {...lay.th("started")}>Started</PlainTh>
+              {lay.show("by") && <PlainTh k="by" {...lay.th("by")}>By</PlainTh>}
+              {lay.show("target") && <PlainTh k="target" {...lay.th("target")}>Target</PlainTh>}
+              {lay.show("profile") && <PlainTh k="profile" {...lay.th("profile")}>Profile</PlainTh>}
+              {lay.show("progress") && <PlainTh k="progress" {...lay.th("progress")} style={{ width: 190 }}>Progress</PlainTh>}
+              {lay.show("status") && <PlainTh k="status" {...lay.th("status")}>Status</PlainTh>}
+              <th></th>
             </tr></thead>
             <tbody>
               {(runs ?? []).map((r) => (
                 <Fragment key={r.id}>
                   <tr style={{ cursor: "pointer" }} onClick={() => setOpen(open === r.id ? "" : r.id)}>
-                    <td className="muted">{new Date(r.created_at).toLocaleString()}</td>
-                    <td><StartedBy run={r} /></td>
-                    <td className="mono"><TargetLabel run={r} /></td>
-                    <td>
+                    <td {...lay.td("started", "muted")}>{new Date(r.created_at).toLocaleString()}</td>
+                    {lay.show("by") && <td {...lay.td("by")}><StartedBy run={r} /></td>}
+                    {lay.show("target") && <td {...lay.td("target", "mono")}><TargetLabel run={r} /></td>}
+                    {lay.show("profile") && <td {...lay.td("profile")}>
                       {r.profile}
                       {r.trigger === "scheduled" && (
                         <span className="pill" style={{ marginLeft: 6 }} title="Started by a schedule">scheduled</span>
                       )}
-                    </td>
-                    <td><RunProgress run={r} /></td>
-                    <td><Badge status={r.status} /></td>
+                    </td>}
+                    {lay.show("progress") && <td {...lay.td("progress")}><RunProgress run={r} /></td>}
+                    {lay.show("status") && <td {...lay.td("status")}><Badge status={r.status} /></td>}
                     <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                       <RunControls run={r} onChange={refetch} />
                       <span className="muted" style={{ marginLeft: 10 }}>{open === r.id ? "▾" : "▸"}</span>
                     </td>
                   </tr>
                   {open === r.id && (
-                    <tr><td colSpan={7} style={{ background: "var(--bg)" }}><RunDetail runID={r.id} /></td></tr>
+                    <tr><td colSpan={lay.visible.length + 1} style={{ background: "var(--bg)" }}><RunDetail runID={r.id} /></td></tr>
                   )}
                 </Fragment>
               ))}
@@ -1009,3 +1020,13 @@ function StartedBy({ run }: { run: Run }) {
     </span>
   );
 }
+
+// The runs table's columns: the start time and the row's controls always show.
+const RUN_COLUMNS: LayoutDef[] = [
+  { key: "started", label: "Started", always: true, min: 150, weight: 4 },
+  { key: "by", label: "By", min: 110, weight: 4 },
+  { key: "target", label: "Target", min: 180, weight: 30 },
+  { key: "profile", label: "Profile", min: 100, weight: 4 },
+  { key: "progress", label: "Progress", min: 190, weight: 6 },
+  { key: "status", label: "Status", min: 100, weight: 2 },
+];

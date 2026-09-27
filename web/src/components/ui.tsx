@@ -262,7 +262,7 @@ export function useColumnWidths(storageKey: string) {
  * the drag's duration, so the pointer may leave the handle — and the header —
  * without losing the column. The click that ends a drag must not sort.
  */
-function ResizeHandle({ onResize, th }: { onResize: (px: number) => void; th: React.RefObject<HTMLTableCellElement | null> }) {
+export function ResizeHandle({ onResize, th }: { onResize: (px: number) => void; th: React.RefObject<HTMLTableCellElement | null> }) {
   const dragging = useRef(false);
   const start = (e: React.PointerEvent) => {
     e.preventDefault(); e.stopPropagation();

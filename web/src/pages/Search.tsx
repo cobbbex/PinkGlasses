@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, SearchResult, SearchFacets, Facet } from "../api";
 import { Spinner, useSort, SortTh } from "../components/ui";
+import { useTableLayout, LayoutDef } from "../components/table";
 
 const EXAMPLES = [
   '*',
@@ -34,6 +35,7 @@ export default function Search({ scopeID }: { scopeID: string }) {
   // Sorting is on the rows in hand, the way the Hosts and Findings tables do
   // it; the server's order (by address, then port) is the starting point.
   const { sorted, sort, toggle } = useSort<SearchResult>(rows ?? [], { key: "ip", dir: "asc" }, searchSortValue);
+  const lay = useTableLayout("asm.search", global ? SEARCH_COLUMNS : SEARCH_COLUMNS.filter((c) => c.key !== "company"));
 
   useEffect(() => {
     const initial = sp.get("q");
@@ -117,16 +119,19 @@ export default function Search({ scopeID }: { scopeID: string }) {
 
       {rows !== null && !err && (
         rows.length === 0 ? <div className="empty">No results.</div> : (
-          <div className="table-wrap">
-            <table>
+          <>
+          <div className="row" style={{ justifyContent: "flex-end", gap: 6 }}>{lay.controls}</div>
+          <div className="table-wrap" ref={lay.wrapRef}>
+            <table className={lay.tableClass}>
+              {lay.colgroup}
               <thead><tr>
-                {global && <SortTh k="company" sort={sort} onSort={toggle}>Company</SortTh>}
-                <SortTh k="site" sort={sort} onSort={toggle}>Site</SortTh>
-                <SortTh k="ip" sort={sort} onSort={toggle}>IP</SortTh>
-                <SortTh k="port" sort={sort} onSort={toggle}>Port</SortTh>
-                <SortTh k="product" sort={sort} onSort={toggle}>Product</SortTh>
-                <SortTh k="version" sort={sort} onSort={toggle}>Version</SortTh>
-                <SortTh k="title" sort={sort} onSort={toggle}>Title</SortTh>
+                {global && lay.show("company") && <SortTh k="company" sort={sort} onSort={toggle} {...lay.th("company")}>Company</SortTh>}
+                {lay.show("site") && <SortTh k="site" sort={sort} onSort={toggle} {...lay.th("site")}>Site</SortTh>}
+                <SortTh k="ip" sort={sort} onSort={toggle} {...lay.th("ip")}>IP</SortTh>
+                {lay.show("port") && <SortTh k="port" sort={sort} onSort={toggle} {...lay.th("port")}>Port</SortTh>}
+                {lay.show("product") && <SortTh k="product" sort={sort} onSort={toggle} {...lay.th("product")}>Product</SortTh>}
+                {lay.show("version") && <SortTh k="version" sort={sort} onSort={toggle} {...lay.th("version")}>Version</SortTh>}
+                {lay.show("title") && <SortTh k="title" sort={sort} onSort={toggle} {...lay.th("title")}>Title</SortTh>}
               </tr></thead>
               <tbody>
                 {sorted.map((r) => (
@@ -134,33 +139,45 @@ export default function Search({ scopeID }: { scopeID: string }) {
                       style={{ cursor: r.ip_id ? "pointer" : "default" }}
                       title={r.ip_id ? "Open host details in a new tab" : undefined}
                       onClick={() => r.ip_id && window.open(`/host/${r.ip_id}`, "_blank", "noopener")}>
-                    {global && <td>{r.company ?? "—"}</td>}
-                    <td className="mono">
+                    {global && lay.show("company") && <td {...lay.td("company")}>{r.company ?? "—"}</td>}
+                    {lay.show("site") && <td {...lay.td("site", "mono")} title={r.host || r.domain || undefined}>
                       {r.host
                         ? r.host
                         : <span className="muted" title={r.domain ? `by address; ${r.domain} resolves here` : "by address"}>
                             {r.domain ?? "—"}{r.domain && <span style={{ fontSize: 11 }}> · by address</span>}
                           </span>}
-                    </td>
-                    <td className="mono">
+                    </td>}
+                    <td {...lay.td("ip", "mono")}>
                       {r.ip_id
                         ? <a href={`/host/${r.ip_id}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{r.ip}</a>
                         : r.ip}
                     </td>
-                    <td className="mono">{r.port}</td>
-                    <td>{r.product ?? "—"}</td>
-                    <td className="mono">{r.version ?? "—"}</td>
-                    <td className="wrap">{r.title ?? "—"}</td>
+                    {lay.show("port") && <td {...lay.td("port", "mono")}>{r.port}</td>}
+                    {lay.show("product") && <td {...lay.td("product")}>{r.product ?? "—"}</td>}
+                    {lay.show("version") && <td {...lay.td("version", "mono")}>{r.version ?? "—"}</td>}
+                    {lay.show("title") && <td {...lay.td("title", lay.fit ? "" : "wrap")} title={r.title ?? undefined}>{r.title ?? "—"}</td>}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          </>
         )
       )}
     </div>
   );
 }
+
+// The search table's columns; the address always shows (it is the row's link).
+const SEARCH_COLUMNS: LayoutDef[] = [
+  { key: "company", label: "Company", min: 120, weight: 6 },
+  { key: "site", label: "Site", min: 170, weight: 20 },
+  { key: "ip", label: "IP", always: true, min: 130, weight: 4 },
+  { key: "port", label: "Port", min: 70, weight: 1 },
+  { key: "product", label: "Product", min: 110, weight: 6 },
+  { key: "version", label: "Version", min: 90, weight: 3 },
+  { key: "title", label: "Title", min: 160, weight: 30 },
+];
 
 // Site sorts by the name shown, which is the host or, by address, the domain
 // that resolves there; addresses sort numerically through compareValues.

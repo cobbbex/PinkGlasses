@@ -1029,7 +1029,7 @@ Order of work: what protects the data and speeds diagnosis first.
       days, with a daily digest.
 - [ ] 26.9 **Reports.** Per-company HTML report (printable to PDF) of the current attack
       surface and what changed over a period.
-- [ ] 26.10 **Column choice and fit-to-screen on every table** — Findings, Search, Runs — as on
+- [x] 26.10 **Column choice and fit-to-screen on every table** — Findings, Search, Runs — as on
       Hosts.
 - [ ] 26.11 **End-to-end test in CI.** Start the stack in compose, scan a local test target,
       assert the run completes with the expected services.

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, Finding } from "../api";
 import { DotStrip, PresenceBadge } from "../components/DotStrip";
 import { useSort, SortTh, siteURL, OpenLink } from "../components/ui";
+import { useTableLayout, LayoutDef } from "../components/table";
 
 const SEVERITIES = ["", "critical", "high", "medium", "low", "info"];
 const PRESENCE = [
@@ -35,6 +36,7 @@ export default function Findings({ scopeID }: { scopeID: string }) {
     .map(toRow);
   const { sorted: shown, sort, toggle } = useSort<Row>(filtered, { key: "severity", dir: "desc" }, rowSortValue);
   const gone = (findings ?? []).filter((f) => f.presence === "gone").length;
+  const lay = useTableLayout("asm.findings", FINDING_COLUMNS);
 
   return (
     <div>
@@ -52,60 +54,62 @@ export default function Findings({ scopeID }: { scopeID: string }) {
         <select value={presence} onChange={(e) => setPresence(e.target.value)}>
           {PRESENCE.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
         </select>
-        <span className="muted">
+        <span className="muted grow">
           {shown.length} shown{gone > 0 && presence === "" ? ` · ${gone} gone` : ""}
         </span>
+        {shown.length > 0 && lay.controls}
       </div>
 
       {shown.length === 0 ? (
         <div className="empty">No findings.</div>
       ) : (
-        <div className="table-wrap">
-          <table>
+        <div className="table-wrap" ref={lay.wrapRef}>
+          <table className={lay.tableClass}>
+            {lay.colgroup}
             <thead><tr>
-              <SortTh k="severity" sort={sort} onSort={toggle}>Severity</SortTh>
-              <SortTh k="site" sort={sort} onSort={toggle} title="The name the finding was observed under; by address when none">Host</SortTh>
-              <SortTh k="ip" sort={sort} onSort={toggle}>IP</SortTh>
-              <SortTh k="title" sort={sort} onSort={toggle} title="A discovered path shows its path; hover for the full title">Title</SortTh>
-              <SortTh k="kind" sort={sort} onSort={toggle}>Kind</SortTh>
-              <SortTh k="status" sort={sort} onSort={toggle} title="The HTTP status the path answered with">Status</SortTh>
-              <SortTh k="seen" sort={sort} onSort={toggle} title="One dot per run that looked: filled when it saw the finding, hollow when not; hover a dot for the date. The number is runs that saw it over runs that looked; sorts by that share.">History</SortTh>
-              <SortTh k="first_seen" sort={sort} onSort={toggle}>First seen</SortTh>
-              <SortTh k="last_seen" sort={sort} onSort={toggle}>Last seen</SortTh>
-              <th></th>
+              <SortTh k="severity" sort={sort} onSort={toggle} {...lay.th("severity")}>Severity</SortTh>
+              {lay.show("site") && <SortTh k="site" sort={sort} onSort={toggle} {...lay.th("site")} title="The name the finding was observed under; by address when none">Host</SortTh>}
+              {lay.show("ip") && <SortTh k="ip" sort={sort} onSort={toggle} {...lay.th("ip")}>IP</SortTh>}
+              <SortTh k="title" sort={sort} onSort={toggle} {...lay.th("title")} title="A discovered path shows its path; hover for the full title">Title</SortTh>
+              {lay.show("kind") && <SortTh k="kind" sort={sort} onSort={toggle} {...lay.th("kind")}>Kind</SortTh>}
+              {lay.show("status") && <SortTh k="status" sort={sort} onSort={toggle} {...lay.th("status")} title="The HTTP status the path answered with">Status</SortTh>}
+              {lay.show("history") && <SortTh k="seen" sort={sort} onSort={toggle} {...lay.th("history")} title="One dot per run that looked: filled when it saw the finding, hollow when not; hover a dot for the date. The number is runs that saw it over runs that looked; sorts by that share.">History</SortTh>}
+              {lay.show("first_seen") && <SortTh k="first_seen" sort={sort} onSort={toggle} {...lay.th("first_seen")}>First seen</SortTh>}
+              {lay.show("last_seen") && <SortTh k="last_seen" sort={sort} onSort={toggle} {...lay.th("last_seen")}>Last seen</SortTh>}
+              {lay.show("open") && <th></th>}
             </tr></thead>
             <tbody>
               {shown.map(({ f, site, byAddress, status, url, label }) => (
                 <tr key={f.id}>
-                  <td><span className={"sev-" + f.severity}>{f.severity}</span></td>
-                  <td className="mono">
+                  <td {...lay.td("severity")}><span className={"sev-" + f.severity}>{f.severity}</span></td>
+                  {lay.show("site") && <td {...lay.td("site", "mono")} title={site}>
                     {byAddress || !site
                       ? <span className="muted" title="Observed by address: the request carried no name">—</span>
                       : site}
-                  </td>
-                  <td className="mono">
+                  </td>}
+                  {lay.show("ip") && <td {...lay.td("ip", "mono")}>
                     {f.ip_id
                       ? <a href={`/host/${f.ip_id}`} target="_blank" rel="noreferrer" title="Open host details in a new tab">{f.ip}</a>
                       : (f.ip ?? "—")}
-                  </td>
-                  <td className="mono" title={f.title}
-                      style={{ maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</td>
-                  <td className="muted" title={f.kind}>{kindLabel(f.kind)}</td>
-                  <td>
+                  </td>}
+                  <td className={"mono" + (lay.td("title").className ? " clip" : "")} title={f.title}
+                      style={{ ...(lay.fit ? {} : { maxWidth: 280 }), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...lay.td("title").style }}>{label}</td>
+                  {lay.show("kind") && <td {...lay.td("kind", "muted")} title={f.kind}>{kindLabel(f.kind)}</td>}
+                  {lay.show("status") && <td {...lay.td("status")}>
                     {status !== undefined && <span className={"mono " + statusClass(status)}>{status}</span>}
                     {f.presence === "gone" && <> <PresenceBadge presence={f.presence} goneSince={f.gone_since} /></>}
                     {status === undefined && f.presence !== "gone" && <span className="muted">—</span>}
-                  </td>
-                  <td style={{ whiteSpace: "nowrap" }}>
+                  </td>}
+                  {lay.show("history") && <td {...lay.td("history")} style={{ whiteSpace: "nowrap", ...lay.td("history").style }}>
                     <DotStrip history={f.history ?? []} />
                     {(f.covered_runs ?? 0) > 0 && (
                       <span className="muted mono" style={{ marginLeft: 8, fontSize: 12 }}
                             title="runs that observed it / runs that looked">{f.seen_in ?? 0}/{f.covered_runs}</span>
                     )}
-                  </td>
-                  <td className="muted" style={{ whiteSpace: "nowrap" }}>{new Date(f.first_seen).toLocaleDateString()}</td>
-                  <td className="muted" style={{ whiteSpace: "nowrap" }}>{new Date(f.last_seen).toLocaleDateString()}</td>
-                  <td>{url && <OpenLink href={url} label="Open" />}</td>
+                  </td>}
+                  {lay.show("first_seen") && <td {...lay.td("first_seen", "muted")} style={{ whiteSpace: "nowrap", ...lay.td("first_seen").style }}>{new Date(f.first_seen).toLocaleDateString()}</td>}
+                  {lay.show("last_seen") && <td {...lay.td("last_seen", "muted")} style={{ whiteSpace: "nowrap", ...lay.td("last_seen").style }}>{new Date(f.last_seen).toLocaleDateString()}</td>}
+                  {lay.show("open") && <td {...lay.td("open")}>{url && <OpenLink href={url} label="Open" />}</td>}
                 </tr>
               ))}
             </tbody>
@@ -176,3 +180,17 @@ function rowSortValue(r: Row, key: string): unknown {
     default: return null;
   }
 }
+
+// The findings table's columns: severity and the title always show.
+const FINDING_COLUMNS: LayoutDef[] = [
+  { key: "severity", label: "Severity", always: true, min: 104, weight: 1 },
+  { key: "site", label: "Host", min: 130, weight: 10 },
+  { key: "ip", label: "IP", min: 130, weight: 3 },
+  { key: "title", label: "Title", always: true, min: 200, weight: 30 },
+  { key: "kind", label: "Kind", min: 70, weight: 1 },
+  { key: "status", label: "Status", min: 80, weight: 1 },
+  { key: "history", label: "History", min: 110, weight: 2 },
+  { key: "first_seen", label: "First seen", min: 110, weight: 2 },
+  { key: "last_seen", label: "Last seen", min: 110, weight: 2 },
+  { key: "open", label: "Open", min: 96, weight: 0 },
+];
