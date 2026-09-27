@@ -49,6 +49,9 @@ func (n *Notifier) Notify(ctx context.Context, run domain.ScanRun) (int, error) 
 		if !ch.Enabled {
 			continue
 		}
+		if ch.Cadence == "daily" {
+			continue // its changes go out with the day's digest, not per run
+		}
 		if done, _ := n.st.DeliveryExists(ctx, ch.ID, run.ID); done {
 			continue
 		}
@@ -139,4 +142,61 @@ func toEvents(in []store.ChangeEvent) []Event {
 		out = append(out, e)
 	}
 	return out
+}
+
+// SendDueDigests sends the daily digest to every channel whose send time has
+// passed, covering every run of its company since the last one. Called from
+// the scheduler's sweep; safe to call often, since a channel's covered period
+// only moves forward once a digest has gone out.
+//
+// A period with nothing in it is recorded as skipped rather than sent: a
+// daily digest that says "nothing changed" every morning is one people stop
+// reading.
+func (n *Notifier) SendDueDigests(ctx context.Context, now time.Time) (int, error) {
+	due, err := n.st.DueDigests(ctx, now)
+	if err != nil {
+		return 0, err
+	}
+	sent := 0
+	for _, ch := range due {
+		through := now.UTC().Truncate(24 * time.Hour).Add(time.Duration(ch.DigestHour) * time.Hour)
+		from := through.Add(-24 * time.Hour)
+		if ch.DigestThrough != nil && ch.DigestThrough.After(from) {
+			from = *ch.DigestThrough
+		}
+		events, err := n.st.ScopeChangeEvents(ctx, ch.ScopeID, from, through)
+		if err != nil {
+			slog.Warn("could not read a company's changes for its digest", "channel", ch.Name, "err", err)
+			continue
+		}
+		var wanted []Event
+		for _, e := range toEvents(events) {
+			if Wanted(ch.Events, ch.MinSeverity, e) {
+				wanted = append(wanted, e)
+			}
+		}
+		if len(wanted) == 0 {
+			_ = n.st.RecordDelivery(ctx, ch.ID, nil, 0, "skipped", nil)
+			_ = n.st.MarkDigestSent(ctx, ch.ID, through)
+			continue
+		}
+		scope, _ := n.st.GetScope(ctx, ch.ScopeID)
+		link := ""
+		if n.baseURL != "" {
+			link = n.baseURL + "/runs"
+		}
+		d := Build(scope.Name, ch.ScopeID.String(), "daily", "daily digest", through, link, wanted)
+		if err := n.sinkFor(ch).Send(ctx, d); err != nil {
+			msg := err.Error()
+			_ = n.st.RecordDelivery(ctx, ch.ID, nil, len(wanted), "failed", &msg)
+			slog.Warn("daily digest failed", "channel", ch.Name, "kind", ch.Kind, "err", err)
+			continue // left undelivered: the next sweep tries the same period again
+		}
+		_ = n.st.RecordDelivery(ctx, ch.ID, nil, len(wanted), "sent", nil)
+		_ = n.st.MarkDigestSent(ctx, ch.ID, through)
+		slog.Info("daily digest sent", "channel", ch.Name, "company", scope.Name,
+			"events", len(wanted), "through", through.Format(time.RFC3339))
+		sent++
+	}
+	return sent, nil
 }

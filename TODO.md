@@ -1025,7 +1025,7 @@ Order of work: what protects the data and speeds diagnosis first.
       panels, default pages, outdated server versions, services that newly appeared.
 - [ ] 26.7 **Resolver health check.** Test the resolver list regularly; drop resolvers that lie
       or time out, so brute-force false positives stop at the source.
-- [ ] 26.8 **Alerts that matter.** New open port, new subdomain, certificate expiring within 14
+- [x] 26.8 **Alerts that matter.** New open port, new subdomain, certificate expiring within 14
       days, with a daily digest.
 - [ ] 26.9 **Reports.** Per-company HTML report (printable to PDF) of the current attack
       surface and what changed over a period.

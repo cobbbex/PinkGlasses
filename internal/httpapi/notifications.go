@@ -62,6 +62,10 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		URL         string   `json:"url"`
 		Events      []string `json:"events"`
 		MinSeverity string   `json:"min_severity"`
+		// "per_run" (default) or "daily": one message a day at DigestHour
+		// UTC, covering every run since the last one.
+		Cadence    string `json:"cadence"`
+		DigestHour *int   `json:"digest_hour"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
@@ -105,9 +109,26 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "bad min_severity")
 		return
 	}
+	switch in.Cadence {
+	case "", "per_run":
+		in.Cadence = "per_run"
+	case "daily":
+	default:
+		writeErr(w, http.StatusBadRequest, "cadence must be \"per_run\" or \"daily\"")
+		return
+	}
+	hour := 7
+	if in.DigestHour != nil {
+		if *in.DigestHour < 0 || *in.DigestHour > 23 {
+			writeErr(w, http.StatusBadRequest, "digest_hour must be 0–23 (UTC)")
+			return
+		}
+		hour = *in.DigestHour
+	}
 	c, err := s.st.CreateChannel(r.Context(), store.NotificationChannel{
 		ScopeID: scopeID, Name: in.Name, Kind: in.Kind, URL: u.String(),
 		Events: in.Events, MinSeverity: in.MinSeverity, Enabled: true, CreatedBy: actor(r),
+		Cadence: in.Cadence, DigestHour: hour,
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -125,17 +146,44 @@ func (s *Server) patchChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Enabled *bool `json:"enabled"`
+		Enabled    *bool   `json:"enabled"`
+		Cadence    *string `json:"cadence"`
+		DigestHour *int    `json:"digest_hour"`
 	}
-	if err := readJSON(r, &in); err != nil || in.Enabled == nil {
-		writeErr(w, http.StatusBadRequest, "enabled required")
+	if err := readJSON(r, &in); err != nil || (in.Enabled == nil && in.Cadence == nil && in.DigestHour == nil) {
+		writeErr(w, http.StatusBadRequest, "enabled, cadence or digest_hour required")
 		return
 	}
-	if err := s.st.SetChannelEnabled(r.Context(), id, *in.Enabled); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+	if in.Enabled != nil {
+		if err := s.st.SetChannelEnabled(r.Context(), id, *in.Enabled); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if in.Cadence != nil || in.DigestHour != nil {
+		cadence := ""
+		if in.Cadence != nil {
+			cadence = *in.Cadence
+			if cadence != "per_run" && cadence != "daily" {
+				writeErr(w, http.StatusBadRequest, "cadence must be \"per_run\" or \"daily\"")
+				return
+			}
+		}
+		if in.DigestHour != nil && (*in.DigestHour < 0 || *in.DigestHour > 23) {
+			writeErr(w, http.StatusBadRequest, "digest_hour must be 0–23 (UTC)")
+			return
+		}
+		if err := s.st.SetChannelCadence(r.Context(), id, cadence, in.DigestHour); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	ch, err := s.st.GetChannel(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "channel not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"enabled": *in.Enabled})
+	writeJSON(w, http.StatusOK, present(ch))
 }
 
 func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {

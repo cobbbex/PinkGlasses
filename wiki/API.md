@@ -195,8 +195,8 @@ the field has a value (`product:*` is every port whose product is known); a bare
 | `GET /scopes/{scopeID}/findings` | viewer | with per-run `history`, `presence` (active/gone), `gone_since`, `evidence` (a discovered path's `path`, `host` and `status`; a nuclei match's URL), and where it is: `ip`, `ip_id` (its host page) and `port` |
 | `PATCH /findings/{findingID}` | operator | `{status}`: `open`, `acknowledged`, `resolved`, `accepted_risk` |
 | `GET /scopes/{scopeID}/notifications` | viewer | `{channels, events}` — the second lists the event kinds a channel may subscribe to |
-| `POST /scopes/{scopeID}/notifications` | operator | `{name, kind: slack\|webhook, url, events, min_severity}` |
-| `PATCH /notifications/{channelID}` | operator | `{enabled}` |
+| `POST /scopes/{scopeID}/notifications` | operator | `{name, kind: slack\|webhook, url, events, min_severity}`; `cadence` (`per_run`, the default, or `daily`) and `digest_hour` (0–23 UTC) decide how often it hears from us |
+| `PATCH /notifications/{channelID}` | operator | `{enabled}` — `{enabled}`, `{cadence}` and `{digest_hour}`, any of them; answers with the channel |
 | `DELETE /notifications/{channelID}` | operator | |
 | `POST /notifications/{channelID}/test` | operator | sends a test digest → `{sent, error?}` |
 | `GET /scopes/{scopeID}/notifications/deliveries` | viewer | every delivery attempt, with status and error |

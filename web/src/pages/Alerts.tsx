@@ -35,16 +35,23 @@ export default function Alerts({ scopeID }: { scopeID: string }) {
   const [url, setUrl] = useState("");
   const [picked, setPicked] = useState<string[]>(["finding_returned", "new_finding", "new_port"]);
   const [minSev, setMinSev] = useState("low");
+  const [cadence, setCadence] = useState<"per_run" | "daily">("per_run");
+  const [digestHour, setDigestHour] = useState(7);
   const [busy, setBusy] = useState(false);
 
   async function create() {
     setBusy(true);
     try {
-      await api.createNotification(scopeID, { name, kind, url, events: picked, min_severity: minSev });
+      await api.createNotification(scopeID, { name, kind, url, events: picked, min_severity: minSev,
+        cadence, digest_hour: digestHour });
       toast("ok", `Added "${name}"`);
       setAdding(false); setName(""); setUrl("");
       refetch();
     } catch (e) { toast("err", String(e)); } finally { setBusy(false); }
+  }
+  async function setCadence2(id: string, v: "per_run" | "daily") {
+    try { await api.setNotificationCadence(id, v); refetch(); }
+    catch (e) { toast("err", String(e).replace(/^Error:\s*/, "")); }
   }
   async function test(id: string, chName: string) {
     const r = await api.testNotification(id);
@@ -108,6 +115,20 @@ export default function Alerts({ scopeID }: { scopeID: string }) {
             <select value={minSev} onChange={(e) => setMinSev(e.target.value)}>
               {SEVERITIES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+            <label className="param-label" style={{ marginLeft: 12 }}>Send</label>
+            <select value={cadence} onChange={(e) => setCadence(e.target.value as "per_run" | "daily")}
+              title="A message as each run finishes, or one a day covering every run since the last">
+              <option value="per_run">as each scan finishes</option>
+              <option value="daily">once a day</option>
+            </select>
+            {cadence === "daily" && (
+              <>
+                <label className="param-label">after</label>
+                <input type="number" min={0} max={23} style={{ width: 62 }} value={digestHour}
+                  onChange={(e) => setDigestHour(Math.max(0, Math.min(23, Number(e.target.value) || 0)))} />
+                <span className="muted" style={{ fontSize: 12.5 }}>:00 UTC</span>
+              </>
+            )}
             <span className="grow" />
             <button onClick={create} disabled={busy || !name.trim() || !url.trim() || picked.length === 0}>
               {busy ? "Adding…" : "Add channel"}
@@ -123,7 +144,7 @@ export default function Alerts({ scopeID }: { scopeID: string }) {
       ) : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Name</th><th>Kind</th><th>Destination</th><th>Events</th><th>Min severity</th><th>Enabled</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Kind</th><th>Destination</th><th>Events</th><th>Min severity</th><th>Sends</th><th>Enabled</th><th></th></tr></thead>
             <tbody>
               {channels.map((c) => (
                 <tr key={c.id} style={{ opacity: c.enabled ? 1 : 0.55 }}>
@@ -136,6 +157,17 @@ export default function Alerts({ scopeID }: { scopeID: string }) {
                     </div>
                   </td>
                   <td><span className={"sev-" + c.min_severity}>{c.min_severity}</span></td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <select value={c.cadence ?? "per_run"} style={{ fontSize: 12.5 }}
+                      title="A message as each run finishes, or one a day covering every run since the last"
+                      onChange={(e) => setCadence2(c.id, e.target.value as "per_run" | "daily")}>
+                      <option value="per_run">per scan</option>
+                      <option value="daily">daily</option>
+                    </select>
+                    {(c.cadence ?? "per_run") === "daily" && (
+                      <span className="muted" style={{ fontSize: 11.5, marginLeft: 6 }}>after {c.digest_hour ?? 7}:00 UTC</span>
+                    )}
+                  </td>
                   <td>
                     <label className="param-toggle">
                       <input type="checkbox" checked={c.enabled} onChange={(e) => toggle(c.id, e.target.checked)} />

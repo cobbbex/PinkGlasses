@@ -19,16 +19,24 @@ type NotificationChannel struct {
 	Events      []string  `json:"events"`
 	MinSeverity string    `json:"min_severity"`
 	Enabled     bool      `json:"enabled"`
-	CreatedBy   string    `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
+	// Cadence is "per_run" — a digest as each run finishes — or "daily": one
+	// message a day, after DigestHour UTC, covering every run since the last.
+	Cadence    string `json:"cadence"`
+	DigestHour int    `json:"digest_hour"`
+	// DigestThrough is the end of the last period sent, so the next one
+	// covers exactly what it did not.
+	DigestThrough *time.Time `json:"digest_through,omitempty"`
+	CreatedBy     string     `json:"created_by"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
-const channelCols = `id, scope_id, name, kind, url, events, min_severity, enabled, created_by, created_at`
+const channelCols = `id, scope_id, name, kind, url, events, min_severity, enabled, ` +
+	`COALESCE(cadence,'per_run'), COALESCE(digest_hour,7), digest_through, created_by, created_at`
 
 func scanChannel(row interface{ Scan(...any) error }) (NotificationChannel, error) {
 	var c NotificationChannel
 	err := row.Scan(&c.ID, &c.ScopeID, &c.Name, &c.Kind, &c.URL, &c.Events, &c.MinSeverity,
-		&c.Enabled, &c.CreatedBy, &c.CreatedAt)
+		&c.Enabled, &c.Cadence, &c.DigestHour, &c.DigestThrough, &c.CreatedBy, &c.CreatedAt)
 	if c.Events == nil {
 		c.Events = []string{}
 	}
@@ -38,9 +46,12 @@ func scanChannel(row interface{ Scan(...any) error }) (NotificationChannel, erro
 // CreateChannel registers a destination.
 func (s *Store) CreateChannel(ctx context.Context, c NotificationChannel) (NotificationChannel, error) {
 	row := s.Pool.QueryRow(ctx, `
-		INSERT INTO notification_channel (scope_id, name, kind, url, events, min_severity, enabled, created_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING `+channelCols,
-		c.ScopeID, c.Name, c.Kind, c.URL, c.Events, c.MinSeverity, c.Enabled, c.CreatedBy)
+		INSERT INTO notification_channel (scope_id, name, kind, url, events, min_severity, enabled,
+		                                  cadence, digest_hour, created_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE(NULLIF($8,''),'per_run'),COALESCE(NULLIF($9,-1),7),$10)
+		RETURNING `+channelCols,
+		c.ScopeID, c.Name, c.Kind, c.URL, c.Events, c.MinSeverity, c.Enabled,
+		c.Cadence, c.DigestHour, c.CreatedBy)
 	return scanChannel(row)
 }
 
@@ -169,4 +180,75 @@ func (s *Store) RunChangeEvents(ctx context.Context, runID uuid.UUID) ([]ChangeE
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// DueDigests returns the enabled daily channels whose next digest is due: the
+// period they last covered ended before today's send time, and that time has
+// passed. A channel that has never sent one starts from its first run.
+func (s *Store) DueDigests(ctx context.Context, now time.Time) ([]NotificationChannel, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT `+channelCols+` FROM notification_channel
+		WHERE enabled AND cadence = 'daily'
+		  AND date_trunc('day', $1::timestamptz) + make_interval(hours => digest_hour) <= $1
+		  AND (digest_through IS NULL
+		       OR digest_through < date_trunc('day', $1::timestamptz) + make_interval(hours => digest_hour))
+		ORDER BY created_at`, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []NotificationChannel{}
+	for rows.Next() {
+		c, err := scanChannel(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// MarkDigestSent moves a channel's covered period forward.
+func (s *Store) MarkDigestSent(ctx context.Context, channelID uuid.UUID, through time.Time) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE notification_channel SET digest_through=$2 WHERE id=$1`, channelID, through)
+	return err
+}
+
+// ScopeChangeEvents returns a company's change events in a period, newest
+// last, across every run — what a daily digest is made of.
+func (s *Store) ScopeChangeEvents(ctx context.Context, scopeID uuid.UUID, from, to time.Time) ([]ChangeEvent, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT kind, asset_kind, asset_id, before, after, created_at
+		FROM change_event
+		WHERE scope_id=$1 AND created_at > $2 AND created_at <= $3
+		ORDER BY created_at`, scopeID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ChangeEvent{}
+	for rows.Next() {
+		var e ChangeEvent
+		var b, a []byte
+		if err := rows.Scan(&e.Kind, &e.AssetKind, &e.AssetID, &b, &a, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(b, &e.Before)
+		_ = json.Unmarshal(a, &e.After)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// SetChannelCadence changes how often a channel hears from us. An empty
+// cadence or a nil hour leaves that part as it was.
+func (s *Store) SetChannelCadence(ctx context.Context, id uuid.UUID, cadence string, hour *int) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE notification_channel
+		SET cadence = COALESCE(NULLIF($2,''), cadence),
+		    digest_hour = COALESCE($3, digest_hour),
+		    -- Switching to daily starts a fresh period: the first digest
+		    -- covers from now, not from whenever the channel was made.
+		    digest_through = CASE WHEN $2 = 'daily' AND cadence <> 'daily' THEN now() ELSE digest_through END
+		WHERE id=$1`, id, cadence, hour)
+	return err
 }

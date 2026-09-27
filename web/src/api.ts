@@ -270,6 +270,8 @@ export interface NotificationChannel {
   id: string; scope_id: string; name: string; kind: "webhook" | "slack";
   /** masked — the path of a Slack webhook is the secret */
   url: string; events: string[]; min_severity: string; enabled: boolean;
+  /** "per_run": a message as each run finishes. "daily": one a day, after digest_hour UTC. */
+  cadence?: "per_run" | "daily"; digest_hour?: number; digest_through?: string | null;
   created_by: string; created_at: string;
 }
 export interface NotificationDelivery {
@@ -447,6 +449,8 @@ export const api = {
     req<NotificationChannel>(`/scopes/${s}/notifications`, { method: "POST", body: JSON.stringify(body) }),
   setNotificationEnabled: (id: string, enabled: boolean) =>
     req(`/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
+  setNotificationCadence: (id: string, cadence: "per_run" | "daily", digest_hour?: number) =>
+    req<NotificationChannel>(`/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ cadence, digest_hour }) }),
   deleteNotification: (id: string) => req(`/notifications/${id}`, { method: "DELETE" }),
   testNotification: (id: string) =>
     req<{ sent: boolean; error?: string }>(`/notifications/${id}/test`, { method: "POST" }),

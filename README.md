@@ -755,6 +755,14 @@ digest so a destination can be checked before anything real changes.
 
 A Slack webhook URL is a bearer token; the API returns it masked and never logs it.
 
+**How often.** A channel sends either **as each scan finishes** — a digest per run, which
+is what every channel did before — or **once a day**, after an hour you choose (UTC),
+covering every run of that company since the last digest. An install scanning hourly sent
+24 messages a day; most people want one. A day with nothing worth saying sends nothing
+rather than "no changes". Change it per channel on the Alerts page or with
+`PATCH /notifications/{id}`.
+
+
 ## Wordlists and resolvers
 
 **Wordlists** in the UI manages every list a scan needs: the subdomain wordlists

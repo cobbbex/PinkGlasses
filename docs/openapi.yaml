@@ -786,7 +786,7 @@ paths:
         "409": {$ref: "#/components/responses/e409"}
     post:
       operationId: postScopesByScopeIDNotifications
-      summary: "webhook, url, events, min_severity}`"
+      summary: "webhook, url, events, min_severity}; cadence (per_run, the default, or daily) and digest_hour` (0–23 UTC) decide how often it hears from us"
       x-required-role: operator
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}
@@ -1325,7 +1325,7 @@ paths:
         "409": {$ref: "#/components/responses/e409"}
     patch:
       operationId: patchNotificationsByChannelID
-      summary: "{enabled}"
+      summary: "{enabled} — {enabled}, {cadence} and {digest_hour}, any of them; answers with the channel"
       x-required-role: operator
       parameters:
         - {name: channelID, in: path, required: true, schema: {type: string}}

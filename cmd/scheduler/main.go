@@ -113,7 +113,7 @@ func main() {
 			// removed on this pass rather than the next one.
 			fl.Tick(ctx)
 			if time.Since(lastSweep) >= sweepEvery {
-				sweep(ctx, st, seeder)
+				sweep(ctx, st, seeder, nt)
 				fl.SweepOrphans(ctx)
 				lastSweep = time.Now()
 			}
@@ -174,7 +174,14 @@ func tick(ctx context.Context, st *store.Store, pl *planner.Planner, df *diff.Di
 	}
 }
 
-func sweep(ctx context.Context, st *store.Store, seeder *wordlists.Seeder) {
+func sweep(ctx context.Context, st *store.Store, seeder *wordlists.Seeder, nt *notify.Notifier) {
+	// Daily digests, for channels that asked for one message a day rather
+	// than one per run.
+	if n, err := nt.SendDueDigests(ctx, time.Now()); err != nil {
+		slog.Error("daily digests", "err", err)
+	} else if n > 0 {
+		slog.Info("daily digests sent", "channels", n)
+	}
 	// Retry any wordlist still missing its file. Downloads fail for transient
 	// reasons (object storage not up yet, a slow CDN); without this a failure
 	// at boot would need a restart to clear.
