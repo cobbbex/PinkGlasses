@@ -1547,6 +1547,24 @@ paths:
         "403": {$ref: "#/components/responses/e403"}
         "404": {$ref: "#/components/responses/e404"}
         "409": {$ref: "#/components/responses/e409"}
+  /api/v1/pools/{poolID}:
+    patch:
+      operationId: patchPoolsByPoolID
+      summary: "{takes_discovery} — whether this pool runs the stages that never touch a target (passive discovery, DNS), moving that work off the control-plane host. A run's own pool cannot be changed"
+      x-required-role: admin
+      parameters:
+        - {name: poolID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
   /api/v1/workers/{workerID}/{action}:
     post:
       operationId: postWorkersByWorkerIDByAction

@@ -269,7 +269,7 @@ function Shell({ me, defaultPw, onSignedOut }: {
           {/* Pages that belong to the install, not to a company: they render
               whether or not a company exists yet. On a fresh install this is
               where the shipped wordlists and the standing worker are seen. */}
-          <Route path="/workers" element={<Fleet />} />
+          <Route path="/workers" element={<Fleet me={me} />} />
           <Route path="/fleet" element={<Navigate to="/workers" replace />} />
           <Route path="/wordlists" element={<Wordlists />} />
         {/* VPN configurations belong to the account, not to a company. */}

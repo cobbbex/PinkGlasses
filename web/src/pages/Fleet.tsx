@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, Worker, FleetView } from "../api";
+import { api, Worker, FleetView, User, atLeast } from "../api";
 import { Link } from "react-router-dom";
 import { Modal, Stat, Badge, useToast, Spinner, InfoDot } from "../components/ui";
 
@@ -10,7 +10,7 @@ import { Modal, Stat, Badge, useToast, Spinner, InfoDot } from "../components/ui
 //           is destroyed with the run. Nobody creates these by hand.
 //   vps   — a rented box you enrol, an exit for active scans with its own
 //           address and a true outside-in view.
-export default function Fleet() {
+export default function Fleet({ me }: { me: User }) {
   const toast = useToast();
   const { data: workers, refetch, isLoading } = useQuery({
     queryKey: ["workers"], queryFn: () => api.workers(), refetchInterval: 5000,
@@ -76,6 +76,7 @@ export default function Fleet() {
 
       <WorkerTable title="Local workers" workers={local} act={act} onDelete={setPendingDelete} />
       <WorkerTable title="External (VPS) workers" workers={remote} act={act} onDelete={setPendingDelete} />
+      <Pools me={me} />
 
       <Modal
         title="Remove worker" open={!!pendingDelete} onClose={() => setPendingDelete(null)}
@@ -333,5 +334,54 @@ function RunFleets() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The pools, and which of them runs discovery.
+ *
+ * Discovery — public sources, DNS, enrichment — never touches a target, so it
+ * is not an exit choice: it is about where the load sits. On a busy install
+ * every company's discovery queues behind the standing workers on this host;
+ * marking a pool of enrolled workers moves it onto them. If that pool has no
+ * active worker the standing ones take it back, so discovery never stalls.
+ */
+function Pools({ me }: { me: User }) {
+  const toast = useToast();
+  const { data: pools, refetch } = useQuery({ queryKey: ["pools"], queryFn: () => api.pools(), refetchInterval: 15000 });
+  const admin = atLeast(me.role, "admin");
+  async function toggle(id: string, v: boolean) {
+    try { await api.setPoolDiscovery(id, v); refetch(); }
+    catch (e) { toast("err", String(e).replace(/^Error:\s*/, "")); }
+  }
+  if (!pools || pools.length === 0) return null;
+  return (
+    <>
+      <div className="section-title">Pools</div>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Description</th><th>Workers that can scan</th><th>Runs discovery</th></tr></thead>
+          <tbody>
+            {pools.map((p) => (
+              <tr key={p.id}>
+                <td><strong>{p.name}</strong>{p.is_default && <span className="pill" style={{ marginLeft: 6 }}>default</span>}</td>
+                <td className="muted">{p.description ?? "—"}</td>
+                <td className={p.active_workers ? "" : "muted"}>{p.active_workers}</td>
+                <td>
+                  <label className="param-toggle" style={{ cursor: admin ? "pointer" : "default" }}
+                    title={admin
+                      ? "Discovery never touches a target; this decides which machines carry it"
+                      : "Only an administrator changes this"}>
+                    <input type="checkbox" checked={!!p.takes_discovery} disabled={!admin}
+                      onChange={(e) => toggle(p.id, e.target.checked)} />
+                    <span className="muted">{p.takes_discovery ? "yes" : "no"}</span>
+                  </label>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

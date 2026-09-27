@@ -332,6 +332,8 @@ export interface WorkerPool {
   id: string; name: string; description?: string | null; is_default: boolean;
   /** How many of its workers can take work right now. Zero means "cannot run a scan". */
   active_workers: number; created_at: string;
+  /** This pool runs the stages that never touch a target, off the control-plane host. */
+  takes_discovery?: boolean;
 }
 
 /** Role ranking, mirroring internal/auth.Role.AtLeast. */
@@ -498,6 +500,8 @@ export const api = {
   workers: () => req<Worker[] | null>("/workers").then((x) => x ?? []),
   fleets: () => req<FleetView[] | null>("/fleets").then((x) => x ?? []),
   pools: () => req<WorkerPool[] | null>("/pools").then((x) => x ?? []),
+  setPoolDiscovery: (id: string, takes_discovery: boolean) =>
+    req(`/pools/${id}`, { method: "PATCH", body: JSON.stringify({ takes_discovery }) }),
   enrollToken: (body: unknown) =>
     req<{ kind: string; token?: string; install_command: string; expires_in?: string; note?: string }>(
       "/workers/enrollment-tokens", { method: "POST", body: JSON.stringify(body) }),

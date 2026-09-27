@@ -974,6 +974,16 @@ docker run --rm -v scan_tool_miniodata:/data -v "$PWD/backups:/b" alpine \
 docker compose up -d                                          # migrate brings the schema forward
 ```
 
+### Moving discovery off this host
+
+Discovery — public sources, DNS resolution, enrichment — never touches a target, so it
+always ran on the standing workers beside the control plane. On a busy install every
+company's discovery queues behind that one machine. On **Workers → Pools**, an
+administrator can tick **Runs discovery** for a pool of enrolled workers, and the stages
+move onto them; the standing workers take it back whenever that pool has no active
+worker, so discovery never stalls. Active stages are unaffected: they still go to the exit
+the run chose.
+
 ### Several companies scanning at once
 
 Work is handed out **round-robin across companies**: the company with the fewest tasks in

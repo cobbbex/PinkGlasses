@@ -1055,6 +1055,6 @@ Background in the local, git-ignored SCALING-NOTES.md.
       flight, and each company has a cap on tasks in flight (`ASM_TASKS_PER_COMPANY`).
 - [x] 27.4 **Scheduler leader lock:** a Postgres advisory lock; a second scheduler
       stands by and takes over when the first stops.
-- [ ] 27.5 **Discovery on remote pools:** a pool of enrolled workers can be marked to
+- [x] 27.5 **Discovery on remote pools:** a pool of enrolled workers can be marked to
       take discovery work too, so scanning can move off the control-plane host.
 - [ ] 27.6 **Test: four or more runs at the same time.**

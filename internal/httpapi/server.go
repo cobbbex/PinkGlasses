@@ -207,6 +207,8 @@ func (s *Server) Routes() http.Handler {
 				// Enrolling a worker hands out a credential; scaling them
 				// creates containers on the host.
 				a.Post("/workers/enrollment-tokens", s.createEnrollmentToken)
+				// Which pool runs discovery, so it can move off this host.
+				a.Patch("/pools/{poolID}", s.patchPool)
 				// Deleting a company takes its whole inventory and history with it.
 				a.Post("/workers/{workerID}/{action}", s.workerAction)
 				a.Delete("/workers/{workerID}", s.deleteWorker)
