@@ -974,6 +974,15 @@ docker run --rm -v scan_tool_miniodata:/data -v "$PWD/backups:/b" alpine \
 docker compose up -d                                          # migrate brings the schema forward
 ```
 
+### Several companies scanning at once
+
+Work is handed out **round-robin across companies**: the company with the fewest tasks in
+flight is served first, and no company holds more than about `ASM_TASKS_PER_COMPANY`
+(default 24) at a time. Without that, one company with a thousand queued tasks took every
+worker and the rest waited — which is what several clients scanning together looks like.
+The cap is approximate: a worker leasing a batch can exceed it slightly. Set it to 0 on an
+install with a single company.
+
 ### Running a spare scheduler
 
 Exactly one scheduler plans work; two would start every scheduled scan twice. The lock

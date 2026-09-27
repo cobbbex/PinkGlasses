@@ -89,6 +89,10 @@ services:
       # DNS brute-force tasks one worker runs at once (each is a flood of
       # queries from that worker's machine).
       ASM_BRUTE_PER_WORKER: "${ASM_BRUTE_PER_WORKER:-1}"
+      # About how many tasks one company may have in flight at once, so
+      # several companies scanning together share the workers. A worker
+      # leasing a batch can exceed it slightly. 0 lifts it.
+      ASM_TASKS_PER_COMPANY: "${ASM_TASKS_PER_COMPANY:-24}"
       # Seals VPN configurations at rest. Without it they cannot be stored.
       ASM_SECRET_KEY: "${ASM_SECRET_KEY:-}"
       ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable

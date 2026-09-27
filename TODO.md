@@ -1051,7 +1051,7 @@ Background in the local, git-ignored SCALING-NOTES.md.
       workers refused with 401. (Open: not done in this session.)
 - [ ] 27.2 **More capacity by default:** more run slots (`ASM_MAX_RUN_FLEETS`) and
       several standing workers for discovery (`ASM_STANDING_WORKERS`).
-- [ ] 27.3 **Fair across companies:** the queue rotates across companies by tasks in
+- [x] 27.3 **Fair across companies:** the queue rotates across companies by tasks in
       flight, and each company has a cap on tasks in flight (`ASM_TASKS_PER_COMPANY`).
 - [x] 27.4 **Scheduler leader lock:** a Postgres advisory lock; a second scheduler
       stands by and takes over when the first stops.

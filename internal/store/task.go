@@ -79,7 +79,7 @@ func (s *Store) InsertTasks(ctx context.Context, runID uuid.UUID, specs []TaskSp
 // batch cannot starve the rest. FOR UPDATE SKIP LOCKED lets many workers claim
 // concurrently without blocking each other (wiki/Architecture.md §8.1).
 func (s *Store) LeaseTasks(ctx context.Context, workerID uuid.UUID, caps []string, poolID *uuid.UUID, limit, leaseSecs int) ([]scanproto.Job, error) {
-	return s.LeaseTasksWhere(ctx, workerID, caps, poolID, limit, leaseSecs, AnyStage)
+	return s.LeaseTasksWhere(ctx, workerID, caps, poolID, limit, leaseSecs, AnyStage, 0)
 }
 
 // StageFilter narrows a lease to some stages. The values are fixed SQL
@@ -103,7 +103,7 @@ func (s *Store) BruteRoom(ctx context.Context, workerID uuid.UUID, limit int) (i
 }
 
 // LeaseTasksWhere is LeaseTasks restricted by a stage filter.
-func (s *Store) LeaseTasksWhere(ctx context.Context, workerID uuid.UUID, caps []string, poolID *uuid.UUID, limit, leaseSecs int, only StageFilter) ([]scanproto.Job, error) {
+func (s *Store) LeaseTasksWhere(ctx context.Context, workerID uuid.UUID, caps []string, poolID *uuid.UUID, limit, leaseSecs int, only StageFilter, perCompany int) ([]scanproto.Job, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
@@ -134,7 +134,21 @@ func (s *Store) LeaseTasksWhere(ctx context.Context, workerID uuid.UUID, caps []
 		    AND t.pool_id = COALESCE($3::uuid, (SELECT id FROM worker_pool WHERE is_default LIMIT 1))
 		    AND `+string(only)+`
 		    AND r.status='running'
+		    -- Fairness between companies: a company already running its share
+		    -- waits while others are served. Without a cap, one company with
+		    -- a thousand queued tasks holds every worker and the rest sit
+		    -- still — which is what several clients scanning at once looks
+		    -- like. $6 <= 0 lifts it.
+		    AND ($6::int <= 0 OR (
+		      SELECT count(*) FROM scan_task t3
+		      JOIN scan_run r3 ON r3.id = t3.run_id
+		      WHERE t3.status IN ('leased','running') AND r3.scope_id = r.scope_id) < $6::int)
 		  ORDER BY
+		    -- Then round-robin across companies: fewest tasks in flight first,
+		    -- so work is spread rather than taken in the order it arrived.
+		    (SELECT count(*) FROM scan_task t4
+		       JOIN scan_run r4 ON r4.id = t4.run_id
+		       WHERE t4.status IN ('leased','running') AND r4.scope_id = r.scope_id),
 		    -- fairness: prefer tasks whose run_target has the fewest in-flight
 		    -- siblings, so one big target cannot starve the rest of a batch.
 		    (SELECT count(*) FROM scan_task t2
@@ -147,7 +161,7 @@ func (s *Store) LeaseTasksWhere(ctx context.Context, workerID uuid.UUID, caps []
 		  LIMIT $4
 		))
 		RETURNING id, run_id, stage, target, lease_token`,
-		workerID, caps, poolID, limit, leaseSecs)
+		workerID, caps, poolID, limit, leaseSecs, perCompany)
 	if err != nil {
 		return nil, err
 	}

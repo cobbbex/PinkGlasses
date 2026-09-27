@@ -18,6 +18,16 @@ type Dispatcher struct {
 	leaseTTL int // seconds
 	// bruteCap is how many dns_brute tasks one worker may hold at once.
 	bruteCap int
+	// perCompany caps how many tasks one company may have in flight across
+	// every worker, so several clients scanning at once share the fleet.
+	perCompany int
+}
+
+// WithCompanyCap sets how many tasks one company may have in flight at once.
+// Zero or less lifts the cap.
+func (d *Dispatcher) WithCompanyCap(n int) *Dispatcher {
+	d.perCompany = n
+	return d
 }
 
 // New builds a Dispatcher.
@@ -49,14 +59,14 @@ func (d *Dispatcher) Lease(ctx context.Context, workerID uuid.UUID, caps []strin
 		if n > limit {
 			n = limit
 		}
-		brute, err := d.st.LeaseTasksWhere(ctx, workerID, caps, poolID, n, d.leaseTTL, store.OnlyBrute)
+		brute, err := d.st.LeaseTasksWhere(ctx, workerID, caps, poolID, n, d.leaseTTL, store.OnlyBrute, d.perCompany)
 		if err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, brute...)
 	}
 	if rest := limit - len(jobs); rest > 0 {
-		more, err := d.st.LeaseTasksWhere(ctx, workerID, caps, poolID, rest, d.leaseTTL, store.NoBrute)
+		more, err := d.st.LeaseTasksWhere(ctx, workerID, caps, poolID, rest, d.leaseTTL, store.NoBrute, d.perCompany)
 		if err != nil {
 			return jobs, err
 		}
