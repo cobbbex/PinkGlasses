@@ -379,13 +379,6 @@ func (s *Store) RunningRuns(ctx context.Context) ([]domain.ScanRun, error) {
 	return out, rows.Err()
 }
 
-// TryAdvisoryLock grabs a session-level advisory lock so only one scheduler is
-// the leader (wiki/Architecture.md §3.3). Returns true if acquired.
-func (s *Store) TryAdvisoryLock(ctx context.Context, key int64) (bool, error) {
-	var ok bool
-	err := s.Pool.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, key).Scan(&ok)
-	return ok, err
-}
 
 // FailZombieRuns fails runs that have sat in 'queued' past the grace period
 // with no tasks at all.

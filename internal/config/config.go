@@ -107,7 +107,7 @@ func LoadScheduler() Scheduler {
 		Tick:             envDuration("ASM_SCHED_TICK", 15*time.Second),
 		ProvisionerURL:   env("ASM_PROVISIONER_URL", ""),
 		ProvisionerToken: env("ASM_PROVISIONER_TOKEN", ""),
-		MaxRunFleets:     envInt("ASM_MAX_RUN_FLEETS", 3),
+		MaxRunFleets:     envInt("ASM_MAX_RUN_FLEETS", 6),
 	}
 }
 

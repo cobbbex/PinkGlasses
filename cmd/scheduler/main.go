@@ -24,7 +24,6 @@ import (
 	"github.com/benlik386/pinkglasses/internal/wordlists"
 )
 
-const schedulerLockKey = 0x4153_4d31 // "ASM1"
 
 // cfgTick is the configured tick, reported on the health page.
 var cfgTick time.Duration
@@ -40,12 +39,6 @@ func main() {
 		os.Exit(1)
 	}
 	defer st.Close()
-
-	// Leader election via advisory lock: only one scheduler drives the loop.
-	locked, err := st.TryAdvisoryLock(ctx, schedulerLockKey)
-	if err != nil || !locked {
-		slog.Info("another scheduler holds the leader lock; standing by")
-	}
 
 	// Fetch any wordlist still missing its file (the shipped assetnote lists on
 	// first boot, or a retry after a failed download). Runs in the background so
@@ -67,8 +60,6 @@ func main() {
 	ln := launch.New(st, pl)
 	if fl.Enabled() {
 		slog.Info("run fleets enabled", "max_concurrent", cfg.MaxRunFleets)
-		// Containers whose run ended while this was not running.
-		go fl.SweepOrphans(ctx)
 	}
 
 	stop := make(chan os.Signal, 1)
@@ -77,10 +68,18 @@ func main() {
 	cfgTick = cfg.Tick
 	ticker := time.NewTicker(cfg.Tick)
 	defer ticker.Stop()
-	slog.Info("scheduler started", "tick", cfg.Tick)
+	host, _ := os.Hostname()
+	slog.Info("scheduler started", "tick", cfg.Tick, "instance", host)
 
 	sweepEvery := 5 * time.Minute
 	lastSweep := time.Now().Add(-sweepEvery)
+
+	// Exactly one scheduler plans work: two would start every scheduled scan
+	// twice and reap every lease twice. The lock lives in Postgres, so any
+	// number of copies may run; the others stand by and one takes over the
+	// moment the leader's connection is gone.
+	var leader *store.Leader
+	defer func() { leader.Release(context.Background()) }()
 
 	for {
 		select {
@@ -88,6 +87,27 @@ func main() {
 			slog.Info("scheduler stopping")
 			return
 		case <-ticker.C:
+			if leader != nil && !leader.Alive(ctx) {
+				slog.Warn("lost the leader lock: the database connection holding it is gone; standing by")
+				leader = nil
+			}
+			if leader == nil {
+				l, held, err := st.TryLeadScheduler(ctx)
+				switch {
+				case err != nil:
+					slog.Error("could not try for the leader lock", "err", err)
+					continue
+				case !held:
+					// Say so on the health page too, under this instance's name.
+					_ = st.BeatComponent(ctx, "scheduler-standby:"+host, map[string]any{"leader": false})
+					continue
+				}
+				leader = l
+				slog.Info("this instance is the scheduler leader", "instance", host)
+				if fl.Enabled() {
+					go fl.SweepOrphans(ctx)
+				}
+			}
 			ln.Due(ctx)
 			tick(ctx, st, pl, df, nt)
 			// After tick, so a run that just finished has its containers
@@ -104,7 +124,8 @@ func main() {
 
 func tick(ctx context.Context, st *store.Store, pl *planner.Planner, df *diff.Differ, nt *notify.Notifier) {
 	// Liveness for the health page: the scheduler has no endpoint to call.
-	_ = st.BeatComponent(ctx, "scheduler", map[string]any{"tick_s": cfgTick.Seconds()})
+	host, _ := os.Hostname()
+	_ = st.BeatComponent(ctx, "scheduler", map[string]any{"tick_s": cfgTick.Seconds(), "leader": true, "instance": host})
 	// 1. Reap expired leases so dead workers' tasks get reassigned. Each one
 	// is logged in full: a lease expires only when no heartbeat naming the
 	// task reached the gateway for the whole lease TTL, which is a worker

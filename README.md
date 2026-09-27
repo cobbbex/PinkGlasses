@@ -955,6 +955,14 @@ docker run --rm -v scan_tool_miniodata:/data -v "$PWD/backups:/b" alpine \
 docker compose up -d                                          # migrate brings the schema forward
 ```
 
+### Running a spare scheduler
+
+Exactly one scheduler plans work; two would start every scheduled scan twice. The lock
+that decides which one is a Postgres advisory lock, so any number of copies may run: the
+others stand by, appear on the System page as *scheduler (standby …)*, and one takes over
+within a tick of the leader's connection going away — a crash, a restart, a partition —
+with nothing to configure. `docker compose up -d --scale scheduler=2` runs a spare.
+
 ### The System page
 
 Administrators have **System** in the sidebar: each service of the install (api and its

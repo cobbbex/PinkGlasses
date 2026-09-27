@@ -1053,7 +1053,7 @@ Background in the local, git-ignored SCALING-NOTES.md.
       several standing workers for discovery (`ASM_STANDING_WORKERS`).
 - [ ] 27.3 **Fair across companies:** the queue rotates across companies by tasks in
       flight, and each company has a cap on tasks in flight (`ASM_TASKS_PER_COMPANY`).
-- [ ] 27.4 **Scheduler leader lock:** a Postgres advisory lock; a second scheduler
+- [x] 27.4 **Scheduler leader lock:** a Postgres advisory lock; a second scheduler
       stands by and takes over when the first stops.
 - [ ] 27.5 **Discovery on remote pools:** a pool of enrolled workers can be marked to
       take discovery work too, so scanning can move off the control-plane host.

@@ -130,7 +130,14 @@ func NewAgent(cfg AgentConfig) *Agent {
 			req.Header.Set("X-Worker-Credential", a.cred)
 		}
 	}
-	a.spool = newSpool(envOr("ASM_SPOOL_DIR", "/var/cache/asm/spool"))
+	// One subdirectory per worker: several standing workers share the spool
+	// volume, and a batch one worker could not deliver must be replayed by
+	// that worker, whose lease it was — another would be refused.
+	spoolDir := envOr("ASM_SPOOL_DIR", "/var/cache/asm/spool")
+	if host, err := os.Hostname(); err == nil && host != "" {
+		spoolDir = filepath.Join(spoolDir, host)
+	}
+	a.spool = newSpool(spoolDir)
 	if n := len(a.spool.pending()); n > 0 {
 		slog.Info("results spooled by a previous run are waiting", "batches", n)
 	}

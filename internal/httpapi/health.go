@@ -65,6 +65,24 @@ func (s *Server) systemHealth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Scheduler standbys: copies that run without the leader lock, ready to
+	// take over. Listed so an operator can see the spare exists.
+	for name, b := range beats {
+		if !strings.HasPrefix(name, "scheduler-standby:") {
+			continue
+		}
+		age := time.Since(b.LastSeen)
+		if age > 10*time.Minute {
+			continue // gone for good; not worth a row
+		}
+		st := "ok"
+		if age > 90*time.Second {
+			st = "degraded"
+		}
+		comps = append(comps, component{Name: "scheduler (standby " + strings.TrimPrefix(name, "scheduler-standby:") + ")", Status: st,
+			Detail: "standing by, last heartbeat " + age.Round(time.Second).String() + " ago"})
+	}
+
 	// Backups: the backup service reports each finished set, with how often
 	// it runs; overdue by half an interval is worth a look, by two is down.
 	if b, ok := beats["backup"]; !ok {
