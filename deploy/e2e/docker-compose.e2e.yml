@@ -26,10 +26,20 @@ services:
       - "e2e-wordlistcache:/var/cache/asm/wordlists"
       - "e2e-spool:/var/cache/asm/spool"
 
-  # What the test scans: one web server on the same network.
+  # What the test scans: one web server on the same network, serving both
+  # plain HTTP and HTTPS with a certificate that expires in seven days — so
+  # the run has something to identify and something to raise a finding about.
   e2e-target:
     image: nginx:alpine
     restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache openssl >/dev/null 2>&1
+        openssl req -x509 -newkey rsa:2048 -nodes -days 7           -subj "/CN=e2e.test" -keyout /etc/ssl/e2e.key -out /etc/ssl/e2e.crt >/dev/null 2>&1
+        printf 'server {\n listen 443 ssl;\n ssl_certificate /etc/ssl/e2e.crt;\n ssl_certificate_key /etc/ssl/e2e.key;\n root /usr/share/nginx/html;\n}\n'           > /etc/nginx/conf.d/tls.conf
+        exec nginx -g "daemon off;"
 
 volumes:
   e2e-pgdata:

@@ -709,6 +709,15 @@ narrow the query by it: `*` → click *nginx* → click *443* is a three-click a
 nginx ports do we expose on 443, and what do they say". A value with spaces is quoted,
 `title:"403 Forbidden"`, and that is what clicking a facet writes.
 
+### Certificate findings
+
+A certificate carries the one thing a scan learns with a deadline on it. When the service
+probe reads one, it raises a finding rated by how much time is left: **high** once it has
+expired, **medium** inside 14 days, **low** inside 30, and **low** for a self-signed
+certificate that is otherwise healthy. The days remaining are in the finding's evidence
+rather than its title, so the finding persists across runs and resolves when the
+certificate is renewed instead of being replaced by a new one every day.
+
 ## Finding history
 
 Scanning the same host again does not overwrite what the last scan knew. Every run

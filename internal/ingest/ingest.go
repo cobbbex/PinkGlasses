@@ -256,6 +256,12 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 			if err := in.st.UpsertServiceObservation(ctx, svcID, runID, workerID, so); err != nil {
 				return sum, err
 			}
+			// A date the certificate stops working on is the one thing a scan
+			// learns with a deadline attached; raise it where findings live
+			// rather than leaving it in the TLS details.
+			for _, cf := range certFindings(o.NotAfter, o.SubjectCN, o.Issuer, norm(o.Host), now) {
+				in.finding(ctx, runID, scopeID, svcID, "service", cf.Kind, cf.Severity, cf.Title, cf.Evidence, now)
+			}
 
 		case scanproto.ObsTech:
 			svcID, err := in.serviceID(ctx, scopeID, o.IP, o.Port, "tcp", "open", now)

@@ -1021,7 +1021,7 @@ Order of work: what protects the data and speeds diagnosis first.
       say when a redeploy needs a migration or a browser reload; a first tag.
 - [x] 26.5 **HTTPS in the default deployment.** Optional Caddy service with automatic
       certificates in front of the api, `/mcp` and SSE unbuffered.
-- [ ] 26.6 **Findings with real severity.** Expired and expiring certificates, exposed admin
+- [x] 26.6 **Findings with real severity** (certificates; the rest remain ideas). Expired and expiring certificates, exposed admin
       panels, default pages, outdated server versions, services that newly appeared.
 - [x] 26.7 **Resolver health check.** Test the resolver list regularly; drop resolvers that lie
       or time out, so brute-force false positives stop at the source.

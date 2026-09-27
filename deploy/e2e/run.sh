@@ -121,7 +121,7 @@ RUN=$(api POST "/scopes/$SCOPE/runs" \
   "{\"profile\":\"standard\",\"all\":true,\"exit\":\"remote\",\"pool_id\":\"$POOL\",
     \"params\":{\"subfinder_enabled\":\"false\",\"dns_bruteforce\":\"false\",
                 \"gobuster_enabled\":\"false\",\"katana_enabled\":\"false\",
-                \"nuclei_enabled\":\"false\",\"ports\":\"top-100\"}}")
+                \"nuclei_enabled\":\"false\",\"ports\":\"top-1000\"}}")
 RUN_ID=$(echo "$RUN" | jget "['id']" 2>/dev/null) || fail "the scan was refused: $RUN"
 echo "run $RUN_ID"
 
@@ -148,6 +148,19 @@ assert any((r.get('product') or '').lower().startswith('nginx') for r in rows), 
     'no service was identified as nginx'
 print('OK: port 80 open and identified as nginx')
 " || fail "the scan did not find the target's web server"
+
+say "the certificate it found"
+api GET "/scopes/$SCOPE/findings" | python3 -c "
+import json, sys
+fs = json.load(sys.stdin) or []
+certs = [f for f in fs if f['kind'].startswith('tls_certificate')]
+for f in certs:
+    print(' ', f['severity'], f['title'], '|', (f.get('evidence') or {}).get('days_left'), 'days left')
+assert certs, 'the target serves a certificate expiring in 7 days; no finding was raised'
+assert any(f['kind'] == 'tls_certificate_expiring' and f['severity'] == 'medium' for f in certs), \
+    f'expected a medium expiring-certificate finding, got {[(f[\"kind\"], f[\"severity\"]) for f in certs]}'
+print('OK: the expiring certificate was found and rated medium')
+" || fail "the expiring certificate was not reported"
 
 say "the run's own record"
 api GET "/runs/$RUN_ID/activity" | python3 -c "
