@@ -1049,7 +1049,7 @@ Background in the local, git-ignored SCALING-NOTES.md.
 - [x] 27.1 **Fleet registration window opens when the workers are built**, not when the
       run starts — a run queued behind the fleet ceiling for over 30 minutes gets its
       workers refused with 401. (Open: not done in this session.)
-- [ ] 27.2 **More capacity by default:** more run slots (`ASM_MAX_RUN_FLEETS`) and
+- [x] 27.2 **More capacity by default:** more run slots (`ASM_MAX_RUN_FLEETS`) and
       several standing workers for discovery (`ASM_STANDING_WORKERS`).
 - [x] 27.3 **Fair across companies:** the queue rotates across companies by tasks in
       flight, and each company has a cap on tasks in flight (`ASM_TASKS_PER_COMPANY`).
@@ -1057,4 +1057,6 @@ Background in the local, git-ignored SCALING-NOTES.md.
       stands by and takes over when the first stops.
 - [x] 27.5 **Discovery on remote pools:** a pool of enrolled workers can be marked to
       take discovery work too, so scanning can move off the control-plane host.
-- [ ] 27.6 **Test: four or more runs at the same time.**
+- [x] 27.6 **Test: four or more runs at the same time.** Five companies started together on
+      2026-09-28: all five completed, work was shared across them throughout (lanet.ua 3,
+      zimbra 1, load-a 1, load-b 1 at the peak), nothing was left pending and no task failed.
