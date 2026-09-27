@@ -379,7 +379,6 @@ func (s *Store) RunningRuns(ctx context.Context) ([]domain.ScanRun, error) {
 	return out, rows.Err()
 }
 
-
 // FailZombieRuns fails runs that have sat in 'queued' past the grace period
 // with no tasks at all.
 //

@@ -24,7 +24,6 @@ import (
 	"github.com/benlik386/pinkglasses/internal/wordlists"
 )
 
-
 // cfgTick is the configured tick, reported on the health page.
 var cfgTick time.Duration
 
