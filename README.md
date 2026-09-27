@@ -1018,6 +1018,15 @@ snippets and a downloadable **skill** — a folder that teaches an AI client how
 this server, with a tool reference generated from the server itself. See the wiki page
 [MCP server](wiki/MCP.md).
 
+## End-to-end test
+
+`deploy/e2e/run.sh` is the check that the parts work together: it brings the whole stack
+up as its own compose project with its own volumes, starts a web server beside it, enrols
+and approves a worker, scans that server through the remote pool, and asserts the run
+completed with port 80 found and identified as nginx. It leaves a real install on the same
+machine alone. `E2E_KEEP=1 deploy/e2e/run.sh` leaves it running to look at. CI runs it on
+every push to main.
+
 ## Develop
 
 **The wiki is mirrored from `wiki/`.** The pages under `wiki/` are the GitHub wiki: `Home.md`

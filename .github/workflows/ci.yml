@@ -7,6 +7,8 @@
 #             agreeing with the subfinder sources the worker reads.
 #   web     — the SPA type-checks and builds.
 #   docker  — the control-plane image builds and the compose file is valid.
+#   e2e     — the whole stack scans a web server running beside it, on pushes
+#             to main: it builds the worker image, so it is slow.
 # The worker image, which pulls a dozen tool images, builds only on pushes to
 # main: it is slow and a pull request rarely touches it.
 name: CI
@@ -98,3 +100,18 @@ jobs:
           push: false
           cache-from: type=gha,scope=worker
           cache-to: type=gha,mode=max,scope=worker
+
+  e2e:
+    name: End to end — scan a target beside the stack
+    # Builds the worker image, so it runs where worker-image already does.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: bring the stack up, scan, and check what it found
+        run: ./deploy/e2e/run.sh
+      - name: logs, if it failed
+        if: failure()
+        run: docker compose -p pinkglasses-e2e -f docker-compose.yml -f deploy/e2e/docker-compose.e2e.yml logs --tail 200

@@ -1,0 +1,38 @@
+# Overrides for the end-to-end test (deploy/e2e/run.sh).
+#
+# The test runs as its own compose project against its own volumes, so it can
+# never touch a real install's database or artifacts: the volume names in the
+# main file are pinned, which a different project name alone would not change.
+# Only the api and the gateway are published, on the loopback.
+services:
+  postgres:
+    volumes: ["e2e-pgdata:/var/lib/postgresql/data"]
+  minio:
+    volumes: ["e2e-miniodata:/data"]
+  api:
+    environment:
+      ASM_DEFAULT_ADMIN_PASSWORD: "${E2E_ADMIN_PASSWORD:?set by run.sh}"
+      # The test's target is a container on this network, so a private address.
+      ASM_ALLOW_PRIVATE_TARGETS: "true"
+  scheduler:
+    environment:
+      ASM_ALLOW_PRIVATE_TARGETS: "true"
+      # A short tick: the test waits on the scheduler for every step.
+      ASM_SCHED_TICK: "5s"
+  worker:
+    deploy:
+      replicas: 1
+    volumes:
+      - "e2e-wordlistcache:/var/cache/asm/wordlists"
+      - "e2e-spool:/var/cache/asm/spool"
+
+  # What the test scans: one web server on the same network.
+  e2e-target:
+    image: nginx:alpine
+    restart: unless-stopped
+
+volumes:
+  e2e-pgdata:
+  e2e-miniodata:
+  e2e-wordlistcache:
+  e2e-spool:

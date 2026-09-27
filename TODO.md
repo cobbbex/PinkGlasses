@@ -1031,7 +1031,7 @@ Order of work: what protects the data and speeds diagnosis first.
       surface and what changed over a period.
 - [x] 26.10 **Column choice and fit-to-screen on every table** — Findings, Search, Runs — as on
       Hosts.
-- [ ] 26.11 **End-to-end test in CI.** Start the stack in compose, scan a local test target,
+- [x] 26.11 **End-to-end test in CI.** Start the stack in compose, scan a local test target,
       assert the run completes with the expected services.
 
 Asked 2026-09-24: private companies. scope.visibility (shared | private) and scope_member;
