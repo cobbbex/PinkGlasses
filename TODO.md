@@ -1023,7 +1023,7 @@ Order of work: what protects the data and speeds diagnosis first.
       certificates in front of the api, `/mcp` and SSE unbuffered.
 - [ ] 26.6 **Findings with real severity.** Expired and expiring certificates, exposed admin
       panels, default pages, outdated server versions, services that newly appeared.
-- [ ] 26.7 **Resolver health check.** Test the resolver list regularly; drop resolvers that lie
+- [x] 26.7 **Resolver health check.** Test the resolver list regularly; drop resolvers that lie
       or time out, so brute-force false positives stop at the source.
 - [x] 26.8 **Alerts that matter.** New open port, new subdomain, certificate expiring within 14
       days, with a daily digest.

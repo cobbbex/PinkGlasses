@@ -65,6 +65,20 @@ func (s *Scanner) dnsBrute(ctx context.Context, job scanproto.Job) ([]scanproto.
 		resolvers = sub
 		slog.Info("dns_brute resolvers", "using", n, "cap", maxRes)
 	}
+	// Drop the ones that answer for names that do not exist before the list
+	// is used: those turn a wordlist into thousands of hosts that are not
+	// there. One query each, in parallel, so a few hundred take seconds.
+	if pr.boolVal("shuffledns_check_resolvers", true) {
+		if ok, kept, dropped, err := vettedResolvers(ctx, resolvers, 64); err != nil {
+			slog.Warn("could not check the resolvers; using the list as it is", "err", err)
+		} else if ok != "" {
+			defer os.Remove(ok)
+			resolvers = ok
+			slog.Info("dns_brute resolvers checked", "kept", kept, "dropped", dropped)
+		} else {
+			slog.Info("dns_brute resolvers checked", "kept", kept, "dropped", dropped)
+		}
+	}
 	slog.Info("dns_brute starting", "domain", root, "wordlist", job.Params.WordlistName,
 		"names", names, "threads", threads, "budget", budget.String())
 	// No -mode flag: this shuffledns build rejects it and exits with a usage

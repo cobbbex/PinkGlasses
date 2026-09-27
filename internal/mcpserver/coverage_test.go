@@ -27,7 +27,7 @@ var notExposed = map[string]string{
 	"GET /tokens":                               "API tokens are credentials; the UI issues and revokes them",
 	"POST /tokens":                              "same",
 	"DELETE /tokens/{tokenID}":                  "same",
-	"GET /scopes/{scopeID}/report":               "a report is a page for a person to read or print",
+	"GET /scopes/{scopeID}/report":              "a report is a page for a person to read or print",
 	"GET /scopes/{scopeID}/access":              "who a company is shared with is managed by people in the UI",
 	"POST /scopes/{scopeID}/members":            "same",
 	"DELETE /scopes/{scopeID}/members/{userID}": "same",

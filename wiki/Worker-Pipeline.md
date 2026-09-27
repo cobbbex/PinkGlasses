@@ -93,9 +93,15 @@ machine as the database and the web app. Four limits keep that in bounds:
   default 2 and 2g) and on each run's own workers (`ASM_FLEET_WORKER_CPUS`,
   `ASM_FLEET_WORKER_MEMORY_MB` on the provisioner, default 2 and 2048).
 
-Every hit is **confirmed through the worker's own resolution** before it is reported: a
-public resolver list always holds some that answer for names that do not exist, and only
-a name that resolves again through trusted resolvers counts.
+Two things keep the results honest, because a public resolver list always holds some
+resolvers that answer for names that do not exist — a captive portal, an ad injector:
+
+- **The resolvers are checked first.** Each is asked for a name that cannot exist, and the
+  ones that answer anyway, or do not answer at all, are dropped before the run. On the
+  shipped trickest list this removes roughly half. *Check resolvers first* under Customize
+  scanning turns it off.
+- **Every hit is confirmed** through the worker's own resolution before it is reported;
+  only a name that resolves again counts.
 
 Each task has a time budget that grows with its list and shrinks with its rate — an hour
 plus twice the list's length at ten queries a second per in-flight slot, so the 9.5M-name
