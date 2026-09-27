@@ -35,6 +35,7 @@ export default function Dashboard({ scopeID }: { scopeID: string }) {
           <h2>Dashboard</h2>
           <div className="sub">Your External Attack Surface at a glance.</div>
         </div>
+        <ReportButton scopeID={scopeID} />
       </div>
 
       <div className="cards">
@@ -224,5 +225,26 @@ function GroupDialog({ scopeID, open, group, onClose, onDone }: {
         </span>
       </label>
     </Modal>
+  );
+}
+
+/**
+ * Opens a printable report of this company: what it exposes now and what
+ * changed over a period. It is a plain page with no scripts, so a browser's
+ * "Print → Save as PDF" turns it into something to send on.
+ */
+function ReportButton({ scopeID }: { scopeID: string }) {
+  const [days, setDays] = useState(30);
+  return (
+    <div className="row" style={{ margin: 0 }}>
+      <select value={days} onChange={(e) => setDays(Number(e.target.value))}
+              title="How far back the report's changes reach">
+        <option value={7}>last 7 days</option>
+        <option value={30}>last 30 days</option>
+        <option value={90}>last 90 days</option>
+      </select>
+      <a className="btn-link" href={`/api/v1/scopes/${scopeID}/report?days=${days}`}
+         target="_blank" rel="noreferrer" title="A printable report of this company">↗ Report</a>
+    </div>
   );
 }

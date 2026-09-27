@@ -91,6 +91,8 @@ func (s *Server) Routes() http.Handler {
 				v.Get("/scopes/{scopeID}/targets", s.listTargets)
 				v.Get("/scopes/{scopeID}/target-groups", s.listTargetGroups)
 				v.Get("/scopes/{scopeID}/footprint", s.scopeFootprint)
+				// A printable report of what a company exposes and what changed.
+				v.Get("/scopes/{scopeID}/report", s.scopeReport)
 				// Who a company is shared with; the owner changes it.
 				v.Get("/scopes/{scopeID}/access", s.scopeAccess)
 

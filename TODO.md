@@ -1027,7 +1027,7 @@ Order of work: what protects the data and speeds diagnosis first.
       or time out, so brute-force false positives stop at the source.
 - [x] 26.8 **Alerts that matter.** New open port, new subdomain, certificate expiring within 14
       days, with a daily digest.
-- [ ] 26.9 **Reports.** Per-company HTML report (printable to PDF) of the current attack
+- [x] 26.9 **Reports.** Per-company HTML report (printable to PDF) of the current attack
       surface and what changed over a period.
 - [x] 26.10 **Column choice and fit-to-screen on every table** — Findings, Search, Runs — as on
       Hosts.

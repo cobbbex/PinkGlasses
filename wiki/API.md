@@ -85,6 +85,7 @@ asset route is under a scope.
 | `GET /scopes` | viewer | all companies; `?mine=true` narrows to ones you created |
 | `POST /scopes` | operator | `{name}` |
 | `GET /scopes/{scopeID}/footprint` | viewer | what the company owns, as counts: target groups, targets, names, hosts, services, runs, findings, screenshots, schedules, alert channels — and `active_runs` / `live_fleets`, which block a delete |
+| `GET /scopes/{scopeID}/report` | viewer | `?days=30` (1–365): a printable HTML report of the company: what it exposes now, what changed over the period, findings still present, names and hosts. No scripts and no external requests, so it saves and prints to PDF |
 | `GET /scopes/{scopeID}/access` | viewer | `{visibility, owner, owner_id, members: [{user_id, username, role, added_by, created_at}], can_manage}` |
 | `POST /scopes/{scopeID}/members` | operator | `{username}` — share the company with that account; the owner only (an administrator once the owner's account is gone). Answers with the access record |
 | `DELETE /scopes/{scopeID}/members/{userID}` | operator | stop sharing with that account; the owner, or the member themselves |

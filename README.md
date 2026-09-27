@@ -739,6 +739,16 @@ The differ records `finding_gone` and `finding_returned` alongside `new_finding`
 The one worth an alert is `finding_returned` — a new finding is noise until triaged,
 but something that was gone and is back is a regression.
 
+## Reports
+
+**Report** on the Dashboard opens a printable page for the selected company: what it
+exposes now, what changed over the last 7, 30 or 90 days, the findings still present, and
+its names and hosts. It is one self-contained HTML file with no scripts and no external
+requests, served under a policy that allows nothing but its own stylesheet, so a browser's
+*Print → Save as PDF* turns it into something to send to a client. Informational findings
+— the discovered paths, which run to hundreds on any crawlable site — are counted rather
+than listed, so the report leads with what someone would act on.
+
 ## Alerts
 
 **Alerts** is where a company's changes get sent. Add a channel — a Slack incoming
