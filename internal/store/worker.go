@@ -25,6 +25,17 @@ func (s *Store) CreateEnrollmentToken(ctx context.Context, hash []byte, poolID *
 	return id, err
 }
 
+// ExtendEnrollmentWindow moves an enrolment record's expiry to ttl from now.
+// A run's workers are registered when the containers are built, which can be
+// long after the run was requested if it waited for a slot; without this the
+// window had closed and the workers were turned away.
+func (s *Store) ExtendEnrollmentWindow(ctx context.Context, hash []byte, ttl time.Duration) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE enrollment_token SET expires_at = now() + $2::interval
+		WHERE token_hash = $1 AND revoked_at IS NULL`, hash, ttl.String())
+	return err
+}
+
 // EnsureBootstrapToken upserts the long-lived, multi-use token that local
 // workers use to self-enroll. It is shared with worker containers over the
 // internal network, so scaling with `docker compose --scale` needs no manual

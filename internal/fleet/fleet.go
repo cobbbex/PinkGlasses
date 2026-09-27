@@ -15,6 +15,7 @@ package fleet
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -111,8 +112,21 @@ func ceilingDecision(holding, max int) (wait bool, note string) {
 		"(ASM_MAX_RUN_FLEETS)", holding, max)
 }
 
+// enrollWindow is how long a run's workers have to register once their
+// containers exist. Generous: the gateway may be restarting, or the image
+// may still be pulling on a cold host.
+const enrollWindow = 30 * time.Minute
+
 // build brings up one fleet, reporting whether it now holds containers.
 func (m *Manager) build(ctx context.Context, f store.RunFleet) bool {
+	// The run may have waited here for a slot. Its workers register when the
+	// containers come up, so the window has to start now, not when the run
+	// was requested — a run queued past the old window had its workers turned
+	// away and never scanned.
+	sum := sha256.Sum256([]byte(f.EnrollToken))
+	if err := m.st.ExtendEnrollmentWindow(ctx, sum[:], enrollWindow); err != nil {
+		slog.Warn("could not extend a fleet's enrolment window", "run", f.RunID, "err", err)
+	}
 	req := map[string]any{
 		"run_id":       f.RunID.String(),
 		"workers":      f.Workers,

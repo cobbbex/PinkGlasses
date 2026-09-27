@@ -565,6 +565,7 @@ The run fails with the gateway's own output:
 | `…stopped before its tunnel came up: …` | openvpn's or wg's own error — read it literally |
 | `the VPN configuration could not be decrypted` | `ASM_SECRET_KEY` differs from the one it was stored under |
 | `the provisioner is unreachable` | Provisioner settings missing on the **scheduler** |
+| `enroll rejected: 401 Unauthorized`, over and over, from a run's own workers | Fixed 2026-09-28: a run that waited for a free slot had its workers' registration window close before the containers existed. Redeploy; older builds need the run restarted once a slot is free |
 | `this run's own workers stopped reporting for 2m0s` | The tunnel dropped mid-scan, the gateway container stopped, or the control plane was down (a redeploy) for that long. The message goes on to say what the containers showed — a gateway that exited, was killed or went unhealthy, a worker killed for memory, or all still running (the control plane was away) — and the run view keeps each container's state and last log lines under *The containers as they were before removal* |
 
 ### If a task says "lease expired"

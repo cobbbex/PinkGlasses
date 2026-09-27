@@ -1046,7 +1046,7 @@ owner deletes a private company, an admin a shared one. Tokens and MCP act as th
 
 Background in the local, git-ignored SCALING-NOTES.md.
 
-- [ ] 27.1 **Fleet registration token issued when the workers are built**, not when the
+- [x] 27.1 **Fleet registration window opens when the workers are built**, not when the
       run starts — a run queued behind the fleet ceiling for over 30 minutes gets its
       workers refused with 401. (Open: not done in this session.)
 - [ ] 27.2 **More capacity by default:** more run slots (`ASM_MAX_RUN_FLEETS`) and
