@@ -182,6 +182,8 @@ function Shell({ me, defaultPw, onSignedOut }: {
     }
   }
 
+  const [retaining, setRetaining] = useState(false);
+
   const [deleting, setDeleting] = useState(false);
   async function removeCurrent() {
     const sc = scopes.find((s) => s.id === scopeID);
@@ -239,6 +241,7 @@ function Shell({ me, defaultPw, onSignedOut }: {
           onNew={() => setOpen(true)}
           onRename={atLeast(me.role, "operator") && scopeID ? openRename : undefined}
           onShare={scopeID ? () => setSharing(true) : undefined}
+          onRetention={atLeast(me.role, "operator") && scopeID ? () => setRetaining(true) : undefined}
           onDelete={scopeID && canDelete(scopes.find((s) => s.id === scopeID), me) ? () => setDeleting(true) : undefined}
           collapsed={collapsed}
           mine={mine}
@@ -311,6 +314,18 @@ function Shell({ me, defaultPw, onSignedOut }: {
       {sharing && scopeID && scopes.find((s) => s.id === scopeID) && (
         <ShareCompany scope={scopes.find((s) => s.id === scopeID)!} meID={me.id}
           onClose={() => setSharing(false)} onChanged={reloadScopes} />
+      )}
+
+      {retaining && scopeID && scopes.find((s) => s.id === scopeID) && (
+        <KeepHistory
+          scope={scopes.find((s) => s.id === scopeID)!}
+          onClose={() => setRetaining(false)}
+          onSaved={(days) => {
+            const swap = (list: Scope[]) => list.map((s) => (s.id === scopeID ? { ...s, retention_days: days } : s));
+            setScopes(swap); setAllScopes(swap);
+            setRetaining(false);
+          }}
+        />
       )}
 
       {deleting && scopeID && (
@@ -507,6 +522,63 @@ function DefaultPasswordBanner() {
       for you — either way it has been seen by someone other than you. Change it under{" "}
       <strong>Change password</strong> at the foot of the sidebar.
     </div>
+  );
+}
+
+/**
+ * How long a company's scan history is kept. Old runs are what fills the disk
+ * on a busy install, so each company can be told to let go of them after a
+ * while; the scheduler sweeps every few minutes and removes the run with its
+ * tasks, observations and screenshots. The inventory — names, hosts, services,
+ * findings — is not history and stays, and the newest run of a company is
+ * always kept however old it is, so a company never loses its last picture.
+ */
+function KeepHistory({ scope, onClose, onSaved }: {
+  scope: Scope; onClose: () => void; onSaved: (days: number) => void;
+}) {
+  const toast = useToast();
+  const [days, setDays] = useState(scope.retention_days ?? 0);
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true);
+    try {
+      await api.setScopeRetention(scope.id, days);
+      toast("ok", days === 0
+        ? `${scope.name} keeps its whole run history`
+        : `${scope.name} keeps ${days} days of run history`);
+      onSaved(days);
+    } catch (e) {
+      toast("err", String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title={`Keep run history — ${scope.name}`} open onClose={onClose}
+      footer={<>
+        <button className="ghost" onClick={onClose}>Cancel</button>
+        <button onClick={save} disabled={busy || days === (scope.retention_days ?? 0)}>Save</button>
+      </>}
+    >
+      <div className="field">
+        <label>Runs older than</label>
+        <select value={days} onChange={(e) => setDays(Number(e.target.value))} autoFocus>
+          <option value={0}>keep everything</option>
+          <option value={30}>30 days</option>
+          <option value={90}>90 days</option>
+          <option value={180}>180 days</option>
+          <option value={365}>a year</option>
+        </select>
+        <div className="hint">
+          {days === 0
+            ? "Nothing is removed. Every run this company has ever made is kept, with its tasks, observations and screenshots."
+            : <>A run that ended more than {days} days ago is removed, with its tasks, observations and screenshots.
+               The company’s most recent run is always kept. Names, hosts, services and findings are the
+               inventory, not history, and are never touched.</>}
+        </div>
+      </div>
+    </Modal>
   );
 }
 

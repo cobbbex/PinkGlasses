@@ -20,6 +20,7 @@ import (
 	"github.com/benlik386/pinkglasses/internal/notify"
 	"github.com/benlik386/pinkglasses/internal/obj"
 	"github.com/benlik386/pinkglasses/internal/planner"
+	"github.com/benlik386/pinkglasses/internal/retention"
 	"github.com/benlik386/pinkglasses/internal/store"
 	"github.com/benlik386/pinkglasses/internal/wordlists"
 )
@@ -50,6 +51,8 @@ func main() {
 	// Digests go out after the differ has recorded what a run changed. The
 	// senders existed since the first build; nothing called them.
 	nt := notify.New(st, os.Getenv("ASM_PUBLIC_URL"))
+	// Per-company retention: what a company no longer wants to keep.
+	pruner := retention.New(st, obj.New(objConfigFromEnv()), 0)
 	// Runs that bring up their own workers. The scheduler owns this rather than
 	// the api because it has to outlive the request that asked for it: the
 	// containers must come down when the run ends, whatever happened in between.
@@ -113,7 +116,7 @@ func main() {
 			// removed on this pass rather than the next one.
 			fl.Tick(ctx)
 			if time.Since(lastSweep) >= sweepEvery {
-				sweep(ctx, st, seeder, nt)
+				sweep(ctx, st, seeder, nt, pruner)
 				fl.SweepOrphans(ctx)
 				lastSweep = time.Now()
 			}
@@ -174,7 +177,9 @@ func tick(ctx context.Context, st *store.Store, pl *planner.Planner, df *diff.Di
 	}
 }
 
-func sweep(ctx context.Context, st *store.Store, seeder *wordlists.Seeder, nt *notify.Notifier) {
+func sweep(ctx context.Context, st *store.Store, seeder *wordlists.Seeder, nt *notify.Notifier, pr *retention.Pruner) {
+	// Runs past their company's retention, with their artifacts.
+	pr.Sweep(ctx)
 	// Daily digests, for channels that asked for one message a day rather
 	// than one per run.
 	if n, err := nt.SendDueDigests(ctx, time.Now()); err != nil {

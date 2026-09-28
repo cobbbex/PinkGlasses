@@ -1002,6 +1002,32 @@ worker and the rest waited — which is what several clients scanning together l
 The cap is approximate: a worker leasing a batch can exceed it slightly. Set it to 0 on an
 install with a single company.
 
+### How long history is kept
+
+Every run keeps its detail: its tasks, the observations it made, the change events it
+raised, its screenshots and raw tool output. On an install scanning many companies on a
+schedule, that detail is what fills the disk — it grows with clients times scans times
+time, while what a company actually exposes stays roughly the same size.
+
+Each company decides for itself. In the company menu in the sidebar, **Keep run history…**
+offers *keep everything* (the default) or 30, 90, 180 or 365 days; through the API it is
+`PATCH /scopes/{id}` with `{"retention_days": 90}` (0–3650, 0 keeping everything). The
+scheduler sweeps every five minutes, takes up to 25 runs past their company's retention,
+and removes each with its tasks, observations, change events and per-run finding sightings,
+then the screenshots and raw output it had in object storage.
+
+What stays:
+
+- **The inventory** — names, hosts, services, technologies and findings, with their
+  `first_seen` and `last_seen`. It is the current picture, not history.
+- **The newest run of the company**, however old it is. The next run compares against it;
+  losing it would make everything look new again.
+- **Runs still going.** Only a completed, failed or cancelled run is ever pruned.
+
+Turning it on for a company that has years of runs does not stall the scheduler: the cap
+per sweep works through them over the following hours. Pruning is not reversible — the
+nightly backup set is what a mistake is recovered from.
+
 ### Running a spare scheduler
 
 Exactly one scheduler plans work; two would start every scheduled scan twice. The lock

@@ -25,8 +25,8 @@ func (s *Store) CreateScope(ctx context.Context, name, createdBy string, ownerID
 		`INSERT INTO scope (name, created_by, owner_id, visibility) VALUES ($1,$2,$3,$4)
 		 RETURNING id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id, visibility, owner_id,
 		       COALESCE((SELECT username FROM app_user u WHERE u.id = scope.owner_id), ''),
-		       (SELECT count(*) FROM scope_member m WHERE m.scope_id = scope.id)`, name, createdBy, ownerID, visibility,
-	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID, &sc.Visibility, &sc.OwnerID, &sc.Owner, &sc.Members)
+		       (SELECT count(*) FROM scope_member m WHERE m.scope_id = scope.id), retention_days`, name, createdBy, ownerID, visibility,
+	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID, &sc.Visibility, &sc.OwnerID, &sc.Owner, &sc.Members, &sc.RetentionDays)
 	return sc, err
 }
 
@@ -62,7 +62,7 @@ func (s *Store) ListScopes(ctx context.Context, owner string, viewer uuid.UUID) 
 	rows, err := s.Pool.Query(ctx,
 		`SELECT id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id, visibility, owner_id,
 		       COALESCE((SELECT username FROM app_user u WHERE u.id = scope.owner_id), ''),
-		       (SELECT count(*) FROM scope_member m WHERE m.scope_id = scope.id) FROM scope
+		       (SELECT count(*) FROM scope_member m WHERE m.scope_id = scope.id), retention_days FROM scope
 		 WHERE ($1 = '' OR created_by = $1) AND scope_visible(scope.id, $2) ORDER BY created_at`, owner, viewer)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (s *Store) ListScopes(ctx context.Context, owner string, viewer uuid.UUID) 
 	var out []domain.Scope
 	for rows.Next() {
 		var sc domain.Scope
-		if err := rows.Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID, &sc.Visibility, &sc.OwnerID, &sc.Owner, &sc.Members); err != nil {
+		if err := rows.Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID, &sc.Visibility, &sc.OwnerID, &sc.Owner, &sc.Members, &sc.RetentionDays); err != nil {
 			return nil, err
 		}
 		out = append(out, sc)
@@ -85,8 +85,8 @@ func (s *Store) GetScope(ctx context.Context, id uuid.UUID) (domain.Scope, error
 	err := s.Pool.QueryRow(ctx,
 		`SELECT id, name, created_by, created_at, default_exit, default_vpn_config_id, default_pool_id, visibility, owner_id,
 		       COALESCE((SELECT username FROM app_user u WHERE u.id = scope.owner_id), ''),
-		       (SELECT count(*) FROM scope_member m WHERE m.scope_id = scope.id) FROM scope WHERE id=$1`, id,
-	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID, &sc.Visibility, &sc.OwnerID, &sc.Owner, &sc.Members)
+		       (SELECT count(*) FROM scope_member m WHERE m.scope_id = scope.id), retention_days FROM scope WHERE id=$1`, id,
+	).Scan(&sc.ID, &sc.Name, &sc.CreatedBy, &sc.CreatedAt, &sc.DefaultExit, &sc.DefaultVPNConfigID, &sc.DefaultPoolID, &sc.Visibility, &sc.OwnerID, &sc.Owner, &sc.Members, &sc.RetentionDays)
 	return sc, err
 }
 
@@ -375,4 +375,59 @@ func (s *Store) AddScopeMember(ctx context.Context, scopeID, userID uuid.UUID, a
 func (s *Store) RemoveScopeMember(ctx context.Context, scopeID, userID uuid.UUID) (bool, error) {
 	ct, err := s.Pool.Exec(ctx, `DELETE FROM scope_member WHERE scope_id=$1 AND user_id=$2`, scopeID, userID)
 	return ct.RowsAffected() > 0, err
+}
+
+// SetScopeRetention sets how long a company keeps finished runs' detail.
+// Zero keeps everything.
+func (s *Store) SetScopeRetention(ctx context.Context, id uuid.UUID, days int) error {
+	_, err := s.Pool.Exec(ctx, `UPDATE scope SET retention_days=$2 WHERE id=$1`, id, days)
+	return err
+}
+
+// PrunableRun is a finished run past its company's retention.
+type PrunableRun struct {
+	RunID   uuid.UUID
+	ScopeID uuid.UUID
+	Scope   string
+	Age     int // days
+}
+
+// RunsPastRetention lists finished runs older than their company's retention,
+// oldest first. A company with retention 0 keeps everything and never appears.
+//
+// A run still going is never listed whatever its age: pruning one would delete
+// the tasks its workers are reporting against. The newest finished run of a
+// company is also kept regardless, so a company always has one run to compare
+// the next against — losing that would make every finding look new.
+func (s *Store) RunsPastRetention(ctx context.Context, limit int) ([]PrunableRun, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.Pool.Query(ctx, `
+		WITH ranked AS (
+		  SELECT r.id, r.scope_id, sc.name, sc.retention_days,
+		         COALESCE(r.finished_at, r.created_at) AS ended,
+		         row_number() OVER (PARTITION BY r.scope_id
+		                            ORDER BY COALESCE(r.finished_at, r.created_at) DESC) AS recency
+		  FROM scan_run r JOIN scope sc ON sc.id = r.scope_id
+		  WHERE sc.retention_days > 0
+		    AND r.status IN ('completed','failed','cancelled'))
+		SELECT id, scope_id, name, EXTRACT(DAY FROM now() - ended)::int
+		FROM ranked
+		WHERE recency > 1 AND ended < now() - make_interval(days => retention_days)
+		ORDER BY ended
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []PrunableRun{}
+	for rows.Next() {
+		var p PrunableRun
+		if err := rows.Scan(&p.RunID, &p.ScopeID, &p.Scope, &p.Age); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }

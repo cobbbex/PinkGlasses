@@ -1060,3 +1060,20 @@ Background in the local, git-ignored SCALING-NOTES.md.
 - [x] 27.6 **Test: four or more runs at the same time.** Five companies started together on
       2026-09-28: all five completed, work was shared across them throughout (lanet.ua 3,
       zimbra 1, load-a 1, load-b 1 at the peak), nothing was left pending and no task failed.
+
+## Phase 28 — What a busy install needs next (agreed 2026-09-28)
+
+The bigger changes from SCALING-NOTES.md, in the order they hurt.
+
+- [x] 28.1 **Retention per company:** each company keeps its run history for as long as it
+      chooses (**Keep run history…**, or `retention_days` on `PATCH /scopes/{id}`); the
+      scheduler prunes finished runs past it — tasks, observations, change events and the
+      screenshots and raw output in object storage. The inventory and the company's most
+      recent run are never pruned. Tested 2026-09-28: a company set to 30 days lost its
+      120- and 60-day-old runs with both stored objects, kept the newest run, its hosts,
+      services and findings.
+- [ ] 28.2 **Several api copies behind a load balancer:** live run events fanned out from
+      Postgres notifications in every copy, and sign-in rate limiting counted in the
+      database rather than per process.
+- [ ] 28.3 **Metrics for alerting:** Prometheus metrics for queue age, failed runs, worker
+      count and backup age, so an existing monitoring stack can page someone.

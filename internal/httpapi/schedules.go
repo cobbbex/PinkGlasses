@@ -280,6 +280,7 @@ func (s *Server) patchScope(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Name               *string `json:"name"`
 		Visibility         *string `json:"visibility"`
+		RetentionDays      *int    `json:"retention_days"`
 		DefaultExit        *string `json:"default_exit"`
 		DefaultVPNConfigID *string `json:"default_vpn_config_id"`
 		DefaultPoolID      *string `json:"default_pool_id"`
@@ -326,6 +327,18 @@ func (s *Server) patchScope(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.auditReq(r, "scope.visibility", scopeID.String(), map[string]any{"visibility": v})
+	}
+	if in.RetentionDays != nil {
+		d := *in.RetentionDays
+		if d < 0 || d > 3650 {
+			writeErr(w, http.StatusBadRequest, "retention_days must be 0 (keep everything) to 3650")
+			return
+		}
+		if err := s.st.SetScopeRetention(r.Context(), scopeID, d); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.auditReq(r, "scope.retention", scopeID.String(), map[string]any{"retention_days": d})
 	}
 	if in.DefaultExit == nil && in.DefaultVPNConfigID == nil && in.DefaultPoolID == nil {
 		sc, err := s.st.GetScope(r.Context(), scopeID)

@@ -1445,3 +1445,7 @@ egress IPs), scheduled reports, audit log UI, retention/rollup, OIDC, credential
    channel in one process. Beyond that it needs horizontal scaling with sticky routing or a
    shared connection registry — worth knowing before M3.
 5. **Retention** — how long must historical observations be kept for audit?
+   *Answered by making it the client's choice:* each company carries `retention_days`
+   (0 keeps everything, the default), the scheduler prunes finished runs past it — their
+   tasks, observations, change events and stored artifacts — and never the inventory or
+   the company's most recent run. See *How long history is kept* in the README.

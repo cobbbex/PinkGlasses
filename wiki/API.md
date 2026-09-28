@@ -159,7 +159,7 @@ started, so a slow run does not drift the cadence.
 | `POST /scopes/{scopeID}/schedules` | operator | `{profile, target_group_ids, targets, exit, vpn_config_id \| pool_id, worker_count, every_hours, start_at, profile_id, params, wordlist_ids, enabled}` — `targets` narrows each run to those values, empty is every non-excluded target at the time — `every_hours` 1…8784 repeats from `start_at` (default now); `0` runs once at `start_at`, then disables itself |
 | `PATCH /schedules/{scheduleID}` | operator | any of the same fields; disabling stops it without losing it; `start_at` moves the next run |
 | `DELETE /schedules/{scheduleID}` | operator | |
-| `PATCH /scopes/{scopeID}` | operator | `{visibility}` (`shared` or `private`, the owner only) changes who can see it; `{name}` renames the company (everything it owns stays; audited as `scope.rename`); `{default_exit, default_vpn_config_id, default_pool_id}` sets the exit the launch dialog pre-selects. Each part applies only when sent |
+| `PATCH /scopes/{scopeID}` | operator | `{retention_days}` (0–3650; 0 keeps everything) sets how long finished runs keep their detail — tasks, per-run observations, change events, screenshots and raw output; the inventory itself is never pruned. `{visibility}` (`shared` or `private`, the owner only) changes who can see it; `{name}` renames the company (everything it owns stays; audited as `scope.rename`); `{default_exit, default_vpn_config_id, default_pool_id}` sets the exit the launch dialog pre-selects. Each part applies only when sent |
 
 Runs a schedule starts carry `trigger: "scheduled"`.
 
