@@ -65,6 +65,33 @@ func (s *Server) systemHealth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Other api copies: this request was answered by one of them, and the
+	// rest report themselves under their own host name. Several copies behind
+	// a load balancer is how an install survives one of them restarting.
+	self, _ := os.Hostname()
+	for name, b := range beats {
+		if !strings.HasPrefix(name, "api:") {
+			continue
+		}
+		host := strings.TrimPrefix(name, "api:")
+		if host == self {
+			continue // the one answering, already listed above
+		}
+		age := time.Since(b.LastSeen)
+		if age > 10*time.Minute {
+			continue // gone; not worth a row
+		}
+		st := "ok"
+		if age > 90*time.Second {
+			st = "down"
+		} else if age > 45*time.Second {
+			st = "degraded"
+		}
+		comps = append(comps, component{Name: "api (" + host + ")", Status: st,
+			Detail: "another copy, last heartbeat " + age.Round(time.Second).String() + " ago",
+			Extra:  map[string]any{"detail": b.Detail}})
+	}
+
 	// Scheduler standbys: copies that run without the leader lock, ready to
 	// take over. Listed so an operator can see the spare exists.
 	for name, b := range beats {

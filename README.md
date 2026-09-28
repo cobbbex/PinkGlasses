@@ -471,7 +471,8 @@ punctuation, and composition rules mostly produce `Password1!`. They are stored
 as argon2id.
 
 Sign-in is rate limited to 10 attempts per 15 minutes, counted per username *and*
-per source address. An unknown username takes the same time and gives the same
+per source address, in the database rather than in each api process — so the limit
+means the same whether one copy of the app is running or four. An unknown username takes the same time and gives the same
 answer as a wrong password, so the login form does not tell you who has an
 account.
 
@@ -1035,6 +1036,40 @@ that decides which one is a Postgres advisory lock, so any number of copies may 
 others stand by, appear on the System page as *scheduler (standby …)*, and one takes over
 within a tick of the leader's connection going away — a crash, a restart, a partition —
 with nothing to configure. `docker compose up -d --scale scheduler=2` runs a spare.
+
+### Running several copies of the app
+
+One `api` container serves the app, the REST API, the run event streams and MCP. It holds
+nothing that only it knows, so more than one may run:
+
+- **Sessions and tokens** are rows in the database, so a browser is signed in whichever
+  copy answers.
+- **Live run events** reach every copy. They are raised as Postgres notifications by
+  triggers on `scan_task`, `scan_run` and `run_fleet`, and each copy listens and fans them
+  out to its own browsers — so a page watching a run stays live wherever the load balancer
+  sent it.
+- **Sign-in attempts** are counted in the database, per username and per source address.
+  Counting them per process would have meant that two copies allowed twice the guesses.
+
+With the https profile, Caddy is the load balancer. Give the copies a host port each and
+scale:
+
+```bash
+# .env
+ASM_API_PUBLISH=127.0.0.1:8080-8083     # one port per copy, loopback only
+
+docker compose --profile https up -d --scale api=2
+```
+
+Caddy looks the copies up in Docker's own DNS every 10 seconds and rotates between them,
+so scaling up or down needs nothing edited, and a copy that is restarting is skipped
+rather than answering 502. Behind another proxy, point it at the published ports. The
+**System page** lists each copy by host name with its last heartbeat, so you can see they
+are all there.
+
+What is *not* several: the **gateway** holds its workers' connections in memory, so
+workers must keep talking to one gateway; and exactly one **scheduler** plans work, with
+the rest standing by (above).
 
 ### The System page
 

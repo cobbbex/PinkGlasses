@@ -71,7 +71,9 @@ services:
       ASM_PROVISIONER_URL: "http://provisioner:8091"
       ASM_PROVISIONER_TOKEN: "${ASM_PROVISIONER_TOKEN:-change-me-provisioner}"
     # Set ASM_API_PUBLISH=127.0.0.1:8080 behind the https profile, so the app
-    # is reachable only through Caddy.
+    # is reachable only through Caddy. To run several copies
+    # (docker compose up -d --scale api=2) give each one a host port from a
+    # range: ASM_API_PUBLISH=127.0.0.1:8080-8083. Caddy finds them all.
     ports: ["${ASM_API_PUBLISH:-8080}:8080"]
     depends_on:
       postgres: {condition: service_healthy}

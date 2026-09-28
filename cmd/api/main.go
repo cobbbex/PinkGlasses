@@ -19,6 +19,7 @@ import (
 	"github.com/benlik386/pinkglasses/internal/httpapi"
 	"github.com/benlik386/pinkglasses/internal/mcpserver"
 	"github.com/benlik386/pinkglasses/internal/store"
+	"github.com/benlik386/pinkglasses/internal/version"
 )
 
 func main() {
@@ -39,6 +40,10 @@ func main() {
 	// scan_task, scan_run and run_fleet — from whichever process made the
 	// change — and are fanned out to browsers subscribed to that run.
 	go st.Listen(ctx, "run_events", api.PublishRunEvent)
+	// This copy's own heartbeat. Several api copies may run behind a load
+	// balancer; the System page shows the one answering the request, and each
+	// of the others by name from these rows.
+	go beat(ctx, st)
 	mux := http.NewServeMux()
 	routes := api.Routes()
 	mux.Handle("/api/", routes)
@@ -74,6 +79,26 @@ func main() {
 	shutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutCtx)
+}
+
+// beat reports this copy of the api as alive every 20 seconds, under its own
+// host name, so the System page can list the copies that are not the one
+// answering the request.
+func beat(ctx context.Context, st *store.Store) {
+	host, _ := os.Hostname()
+	name := "api:" + host
+	t := time.NewTicker(20 * time.Second)
+	defer t.Stop()
+	for {
+		_ = st.BeatComponent(ctx, name, map[string]any{
+			"version": version.Version, "commit": version.Commit, "instance": host,
+		})
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }
 
 // mcpProvider describes the MCP server to the router's MCP page.

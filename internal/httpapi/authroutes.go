@@ -91,7 +91,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	// walked around by varying the other.
 	ipKey := "ip:" + clientIP(r)
 	userKey := "user:" + strings.ToLower(in.Username)
-	if !s.logins.allow(ipKey, userKey) {
+	if !s.allowLogin(r.Context(), ipKey, userKey) {
 		writeErr(w, http.StatusTooManyRequests,
 			"too many sign-in attempts; wait a few minutes and try again")
 		return
@@ -114,7 +114,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "this account is disabled")
 		return
 	}
-	s.logins.succeeded(ipKey, userKey)
+	s.loginSucceeded(r.Context(), ipKey, userKey)
 	s.st.TouchLogin(r.Context(), u.ID)
 	s.audit.LogUser(r.Context(), u.ID, u.Username, "user.login", u.ID.String(), nil)
 	s.signIn(w, r, u)

@@ -213,6 +213,11 @@ func sweep(ctx context.Context, st *store.Store, seeder *wordlists.Seeder, nt *n
 	if n, err := st.ReapExpiredSessions(ctx); err == nil && n > 0 {
 		slog.Info("reaped expired sessions", "count", n)
 	}
+	// Sign-in attempts past the window they are counted in. Same reason: the
+	// limiter never reads them again, the table would only grow.
+	if n, err := st.PruneLoginAttempts(ctx, time.Hour); err == nil && n > 0 {
+		slog.Debug("pruned old sign-in attempts", "count", n)
+	}
 	// Say so when a run has tasks nobody can lease. The run shows "running"
 	// in the UI and nothing progresses; without this line the only way to
 	// tell was to query scan_task and worker by hand.

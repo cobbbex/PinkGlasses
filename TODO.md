@@ -1072,8 +1072,13 @@ The bigger changes from SCALING-NOTES.md, in the order they hurt.
       recent run are never pruned. Tested 2026-09-28: a company set to 30 days lost its
       120- and 60-day-old runs with both stored objects, kept the newest run, its hosts,
       services and findings.
-- [ ] 28.2 **Several api copies behind a load balancer:** live run events fanned out from
-      Postgres notifications in every copy, and sign-in rate limiting counted in the
-      database rather than per process.
+- [x] 28.2 **Several api copies behind a load balancer:** sign-in attempts counted in the
+      database (`login_attempt`) so the limit is shared, each copy heartbeats under its own
+      host name and the System page lists the others, and Caddy load-balances across the
+      copies it finds in Docker's DNS (`--scale api=2`, `ASM_API_PUBLISH` as a port range).
+      Live run events already reached every copy through Postgres notifications. Tested
+      2026-09-28 with two copies: ten guesses in total across both before a 429, a correct
+      password on one clearing the counters recorded by the other, a run event reaching a
+      stream on the copy that did not make the change, and Caddy rotating between both.
 - [ ] 28.3 **Metrics for alerting:** Prometheus metrics for queue age, failed runs, worker
       count and backup age, so an existing monitoring stack can page someone.

@@ -134,6 +134,12 @@ Sign-in is limited to 10 attempts per 15 minutes, counted **per username and per
 source address**. Limiting one alone is trivially walked around: a botnet varies
 the address, and one host can walk the user list.
 
+The attempts are counted in the database (`login_attempt`), not in the api
+process, so several api copies behind a load balancer share one limit instead of
+each allowing ten; a correct password clears the counters everywhere. If the
+database cannot be reached the copy falls back to counting its own attempts —
+no sign-in can succeed then anyway, but the guesses are still counted.
+
 An unknown username is verified against a dummy hash, so a request for an account
 that does not exist costs the same as one that does. Both answer
 `wrong username or password`. Without that, response timing enumerates who has an

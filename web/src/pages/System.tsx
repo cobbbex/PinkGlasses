@@ -67,6 +67,7 @@ export default function System() {
                 <td className="muted" style={{ width: 90 }}>{x.status}</td>
                 <td className="wrap">{x.detail}
                   {x.name === "api" && x.extra?.version ? <span className="muted"> · version {String(x.extra.version)}</span> : null}
+                  {x.name.startsWith("api (") && x.extra?.detail ? <span className="muted"> · version {String((x.extra.detail as Record<string, unknown>).version ?? "unknown")}</span> : null}
                   {x.name === "gateway" && x.extra?.detail ? <span className="muted"> · {String((x.extra.detail as Record<string, unknown>).connected_workers ?? 0)} workers connected</span> : null}
                 </td>
               </tr>

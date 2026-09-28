@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
@@ -140,6 +141,12 @@ func isTLS(r *http.Request) bool {
 // Per username and per source address, because limiting only one of them is
 // easy to walk around: a botnet spreads the addresses, and a single address can
 // walk the user list.
+//
+// The counting itself happens in the database (store.CountLoginAttempt), so
+// several api copies behind a load balancer share one limit instead of each
+// allowing the full ten. This in-process copy stays as the fallback for when
+// the database cannot be reached: a sign-in cannot succeed then either, but
+// the attempts still deserve to be counted somewhere.
 type loginLimiter struct {
 	mu   sync.Mutex
 	hits map[string][]time.Time
@@ -215,4 +222,28 @@ func userIDOf(r *http.Request) *uuid.UUID {
 func (s *Server) auditReq(r *http.Request, action, subject string, detail map[string]any) {
 	id := currentUser(r)
 	s.audit.LogUser(r.Context(), id.UserID, id.Username, action, subject, detail)
+}
+
+// allowLogin counts an attempt across every api copy and reports whether it
+// may proceed. The database is the shared counter; if it cannot be reached the
+// in-process limiter answers instead.
+func (s *Server) allowLogin(ctx context.Context, keys ...string) bool {
+	if s.st != nil {
+		n, err := s.st.CountLoginAttempt(ctx, keys, loginWindow)
+		if err == nil {
+			return n <= loginMaxTries
+		}
+		slog.Warn("could not count sign-in attempts in the database; falling back to this copy's own count", "err", err)
+	}
+	return s.logins.allow(keys...)
+}
+
+// loginSucceeded forgets the attempts behind a correct password, everywhere.
+func (s *Server) loginSucceeded(ctx context.Context, keys ...string) {
+	if s.st != nil {
+		if err := s.st.ClearLoginAttempts(ctx, keys); err != nil {
+			slog.Warn("could not clear sign-in attempts", "err", err)
+		}
+	}
+	s.logins.succeeded(keys...)
 }
