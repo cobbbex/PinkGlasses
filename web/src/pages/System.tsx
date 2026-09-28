@@ -9,6 +9,14 @@ function Dot({ status }: { status: string }) {
     background: DOT[status] ?? "var(--muted)", marginRight: 8, verticalAlign: "middle" }} />;
 }
 
+function bytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const u = ["kB", "MB", "GB", "TB"];
+  let v = n / 1024, i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${u[i]}`;
+}
+
 function age(s: number): string {
   if (s < 0) return "never";
   if (s < 90) return `${Math.round(s)} s`;
@@ -105,6 +113,8 @@ export default function System() {
         </div>
       )}
 
+      <Storage h={h} />
+
       <div className="section-title">Workers</div>
       <div className="table-wrap">
         <table>
@@ -124,6 +134,76 @@ export default function System() {
         </table>
       </div>
     </div>
+  );
+}
+
+/**
+ * What the install occupies, and how far back its history reaches.
+ *
+ * Nothing deletes a past run unless a company has been given a retention, and
+ * by default none has — a run is the record of what a client exposed on a day,
+ * and comparing today with a year ago is the reason to keep it. The cost is
+ * disk, so it is shown here (and in the metrics) to be watched rather than
+ * discovered when a disk fills.
+ */
+function Storage({ h }: { h: SystemHealth }) {
+  const st = h.storage;
+  if (!st) return null;
+  const db = st.database;
+  const obj = st.objects;
+  const since = db.oldest_run_at ? new Date(db.oldest_run_at) : null;
+  const days = since ? Math.max(0, Math.round((Date.now() - since.getTime()) / 86400000)) : 0;
+  const perRun = db.runs > 0 ? (db.history_bytes + (obj?.by_prefix?.screenshots ?? 0)) / db.runs : 0;
+  const folders = Object.keys(obj?.by_prefix ?? {}).sort();
+  return (
+    <>
+      <div className="section-title">Storage</div>
+      <div className="table-wrap" style={{ marginBottom: 16 }}>
+        <table>
+          <tbody>
+            <tr>
+              <td style={{ width: 200 }}><strong>database</strong></td>
+              <td className="muted" style={{ width: 90 }}>{bytes(db.total_bytes)}</td>
+              <td className="wrap">{bytes(db.history_bytes)} of it is the record of past runs, {bytes(db.inventory_bytes)} the current inventory</td>
+            </tr>
+            {folders.map((f) => (
+              <tr key={f}>
+                <td style={{ width: 200 }}><strong>object storage · {f}</strong></td>
+                <td className="muted" style={{ width: 90 }}>{bytes(obj!.by_prefix[f])}</td>
+                <td className="wrap">{obj!.count_by[f]} object{obj!.count_by[f] === 1 ? "" : "s"}
+                  {f === "screenshots" ? " — captures from past runs" : f === "wordlists" ? " — belongs to the install, not to any run" : ""}</td>
+              </tr>
+            ))}
+            {st.objects_error && (
+              <tr><td><strong>object storage</strong></td><td className="muted">—</td>
+                <td className="wrap sev-high">could not be listed: {st.objects_error}</td></tr>
+            )}
+            <tr>
+              <td style={{ width: 200 }}><strong>history kept</strong></td>
+              <td className="muted" style={{ width: 90 }}>{db.runs} run{db.runs === 1 ? "" : "s"}</td>
+              <td className="wrap">
+                {since ? <>reaching back to {since.toLocaleDateString()}, {days} day{days === 1 ? "" : "s"}</> : <>no runs yet</>}
+                {perRun > 0 && <span className="muted"> · about {bytes(perRun)} per run</span>}
+              </td>
+            </tr>
+            <tr>
+              <td style={{ width: 200 }}><strong>pruning</strong></td>
+              <td className="muted" style={{ width: 90 }}>{db.pruning_companies === 0 ? "off" : `${db.pruning_companies} compan${db.pruning_companies === 1 ? "y" : "ies"}`}</td>
+              <td className="wrap">
+                {db.pruning_companies === 0
+                  ? <>Every company keeps its whole history; nothing is ever removed. A company can be given a limit under <strong>Keep run history…</strong> in its menu.</>
+                  : <>Those companies delete runs past their retention, with the screenshots those runs took. Every other company keeps everything.</>}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div className="muted" style={{ fontSize: 12.5, marginTop: -8, marginBottom: 16 }}>
+        Measured {new Date(st.measured_at).toLocaleTimeString()}; sizes are re-read every few minutes. The same
+        numbers are in <span className="mono">/api/v1/metrics</span> as <span className="mono">pinkglasses_storage_bytes</span>,
+        so a monitoring system can warn about growth long before a disk is full.
+      </div>
+    </>
   );
 }
 

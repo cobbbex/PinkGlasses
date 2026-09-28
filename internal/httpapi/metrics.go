@@ -132,6 +132,36 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		val("pinkglasses_component_heartbeat_age_seconds", "component="+quote(k), age.Seconds())
 	}
 
+	// Storage. Nothing is deleted unless a company has been given a
+	// retention, so these only ever grow: an alert on them is how a disk
+	// filling up is seen weeks early rather than at the moment it happens.
+	su := s.storageUsage(ctx)
+	g("pinkglasses_storage_bytes", "Bytes the install occupies, by what holds them: the whole database, the part of it that is the record of past runs, the current inventory, and each folder in object storage (screenshots are history, wordlists belong to the install).")
+	val("pinkglasses_storage_bytes", `kind="database"`, float64(su.Database.TotalBytes))
+	val("pinkglasses_storage_bytes", `kind="database_history"`, float64(su.Database.HistoryBytes))
+	val("pinkglasses_storage_bytes", `kind="database_inventory"`, float64(su.Database.InventoryBytes))
+	if su.Objects != nil {
+		val("pinkglasses_storage_bytes", `kind="objects"`, float64(su.Objects.TotalBytes))
+		folders := make([]string, 0, len(su.Objects.ByPrefix))
+		for k := range su.Objects.ByPrefix {
+			folders = append(folders, k)
+		}
+		sort.Strings(folders)
+		for _, k := range folders {
+			val("pinkglasses_storage_bytes", "kind="+quote("objects/"+k), float64(su.Objects.ByPrefix[k]))
+		}
+	}
+	g("pinkglasses_runs_kept", "Runs the install still holds, all companies together.")
+	val("pinkglasses_runs_kept", "", float64(su.Database.Runs))
+	g("pinkglasses_history_days", "Days between the oldest run still held and now: how far back a comparison can reach.")
+	if su.Database.OldestRunAt != nil {
+		val("pinkglasses_history_days", "", time.Since(*su.Database.OldestRunAt).Hours()/24)
+	} else {
+		val("pinkglasses_history_days", "", 0)
+	}
+	g("pinkglasses_companies_pruning", "Companies that have been given a retention, so their old runs are deleted. 0 means nothing on this install is ever removed.")
+	val("pinkglasses_companies_pruning", "", float64(su.Database.PruningCompanies))
+
 	body := []byte(b.String())
 	s.metricsCache.at = time.Now()
 	s.metricsCache.body = body

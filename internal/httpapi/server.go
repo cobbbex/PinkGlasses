@@ -36,7 +36,10 @@ type Server struct {
 	// metricsCache holds the last Prometheus scrape for a few seconds, so a
 	// tight scrape interval cannot turn into database load.
 	metricsCache metricsCache
-	routes       []RouteInfo // filled by Routes(), see RouteTable
+	// storage holds the last measurement of what the install occupies; both
+	// the System page and a metrics scrape read it.
+	storage storageCache
+	routes  []RouteInfo // filled by Routes(), see RouteTable
 }
 
 // New builds the API server.

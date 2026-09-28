@@ -1080,6 +1080,14 @@ The bigger changes from SCALING-NOTES.md, in the order they hurt.
       2026-09-28 with two copies: ten guesses in total across both before a 429, a correct
       password on one clearing the counters recorded by the other, a run event reaching a
       stream on the copy that did not make the change, and Caddy rotating between both.
+- [x] 28.4 **Watch storage instead of deleting it.** Nothing is pruned unless a company is
+      given a retention, and none is by default, so the install needs to *show* what history
+      costs: **System page → Storage** (database split into past runs and current inventory,
+      each object-storage folder, runs kept, how far back they reach, cost per run, whether
+      any company prunes at all) and the same as `pinkglasses_storage_bytes{kind}`,
+      `pinkglasses_runs_kept`, `pinkglasses_history_days`, `pinkglasses_companies_pruning`,
+      with a `predict_linear` alert in the README. Measured on this install: 0.75 MB per run,
+      so keeping everything costs a few GB a year.
 - [x] 28.3 **Metrics for alerting:** `GET /api/v1/metrics` in Prometheus text format (viewer
       token, cached 10 s, nothing labelled by company): queue depth and oldest waiting task
       per stage, runs by status, workers, open findings, lease expiries, inventory totals

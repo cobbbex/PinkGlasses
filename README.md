@@ -1005,10 +1005,20 @@ install with a single company.
 
 ### How long history is kept
 
+**Nothing is deleted unless you ask for it.** Every company keeps its whole history by
+default, and no sweep, upgrade or default changes that: a run is the record of what a
+client exposed on one day, and comparing this month with last year is most of why it is
+worth keeping. What that costs is on the **System page → Storage**, so the question is
+answered by a number you can watch rather than by a full disk. See *Watching what history
+costs* below.
+
+The rest of this section is for the case where you do want a limit — usually a client who
+asks you not to hold their data.
+
 Every run keeps its detail: its tasks, the observations it made, the change events it
 raised, its screenshots and raw tool output. On an install scanning many companies on a
-schedule, that detail is what fills the disk — it grows with clients times scans times
-time, while what a company actually exposes stays roughly the same size.
+schedule, that detail is the part that grows — with clients times scans times time, while
+what a company actually exposes stays roughly the same size.
 
 Each company decides for itself. In the company menu in the sidebar, **Keep run history…**
 offers *keep everything* (the default) or 30, 90, 180 or 365 days; through the API it is
@@ -1028,6 +1038,37 @@ What stays:
 Turning it on for a company that has years of runs does not stall the scheduler: the cap
 per sweep works through them over the following hours. Pruning is not reversible — the
 nightly backup set is what a mistake is recovered from.
+
+One thing to know before choosing a limit: the Hosts and Search views read a service's
+banner, product, page title, TLS details and screenshot from its **most recent**
+observation, not from the service row. A service the latest run still sees is unaffected.
+A service last seen longer ago than the retention keeps its row, its ports and its dates,
+but loses that evidence — and a run-to-run diff against a pruned run is gone with it.
+
+### Watching what history costs
+
+**System page → Storage** says how much the install holds and what it is: the database
+split into the record of past runs and the current inventory, each folder in object
+storage (screenshots are history; wordlists belong to the install and have nothing to do
+with runs), how many runs are kept and how far back they reach, about how much a run
+costs, and whether any company is pruning at all. Sizes are re-measured every few minutes,
+not on every page load.
+
+The same numbers are in the metrics as `pinkglasses_storage_bytes{kind}`,
+`pinkglasses_runs_kept`, `pinkglasses_history_days` and `pinkglasses_companies_pruning`
+(below), so a monitoring system can warn about growth weeks before a disk is full:
+
+```yaml
+      - alert: StorageGrowingToward80Percent
+        # Where the database will be in 30 days at the last week's rate.
+        expr: predict_linear(pinkglasses_storage_bytes{kind="database"}[7d], 30*86400) > 80e9
+        annotations: {summary: "Run history is on course to fill the disk within a month"}
+```
+
+Rough figures from an install scanning three companies: about **0.75 MB per run**, database
+and screenshots together, with no raw tool output uploaded. Ten clients scanned daily is
+around 2.7 GB a year; fifty clients daily, around 13 GB. Keeping everything is usually the
+cheaper choice than losing the comparison.
 
 ### Running a spare scheduler
 
@@ -1075,9 +1116,10 @@ the rest standing by (above).
 
 Administrators have **System** in the sidebar: each service of the install (api and its
 version, database, object storage, gateway, scheduler, provisioner) with a status, every
-worker's last heartbeat, the queue by stage with how long the oldest task has waited, and
-the last day's lease expiries and failures. Refreshed every 10 seconds; the first place to
-look when something is off.
+worker's last heartbeat, the queue by stage with how long the oldest task has waited, the
+last day's lease expiries and failures, and **Storage**: what the install holds, how far
+back its history reaches, and whether anything is being pruned. Refreshed every 10 seconds;
+the first place to look when something is off.
 
 ### Metrics for a monitoring system
 
@@ -1094,6 +1136,9 @@ stack you already run:
 | `pinkglasses_component_heartbeat_age_seconds{component}` | seconds since the gateway, the scheduler, each api copy or the backup service last reported |
 | `pinkglasses_lease_expiries_24h`, `pinkglasses_failed_tasks_24h`, `pinkglasses_failed_runs_24h` | what went wrong in the last day |
 | `pinkglasses_findings_open{severity}`, `pinkglasses_inventory{kind}` | what the install holds |
+| `pinkglasses_storage_bytes{kind}` | bytes in the database (whole, history, inventory) and in each object-storage folder |
+| `pinkglasses_runs_kept`, `pinkglasses_history_days` | how many runs are kept and how far back a comparison can reach |
+| `pinkglasses_companies_pruning` | companies that have been given a retention; 0 means nothing is ever deleted |
 | `pinkglasses_build_info{version,commit}`, `pinkglasses_schema_version` | what is running |
 
 Everything is install-wide. Nothing carries a company label, so a scrape cannot tell the

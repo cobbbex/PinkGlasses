@@ -68,6 +68,13 @@ func (s *Store) PresignGet(key string, expiry time.Duration, now time.Time) (str
 }
 
 func (s *Store) presign(method, key string, expiry time.Duration, now time.Time) (string, error) {
+	return s.presignWith(method, key, nil, expiry, now)
+}
+
+// presignWith signs a request that carries query parameters of its own — a
+// bucket listing, say. They go into the signature like any other, so they
+// cannot be changed after the URL is handed out.
+func (s *Store) presignWith(method, key string, extra url.Values, expiry time.Duration, now time.Time) (string, error) {
 	u, err := url.Parse(s.cfg.Endpoint)
 	if err != nil {
 		return "", err
@@ -91,6 +98,11 @@ func (s *Store) presign(method, key string, expiry time.Duration, now time.Time)
 	credentialScope := dateStamp + "/" + region + "/s3/aws4_request"
 
 	q := url.Values{}
+	for k, vs := range extra {
+		for _, v := range vs {
+			q.Add(k, v)
+		}
+	}
 	q.Set("X-Amz-Algorithm", "AWS4-HMAC-SHA256")
 	q.Set("X-Amz-Credential", s.cfg.AccessKey+"/"+credentialScope)
 	q.Set("X-Amz-Date", amzDate)

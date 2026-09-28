@@ -203,6 +203,9 @@ func (s *Server) systemHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": overall, "checked_at": time.Now().UTC(),
 		"components": comps, "counts": counts, "queue": queue, "workers": wrows, "stranded": stranded,
+		// What the install occupies, so growth is watched rather than
+		// discovered. Measured at most every few minutes.
+		"storage": s.storageUsage(ctx),
 	})
 }
 

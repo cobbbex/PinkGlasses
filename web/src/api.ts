@@ -260,6 +260,16 @@ export interface SystemHealth {
   workers: { name: string; kind: string; status: string; run_fleet: boolean; running_tasks: number;
     heartbeat_age_s: number; version: string }[] | null;
   stranded: { RunID: string; Stage: string; Tasks: number; Oldest: string }[] | null;
+  /** What the install occupies. Measured every few minutes, not per request. */
+  storage?: {
+    database: {
+      total_bytes: number; history_bytes: number; inventory_bytes: number;
+      runs: number; oldest_run_at?: string | null; pruning_companies: number;
+    };
+    objects?: { total_bytes: number; objects: number; by_prefix: Record<string, number>; count_by: Record<string, number>; truncated: boolean };
+    objects_error?: string;
+    measured_at: string;
+  };
 }
 export interface MCPTool { name: string; description: string; read_only: boolean; destructive: boolean }
 export interface VPNConfig {
