@@ -33,7 +33,10 @@ type Server struct {
 	obj      *obj.Store // wordlist uploads land here, not in the database
 	logins   *loginLimiter
 	launcher *launch.Launcher
-	routes   []RouteInfo // filled by Routes(), see RouteTable
+	// metricsCache holds the last Prometheus scrape for a few seconds, so a
+	// tight scrape interval cannot turn into database load.
+	metricsCache metricsCache
+	routes       []RouteInfo // filled by Routes(), see RouteTable
 }
 
 // New builds the API server.
@@ -85,6 +88,12 @@ func (s *Server) Routes() http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(require(auth.RoleViewer))
 				v := roled(r, "viewer", s)
+
+				// Prometheus metrics. Viewer, not admin: a scraper should
+				// hold the smallest token that works, and every number here
+				// is install-wide — nothing is labelled by company, so a
+				// scrape cannot name a company the token cannot see.
+				v.Get("/metrics", s.metrics)
 
 				v.Get("/scopes", s.listScopes)
 				v.Get("/scopes/{scopeID}/summary", s.scopeSummary)

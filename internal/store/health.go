@@ -113,3 +113,18 @@ func (s *Store) HealthCounts(ctx context.Context) (HealthCounts, error) {
 		&h.WorkersActive, &h.WorkersStale)
 	return h, err
 }
+
+// PruneInstanceBeats removes the heartbeat rows of copies that no longer run.
+//
+// Per-instance components — "api:<host>", "scheduler-standby:<host>" — are
+// named after the container that wrote them, so every redeploy leaves the old
+// name behind. Left alone they pile up on the System page and keep an alert on
+// heartbeat age firing about a copy that no longer exists. A name without a
+// host (gateway, scheduler, backup) is never touched: silence from one of
+// those is the alert.
+func (s *Store) PruneInstanceBeats(ctx context.Context, olderThan time.Duration) (int64, error) {
+	ct, err := s.Pool.Exec(ctx, `
+		DELETE FROM component_heartbeat
+		WHERE name LIKE '%:%' AND last_seen < now() - $1::interval`, olderThan.String())
+	return ct.RowsAffected(), err
+}

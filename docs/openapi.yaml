@@ -147,6 +147,22 @@ paths:
         "401": {$ref: "#/components/responses/e401"}
         "404": {$ref: "#/components/responses/e404"}
         "409": {$ref: "#/components/responses/e409"}
+  /api/v1/metrics:
+    get:
+      operationId: getMetrics
+      summary: "Prometheus text exposition: queue depth and the oldest waiting task per stage, runs by status and what finished in the last 24 h, workers by status, open findings by severity, lease expiries, inventory totals, and each service's heartbeat age (including every api copy and the last backup set). In…"
+      x-required-role: viewer
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
   /api/v1/scopes:
     get:
       operationId: getScopes

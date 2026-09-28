@@ -1080,5 +1080,10 @@ The bigger changes from SCALING-NOTES.md, in the order they hurt.
       2026-09-28 with two copies: ten guesses in total across both before a 429, a correct
       password on one clearing the counters recorded by the other, a run event reaching a
       stream on the copy that did not make the change, and Caddy rotating between both.
-- [ ] 28.3 **Metrics for alerting:** Prometheus metrics for queue age, failed runs, worker
-      count and backup age, so an existing monitoring stack can page someone.
+- [x] 28.3 **Metrics for alerting:** `GET /api/v1/metrics` in Prometheus text format (viewer
+      token, cached 10 s, nothing labelled by company): queue depth and oldest waiting task
+      per stage, runs by status, workers, open findings, lease expiries, inventory totals
+      and each service's heartbeat age. README carries a scrape config and rules to start
+      from. The scheduler drops heartbeat rows of copies that no longer run, so an alert on
+      heartbeat age does not fire forever about a container that is gone. Tested 2026-09-28
+      with a real Prometheus scraping the running stack: target up, every rule evaluating.

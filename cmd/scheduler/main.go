@@ -213,6 +213,11 @@ func sweep(ctx context.Context, st *store.Store, seeder *wordlists.Seeder, nt *n
 	if n, err := st.ReapExpiredSessions(ctx); err == nil && n > 0 {
 		slog.Info("reaped expired sessions", "count", n)
 	}
+	// Heartbeat rows left behind by copies that no longer run: every
+	// redeploy names the new container differently.
+	if n, err := st.PruneInstanceBeats(ctx, time.Hour); err == nil && n > 0 {
+		slog.Info("removed heartbeats of copies that no longer run", "count", n)
+	}
 	// Sign-in attempts past the window they are counted in. Same reason: the
 	// limiter never reads them again, the table would only grow.
 	if n, err := st.PruneLoginAttempts(ctx, time.Hour); err == nil && n > 0 {

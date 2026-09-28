@@ -247,6 +247,8 @@ otherwise), and a schedule stays bound to its creator's configuration.
 |---|---|---|
 | `GET /system/health` | admin | `{status, components, counts, queue, workers, stranded}`: each service (api with its version, database with schema version and round trip, object storage, gateway and scheduler by heartbeat age, provisioner) as `ok`/`degraded`/`down`/`off`; runs going, live fleets, lease expiries, failed runs and tasks in the last 24 h; the queue by stage with the oldest waiting age; every worker's heartbeat age; tasks no active worker can lease |
 
+| `GET /metrics` | viewer | Prometheus text exposition: queue depth and the oldest waiting task per stage, runs by status and what finished in the last 24 h, workers by status, open findings by severity, lease expiries, inventory totals, and each service's heartbeat age (including every api copy and the last backup set). Install-wide only — nothing is labelled by company, so a scrape cannot name a private one. Cached for 10 s |
+
 ## Private companies
 
 A company is **shared** — every account on the install sees it — or **private**: only its

@@ -38,6 +38,7 @@ var notExposed = map[string]string{
 	"DELETE /vpn-configs/{vpnID}":               "same",
 	"POST /scopes":                              "creating a company is done in the UI, where the picker follows it",
 	"GET /scopes/{scopeID}/footprint":           "covered by company_summary",
+	"GET /metrics":                              "Prometheus text for a monitoring system to scrape, not numbers to reason about",
 }
 
 func TestEveryRouteIsExposedOrExplained(t *testing.T) {

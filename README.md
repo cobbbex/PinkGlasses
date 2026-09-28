@@ -1079,6 +1079,70 @@ worker's last heartbeat, the queue by stage with how long the oldest task has wa
 the last day's lease expiries and failures. Refreshed every 10 seconds; the first place to
 look when something is off.
 
+### Metrics for a monitoring system
+
+The System page shows the state now; nothing on it pages anyone at three in the morning.
+`GET /api/v1/metrics` is the same picture in Prometheus's text format, for a monitoring
+stack you already run:
+
+| Metric | What it says |
+|---|---|
+| `pinkglasses_queue_oldest_seconds{stage}` | how long the oldest waiting task of a stage has waited — work that stops moving shows here first |
+| `pinkglasses_queue_tasks{stage,state}` | tasks waiting and in flight, per stage |
+| `pinkglasses_runs{status}`, `pinkglasses_runs_finished_24h{status}` | runs now, and what finished in the last day |
+| `pinkglasses_workers{status}` | workers active, stale, pending approval |
+| `pinkglasses_component_heartbeat_age_seconds{component}` | seconds since the gateway, the scheduler, each api copy or the backup service last reported |
+| `pinkglasses_lease_expiries_24h`, `pinkglasses_failed_tasks_24h`, `pinkglasses_failed_runs_24h` | what went wrong in the last day |
+| `pinkglasses_findings_open{severity}`, `pinkglasses_inventory{kind}` | what the install holds |
+| `pinkglasses_build_info{version,commit}`, `pinkglasses_schema_version` | what is running |
+
+Everything is install-wide. Nothing carries a company label, so a scrape cannot tell the
+holder of the token the name of a company they are not allowed to see.
+
+Scraping needs a token: make one under **Accounts → API tokens** with the **viewer** role —
+the smallest that works — and give Prometheus:
+
+```yaml
+scrape_configs:
+  - job_name: pinkglasses
+    metrics_path: /api/v1/metrics
+    scheme: https                    # http if you have not turned on the https profile
+    authorization: {credentials: "pgt_…"}
+    static_configs:
+      - targets: ["asm.example.com"]
+```
+
+The answer is cached for 10 seconds, so a tight scrape interval costs no more than a loose
+one. Rules worth starting from:
+
+```yaml
+groups:
+  - name: pinkglasses
+    rules:
+      - alert: ScanQueueStuck
+        expr: max(pinkglasses_queue_oldest_seconds) > 3600
+        for: 15m
+        annotations: {summary: "A task has waited over an hour — no worker can take it"}
+      - alert: SchedulerSilent
+        expr: pinkglasses_component_heartbeat_age_seconds{component="scheduler"} > 120
+        for: 5m
+        annotations: {summary: "The scheduler has stopped reporting; nothing is being planned"}
+      - alert: GatewaySilent
+        expr: pinkglasses_component_heartbeat_age_seconds{component="gateway"} > 120
+        for: 5m
+        annotations: {summary: "The worker gateway has stopped reporting"}
+      - alert: NoWorkers
+        expr: sum(pinkglasses_workers{status="active"}) == 0
+        for: 10m
+        annotations: {summary: "No active worker; scans cannot run"}
+      - alert: BackupOverdue
+        expr: pinkglasses_component_heartbeat_age_seconds{component="backup"} > 172800
+        annotations: {summary: "No backup set in two days"}
+      - alert: RunsFailing
+        expr: pinkglasses_failed_runs_24h > 3
+        annotations: {summary: "More than three runs failed in the last day"}
+```
+
 ### If a run does not move
 
 A run that says *running* while its progress bar stays put is waiting for a worker,
