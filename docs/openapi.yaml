@@ -1287,7 +1287,7 @@ paths:
         "409": {$ref: "#/components/responses/e409"}
     patch:
       operationId: patchScopesByScopeID
-      summary: "{retention_days} (0–3650; 0 keeps everything) sets how long finished runs keep their detail — tasks, per-run observations, change events, screenshots and raw output; the inventory itself is never pruned. {visibility} (shared or private, the owner only) changes who can see it; {name} renames t…"
+      summary: "{visibility} (shared or private, the owner only) changes who can see it; {name} renames the company (everything it owns stays; audited as scope.rename); {default_exit, default_vpn_config_id, default_pool_id} sets the exit the launch dialog pre-selects. Each part applies only when sent"
       x-required-role: operator
       parameters:
         - {name: scopeID, in: path, required: true, schema: {type: string}}

@@ -7,7 +7,7 @@ import { Scope } from "../api";
  * search box makes the list navigable by typing.
  */
 export default function ScopePicker({
-  scopes, value, onChange, onNew, onRename, onShare, onRetention, onDelete, collapsed = false, mine, onMineChange, hiddenCount = 0,
+  scopes, value, onChange, onNew, onRename, onShare, onDelete, collapsed = false, mine, onMineChange, hiddenCount = 0,
 }: {
   scopes: Scope[];
   value: string;
@@ -17,8 +17,6 @@ export default function ScopePicker({
   onRename?: () => void;
   /** See, and for its owner change, who the selected company is shared with. */
   onShare?: () => void;
-  /** How long the selected company's run history is kept; offered to operators. */
-  onRetention?: () => void;
   /** Delete the selected company; only offered when the caller passes it (admins). */
   onDelete?: () => void;
   collapsed?: boolean;
@@ -186,12 +184,6 @@ export default function ScopePicker({
               <button type="button" className="combo-quiet" onClick={() => { setOpen(false); onRename(); }}
                 title={`Rename ${current.name}`}>
                 Rename this company…
-              </button>
-            )}
-            {onRetention && current && (
-              <button type="button" className="combo-quiet" onClick={() => { setOpen(false); onRetention(); }}
-                title={`How long ${current.name}'s scan history is kept`}>
-                Keep run history…
               </button>
             )}
             {onDelete && current && (

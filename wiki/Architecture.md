@@ -1413,7 +1413,8 @@ workflow, screenshots, nuclei integration.
 
 **M6 — polish**
 Cloud-API worker provisioning (spin up ephemeral scan nodes on Hetzner/DO with rotating
-egress IPs), scheduled reports, audit log UI, retention/rollup, OIDC, credential rotation.
+egress IPs), scheduled reports, audit log UI, OIDC, credential rotation. (Retention/rollup
+was tried and dropped — see §15.5.)
 
 ---
 
@@ -1445,7 +1446,10 @@ egress IPs), scheduled reports, audit log UI, retention/rollup, OIDC, credential
    channel in one process. Beyond that it needs horizontal scaling with sticky routing or a
    shared connection registry — worth knowing before M3.
 5. **Retention** — how long must historical observations be kept for audit?
-   *Answered by making it the client's choice:* each company carries `retention_days`
-   (0 keeps everything, the default), the scheduler prunes finished runs past it — their
-   tasks, observations, change events and stored artifacts — and never the inventory or
-   the company's most recent run. See *How long history is kept* in the README.
+   *Answered: forever.* A per-company retention with a pruning sweep was built and then
+   removed — a run is the record of what a client exposed on one day, and being able to
+   compare this month with last year is most of the reason to hold it; at about 0.75 MB a
+   run, the disk is the cheaper side of that trade. Nothing in the application deletes a
+   past run; a person deletes one on the Scan runs page, or with the company it belongs to.
+   What the record costs is on the System page and in the metrics (README, *Watching what
+   history costs*).

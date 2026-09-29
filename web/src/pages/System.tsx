@@ -140,11 +140,10 @@ export default function System() {
 /**
  * What the install occupies, and how far back its history reaches.
  *
- * Nothing deletes a past run unless a company has been given a retention, and
- * by default none has — a run is the record of what a client exposed on a day,
- * and comparing today with a year ago is the reason to keep it. The cost is
- * disk, so it is shown here (and in the metrics) to be watched rather than
- * discovered when a disk fills.
+ * Nothing deletes a past run: a run is the record of what a client exposed on
+ * a day, and comparing today with a year ago is the reason to keep it. The
+ * cost is disk, so it is shown here (and in the metrics) to be watched rather
+ * than discovered when a disk fills.
  */
 function Storage({ h }: { h: SystemHealth }) {
   const st = h.storage;
@@ -187,12 +186,11 @@ function Storage({ h }: { h: SystemHealth }) {
               </td>
             </tr>
             <tr>
-              <td style={{ width: 200 }}><strong>pruning</strong></td>
-              <td className="muted" style={{ width: 90 }}>{db.pruning_companies === 0 ? "off" : `${db.pruning_companies} compan${db.pruning_companies === 1 ? "y" : "ies"}`}</td>
+              <td style={{ width: 200 }}><strong>kept until</strong></td>
+              <td className="muted" style={{ width: 90 }}>forever</td>
               <td className="wrap">
-                {db.pruning_companies === 0
-                  ? <>Every company keeps its whole history; nothing is ever removed. A company can be given a limit under <strong>Keep run history…</strong> in its menu.</>
-                  : <>Those companies delete runs past their retention, with the screenshots those runs took. Every other company keeps everything.</>}
+                Nothing removes a past run. A run goes only when you delete it yourself, on
+                <strong> Scan runs</strong>, or with the company it belongs to.
               </td>
             </tr>
           </tbody>

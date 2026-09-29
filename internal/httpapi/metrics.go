@@ -132,9 +132,9 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 		val("pinkglasses_component_heartbeat_age_seconds", "component="+quote(k), age.Seconds())
 	}
 
-	// Storage. Nothing is deleted unless a company has been given a
-	// retention, so these only ever grow: an alert on them is how a disk
-	// filling up is seen weeks early rather than at the moment it happens.
+	// Storage. Nothing in this application deletes a past run, so these only
+	// ever grow: an alert on them is how a disk filling up is seen weeks
+	// early rather than at the moment it happens.
 	su := s.storageUsage(ctx)
 	g("pinkglasses_storage_bytes", "Bytes the install occupies, by what holds them: the whole database, the part of it that is the record of past runs, the current inventory, and each folder in object storage (screenshots are history, wordlists belong to the install).")
 	val("pinkglasses_storage_bytes", `kind="database"`, float64(su.Database.TotalBytes))
@@ -159,9 +159,6 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	} else {
 		val("pinkglasses_history_days", "", 0)
 	}
-	g("pinkglasses_companies_pruning", "Companies that have been given a retention, so their old runs are deleted. 0 means nothing on this install is ever removed.")
-	val("pinkglasses_companies_pruning", "", float64(su.Database.PruningCompanies))
-
 	body := []byte(b.String())
 	s.metricsCache.at = time.Now()
 	s.metricsCache.body = body

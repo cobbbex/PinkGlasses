@@ -6,18 +6,15 @@ import (
 )
 
 // DBUsage is how much room the install takes in the database, split into the
-// record of past scans and the current picture. Nothing deletes either unless
-// a company is given a retention; this exists so growth is watched rather
-// than discovered.
+// record of past scans and the current picture. Nothing deletes either — no
+// part of this application removes a past run — so this exists to keep the
+// growth in sight rather than to decide what to throw away.
 type DBUsage struct {
 	TotalBytes     int64      `json:"total_bytes"`
 	HistoryBytes   int64      `json:"history_bytes"`   // runs and everything they own
 	InventoryBytes int64      `json:"inventory_bytes"` // names, hosts, services, findings
 	Runs           int        `json:"runs"`
 	OldestRunAt    *time.Time `json:"oldest_run_at,omitempty"`
-	// PruningCompanies is how many companies have chosen a retention. Zero
-	// means nothing on this install is ever removed.
-	PruningCompanies int `json:"pruning_companies"`
 }
 
 // historyTables are the tables a run owns: everything here goes when a run is
@@ -47,9 +44,8 @@ func (s *Store) DBUsage(ctx context.Context) (DBUsage, error) {
 		                 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		                 WHERE n.nspname='public' AND c.relname = ANY($2)), 0),
 		       (SELECT count(*) FROM scan_run),
-		       (SELECT min(created_at) FROM scan_run),
-		       (SELECT count(*) FROM scope WHERE retention_days > 0)`,
+		       (SELECT min(created_at) FROM scan_run)`,
 		historyTables, inventoryTables).
-		Scan(&u.TotalBytes, &u.HistoryBytes, &u.InventoryBytes, &u.Runs, &u.OldestRunAt, &u.PruningCompanies)
+		Scan(&u.TotalBytes, &u.HistoryBytes, &u.InventoryBytes, &u.Runs, &u.OldestRunAt)
 	return u, err
 }

@@ -11,14 +11,12 @@ import (
 
 // Storage, on the System page and in the metrics.
 //
-// Nothing on an install removes a past scan unless a company has been given a
-// retention, and by default none has. That is deliberate: a run is the record
-// of what was exposed on a day, and comparing today with a year ago is the
-// point of keeping it. The cost of that choice is disk, so the size is put
-// where it can be seen — and alerted on — long before a disk is full.
+// Nothing in this application removes a past scan: a run is the record of what
+// was exposed on a day, and comparing today with a year ago is the point of
+// keeping it. The cost of that choice is disk, so the size is put where it can
+// be seen — and alerted on — long before a disk is full.
 
-// storageInfo is what the install occupies, and how fast history is the part
-// that grows.
+// storageInfo is what the install occupies, and how much of it is history.
 type storageInfo struct {
 	Database store.DBUsage `json:"database"`
 	// Objects is the bucket: screenshots (history) and wordlists (the

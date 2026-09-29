@@ -10,8 +10,6 @@ export interface ScopeFootprint {
 }
 export interface Scope {
   id: string; name: string; created_at: string;
-  /** How long finished runs keep their detail; 0 keeps everything. */
-  retention_days?: number;
   /** "shared": every account sees it. "private": its owner and the accounts it is shared with. */
   visibility?: "shared" | "private";
   owner_id?: string | null; owner?: string;
@@ -264,7 +262,7 @@ export interface SystemHealth {
   storage?: {
     database: {
       total_bytes: number; history_bytes: number; inventory_bytes: number;
-      runs: number; oldest_run_at?: string | null; pruning_companies: number;
+      runs: number; oldest_run_at?: string | null;
     };
     objects?: { total_bytes: number; objects: number; by_prefix: Record<string, number>; count_by: Record<string, number>; truncated: boolean };
     objects_error?: string;
@@ -391,8 +389,6 @@ export const api = {
   shareScope: (s: string, username: string) =>
     req<ScopeAccess>(`/scopes/${s}/members`, { method: "POST", body: JSON.stringify({ username }) }),
   unshareScope: (s: string, userID: string) => req(`/scopes/${s}/members/${userID}`, { method: "DELETE" }),
-  setScopeRetention: (s: string, retention_days: number) =>
-    req<Scope>(`/scopes/${s}`, { method: "PATCH", body: JSON.stringify({ retention_days }) }),
   setScopeVisibility: (s: string, visibility: "shared" | "private") =>
     req<Scope>(`/scopes/${s}`, { method: "PATCH", body: JSON.stringify({ visibility }) }),
   renameScope: (s: string, name: string) => req<Scope>(`/scopes/${s}`, { method: "PATCH", body: JSON.stringify({ name }) }),

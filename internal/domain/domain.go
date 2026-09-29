@@ -105,9 +105,6 @@ type Scope struct {
 	DefaultExit        string     `json:"default_exit"`
 	DefaultVPNConfigID *uuid.UUID `json:"default_vpn_config_id,omitempty"`
 	DefaultPoolID      *uuid.UUID `json:"default_pool_id,omitempty"`
-	// RetentionDays is how long finished runs keep their detail. 0 keeps
-	// everything; the inventory itself is never pruned.
-	RetentionDays int `json:"retention_days"`
 	// Visibility is "shared" (every account sees it) or "private" (its owner
 	// and the accounts it is shared with).
 	Visibility string     `json:"visibility"`

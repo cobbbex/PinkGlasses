@@ -1065,13 +1065,13 @@ Background in the local, git-ignored SCALING-NOTES.md.
 
 The bigger changes from SCALING-NOTES.md, in the order they hurt.
 
-- [x] 28.1 **Retention per company:** each company keeps its run history for as long as it
-      chooses (**Keep run history…**, or `retention_days` on `PATCH /scopes/{id}`); the
-      scheduler prunes finished runs past it — tasks, observations, change events and the
-      screenshots and raw output in object storage. The inventory and the company's most
-      recent run are never pruned. Tested 2026-09-28: a company set to 30 days lost its
-      120- and 60-day-old runs with both stored objects, kept the newest run, its hosts,
-      services and findings.
+- [x] 28.1 **Retention per company — built, then removed on 2026-09-29 by decision.** A
+      per-company `retention_days` with a pruning sweep was added (e80dda0) and taken back
+      out: a run is the record of what a client exposed on one day, and comparing this month
+      with last year is most of the reason to keep it. At about 0.75 MB a run the disk is the
+      cheap side of that trade. Nothing in the application deletes a past run now; a person
+      deletes one on the Scan runs page, or with its company. Migration 00044 drops the
+      column. What history costs is watched instead — 28.4.
 - [x] 28.2 **Several api copies behind a load balancer:** sign-in attempts counted in the
       database (`login_attempt`) so the limit is shared, each copy heartbeats under its own
       host name and the System page lists the others, and Caddy load-balances across the
@@ -1080,14 +1080,6 @@ The bigger changes from SCALING-NOTES.md, in the order they hurt.
       2026-09-28 with two copies: ten guesses in total across both before a 429, a correct
       password on one clearing the counters recorded by the other, a run event reaching a
       stream on the copy that did not make the change, and Caddy rotating between both.
-- [x] 28.4 **Watch storage instead of deleting it.** Nothing is pruned unless a company is
-      given a retention, and none is by default, so the install needs to *show* what history
-      costs: **System page → Storage** (database split into past runs and current inventory,
-      each object-storage folder, runs kept, how far back they reach, cost per run, whether
-      any company prunes at all) and the same as `pinkglasses_storage_bytes{kind}`,
-      `pinkglasses_runs_kept`, `pinkglasses_history_days`, `pinkglasses_companies_pruning`,
-      with a `predict_linear` alert in the README. Measured on this install: 0.75 MB per run,
-      so keeping everything costs a few GB a year.
 - [x] 28.3 **Metrics for alerting:** `GET /api/v1/metrics` in Prometheus text format (viewer
       token, cached 10 s, nothing labelled by company): queue depth and oldest waiting task
       per stage, runs by status, workers, open findings, lease expiries, inventory totals
@@ -1095,3 +1087,10 @@ The bigger changes from SCALING-NOTES.md, in the order they hurt.
       from. The scheduler drops heartbeat rows of copies that no longer run, so an alert on
       heartbeat age does not fire forever about a container that is gone. Tested 2026-09-28
       with a real Prometheus scraping the running stack: target up, every rule evaluating.
+- [x] 28.4 **Watch storage instead of deleting it.** Nothing deletes a past run, so the
+      install has to *show* what history costs: **System page → Storage** — the database
+      split into past runs and the current inventory, each object-storage folder, how many
+      runs are kept, how far back they reach, and the cost per run — and the same numbers as
+      `pinkglasses_storage_bytes{kind}`, `pinkglasses_runs_kept` and
+      `pinkglasses_history_days`, with a `predict_linear` alert in the README. Measured on
+      this install: 0.75 MB per run, so keeping everything costs a few GB a year.
