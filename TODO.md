@@ -1094,3 +1094,47 @@ The bigger changes from SCALING-NOTES.md, in the order they hurt.
       `pinkglasses_storage_bytes{kind}`, `pinkglasses_runs_kept` and
       `pinkglasses_history_days`, with a `predict_linear` alert in the README. Measured on
       this install: 0.75 MB per run, so keeping everything costs a few GB a year.
+
+## Phase 29 — What the four-at-once test found (2026-09-30)
+
+`deploy/loadtest/run.sh` starts one active scan per company, all at once, against a real
+install and watches them. First run: four companies, four authorized targets, two enrolled
+workers. All four runs completed, no task failed, no lease expired, nothing was stranded,
+and work went one task per company rather than all of one company's — the queue, the
+fairness rotation and the leases are sound. What it found is below.
+
+- [ ] 29.1 **A wide port sweep cannot finish in its own time budget, and says nothing.**
+      `naabu` ships at 20 packets per second (`naabu_rate`), and `top-1000` over two
+      addresses spent the whole 30-minute tool budget, kept the partial results and
+      reported `status=ok` — the port list was incomplete and nothing in the app said so.
+      Two halves: (a) surface it — a task whose tool ran out of time should say the results
+      are partial, on the run and in the UI, rather than only in the worker log; (b) make
+      the budget follow the work, or the rate follow the port set, so a `top-1000` scan at
+      the default rate is not doomed from the start.
+- [ ] 29.2 **A worker takes everything it can fit.** With the default eight slots, one
+      worker leased all three port scans and the second enrolled worker sat idle until a
+      later stage produced more work. Correct — the cap is per company, not per worker —
+      but it means adding a worker does not spread the *current* wave. Worth considering:
+      prefer an idle worker over one already at work when handing out a batch.
+- [ ] 29.4 **A remote worker cannot be told how much to take.** The gateway stamps every
+      enrolling worker with `MaxConcurrency: 8` (`internal/agentapi/gateway.go`) and ignores
+      what the worker reports, so `ASM_WORKER_MAX_CONCURRENCY` on a remote worker changes
+      nothing about how many leases it is handed: a worker started with one slot was given
+      four port scans and ran four naabu processes at once. A worker on a small VPS needs to
+      be able to say how much it can carry.
+- [ ] 29.5 **A worker that goes away keeps its pool looking staffed.** A container
+      re-enrolling under a name an earlier run used produced *two* rows: the new one
+      `pending` approval, the old one still `active` because `MarkStaleWorkers` runs only in
+      the scheduler's 5-minute sweep, not on its 15-second tick. `PruneReplacedWorker` did
+      not clear it either — it deletes only `stale` and `pending` rows. For 100 seconds four
+      port scans sat pending with no worker able to take them while the System page said
+      **ok** and reported nothing stranded, because the stranded query asks whether an
+      `active` worker exists in the pool. Three fixes, smallest first: mark workers stale on
+      the tick; let `PruneReplacedWorker` also replace an `active` row whose heartbeat is
+      already older than the stale threshold; and have the stranded query ignore workers
+      whose heartbeat has aged out rather than trusting the status column.
+- [ ] 29.3 **One domain per company is not much of a load test.** The planner batches up to
+      64 addresses into one `port_scan` task, so a company with one domain produces three
+      or four tasks in total. The test now runs its workers with one slot each
+      (`LOAD_WORKER_SLOTS`) to make the queue rotate; a heavier test needs companies with
+      many addresses, not more companies.

@@ -1218,6 +1218,49 @@ completed with port 80 found and identified as nginx. It leaves a real install o
 machine alone. `E2E_KEEP=1 deploy/e2e/run.sh` leaves it running to look at. CI runs it on
 every push to main.
 
+## Several scans at once, on purpose
+
+`deploy/loadtest/run.sh` starts one **active** scan per company, all within a second of
+each other, against a **real** install, and watches what happens to them. It exists because
+the failures that matter with several clients only appear under contention: a company that
+holds every worker, a task nobody can lease, a lease that expires while its worker is busy
+elsewhere. A single scan never shows any of them.
+
+```bash
+export ASM_TOKEN=pgt_…                       # an operator or admin token (or ASM_ADMIN_PASSWORD)
+LOAD_TARGETS="a.example b.example c.example d.example" deploy/loadtest/run.sh
+```
+
+One company per target, named `load-1…load-N`, each with that one target **authorized for
+active scanning** — so only pass targets you are allowed to send traffic at. It never
+touches an existing company, and it leaves its own behind for you to look at (delete them
+from the company menu when you are done). The scan is `standard` with discovery off, so
+each run resolves its seed target and then port-scans and probes what it finds: active, and
+bounded, rather than a subdomain sweep that makes one run enormous.
+
+It enrols its own workers into the **remote** pool — by default two for four companies,
+with two task slots each, which is the point: four companies have to share four slots. A
+worker with its usual eight slots would swallow everything four small scans can produce,
+and then nothing would ever wait, so the fairness rotation and the per-company cap would
+never be exercised. While the runs go it prints a line every
+10 seconds per company (`running 3fly/5wait`) with the queue's oldest waiting task, lease
+expiries, failed tasks and anything stranded, and writes the same as a TSV you can open in
+a spreadsheet. At the end it reports each run's tasks by status with any failure, the most
+tasks each company held at once (the fairness number), when each finished, and what the
+System page says. It exits non-zero if any run did not complete.
+
+| Knob | Default | |
+|---|---|---|
+| `LOAD_WORKERS` | 2 | workers enrolled for the test |
+| `LOAD_WORKER_SLOTS` | 2 | tasks each test worker runs at once — low on purpose, so work actually queues |
+| `LOAD_KEEP_WORKERS` | unset | `1` leaves them running afterwards |
+| `LOAD_PREFIX` | `load` | company and worker name prefix |
+| `LOAD_TIMEOUT_MINS` | 30 | how long to wait for every run |
+| `LOAD_SLOW_TASK_MINS` | 10 | a task at least this long gets a line of its own — the shape of a tool that ran out of its time budget |
+| `LOAD_SAMPLE_SECS` | 10 | how often to sample |
+| `LOAD_PARAMS` | discovery off, top-1000 ports | the run's parameters, as JSON |
+| `ASM_API_URL` | `http://127.0.0.1:8080` | the install to test |
+
 ## Develop
 
 **The wiki is mirrored from `wiki/`.** The pages under `wiki/` are the GitHub wiki: `Home.md`
