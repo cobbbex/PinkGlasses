@@ -1098,10 +1098,19 @@ The bigger changes from SCALING-NOTES.md, in the order they hurt.
 ## Phase 29 — What the four-at-once test found (2026-09-30)
 
 `deploy/loadtest/run.sh` starts one active scan per company, all at once, against a real
-install and watches them. First run: four companies, four authorized targets, two enrolled
-workers. All four runs completed, no task failed, no lease expired, nothing was stranded,
-and work went one task per company rather than all of one company's — the queue, the
-fairness rotation and the leases are sound. What it found is below.
+install and watches them. Four rounds on 2026-09-30, four companies each, two enrolled
+workers:
+
+| Round | Scan | Result |
+|---|---|---|
+| 1 | top-1000, shipped rate (20 pps) | all 4 completed in 30.7 min; the port sweeps used the whole 30-minute tool budget and returned partial results |
+| 2 | top-1000, rate 500 | all 4 completed in 7.3–11.8 min, 59 tasks, 0 failed, 0 retried; sweeps 8 min average, complete |
+| 3–4 | ports 80,443 | all 4 completed in 72–91 s, every task done, nothing stranded |
+
+Across every round: no task failed, no lease expired, nothing was ever stranded once a
+live worker existed, and work went out one task per company rather than all of one
+company's — the queue, the fairness rotation and the leases are sound. What the rounds
+found is below.
 
 - [ ] 29.1 **A wide port sweep cannot finish in its own time budget, and says nothing.**
       `naabu` ships at 20 packets per second (`naabu_rate`), and `top-1000` over two

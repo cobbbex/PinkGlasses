@@ -255,7 +255,7 @@ print("  failed tasks 24h  ", c["failed_tasks_24h"])
 print("  failed runs 24h   ", c["failed_runs_24h"])
 print("  stranded          ", len(d.get("stranded") or []))
 q=d.get("queue") or []
-print("  queue now         ", ", ".join(f"{x[\"stage\"]} {x[\"pending\"]}/{x[\"in_flight\"]}" for x in q) or "empty")'
+print("  queue now         ", ", ".join("%s %d/%d" % (x["stage"], x["pending"], x["in_flight"]) for x in q) or "empty")'
 
 note "timeline: $OUT/timeline.tsv"
 if [ "$bad" -gt 0 ]; then fail "$bad of $N runs did not complete"; fi
