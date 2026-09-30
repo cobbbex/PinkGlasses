@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+// idleWorkerGrace is how long a task must have waited before an idle worker
+// that could have taken it counts as a missed opportunity rather than the
+// ordinary two-second gap between dispatch ticks.
+const idleWorkerGrace = time.Minute
+
 // Metrics is the install's state in numbers, for a monitoring system to
 // scrape. Install-wide on purpose: nothing here is labelled by company, so a
 // scrape cannot be used to learn the names of private companies.
@@ -27,6 +32,19 @@ type Metrics struct {
 	LeaseExpiries24h int
 	FailedTasks24h   int
 	FailedRuns24h    int
+
+	// IdleWithWorkWaiting counts workers that are up, doing nothing, and
+	// eligible for work that has been sitting in the queue for more than a
+	// minute: same pool, capabilities the waiting tasks need. It should be
+	// zero nearly always — a task is normally leased within two seconds, so
+	// without that minute this would flicker on every ordinary dispatch gap.
+	//
+	// It exists to settle an argument with evidence rather than reasoning.
+	// One worker takes every task it has room for, so a wave can land on one
+	// machine while another stands by — whether that costs anything depends
+	// on work nobody has measured. A number that stays at zero says the
+	// dispatcher needs no cleverness; one that does not says where to look.
+	IdleWithWorkWaiting int
 
 	// Beats is each service's last heartbeat: gateway, scheduler, backup,
 	// every api copy. Exposed as an age so an alert can fire on silence.
@@ -123,6 +141,9 @@ func (s *Store) Metrics(ctx context.Context) (Metrics, error) {
 	}
 	if c, err := s.HealthCounts(ctx); err == nil {
 		m.LeaseExpiries24h, m.FailedTasks24h, m.FailedRuns24h = c.LeaseExpiries24h, c.FailedTasks24h, c.FailedRuns24h
+	}
+	if n, err := s.IdleWorkersWithWorkWaiting(ctx, idleWorkerGrace); err == nil {
+		m.IdleWithWorkWaiting = n
 	}
 	if beats, err := s.ComponentBeats(ctx); err == nil {
 		for name, b := range beats {

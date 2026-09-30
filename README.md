@@ -1120,6 +1120,7 @@ stack you already run:
 | `pinkglasses_runs{status}`, `pinkglasses_runs_finished_24h{status}` | runs now, and what finished in the last day |
 | `pinkglasses_workers{status}` | workers active, stale, pending approval |
 | `pinkglasses_component_heartbeat_age_seconds{component}` | seconds since the gateway, the scheduler, each api copy or the backup service last reported |
+| `pinkglasses_idle_workers_with_work_waiting` | workers doing nothing beside work they could take that has waited over a minute — normally 0 |
 | `pinkglasses_lease_expiries_24h`, `pinkglasses_failed_tasks_24h`, `pinkglasses_failed_runs_24h` | what went wrong in the last day |
 | `pinkglasses_findings_open{severity}`, `pinkglasses_inventory{kind}` | what the install holds |
 | `pinkglasses_storage_bytes{kind}` | bytes in the database (whole, history, inventory) and in each object-storage folder |
@@ -1171,6 +1172,10 @@ groups:
       - alert: RunsFailing
         expr: pinkglasses_failed_runs_24h > 3
         annotations: {summary: "More than three runs failed in the last day"}
+      - alert: WorkersIdleWhileWorkWaits
+        expr: pinkglasses_idle_workers_with_work_waiting > 0
+        for: 10m
+        annotations: {summary: "A worker has stood idle for ten minutes beside work it could take"}
 ```
 
 ### If a run does not move

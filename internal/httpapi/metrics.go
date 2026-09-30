@@ -102,6 +102,9 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	g("pinkglasses_findings_open", "Open findings by severity.")
 	each(m.FindingsBySeverity, func(k string, n int) { val("pinkglasses_findings_open", "severity="+quote(k), float64(n)) })
 
+	g("pinkglasses_idle_workers_with_work_waiting", "Workers that are up, running nothing, and eligible for work that has waited over a minute — same pool, the capabilities those tasks need. Leasing is pull-based, so one worker can take a whole wave and leave another standing by; this says whether that actually costs anything here. Normally 0.")
+	val("pinkglasses_idle_workers_with_work_waiting", "", float64(m.IdleWithWorkWaiting))
+
 	g("pinkglasses_lease_expiries_24h", "Tasks whose lease expired in the last 24 hours: a worker took work and stopped reporting.")
 	val("pinkglasses_lease_expiries_24h", "", float64(m.LeaseExpiries24h))
 	g("pinkglasses_failed_tasks_24h", "Tasks that failed in the last 24 hours.")

@@ -1127,11 +1127,30 @@ found is below.
       2026-09-30 against the running stack with a 3-minute ceiling: task failed with the
       message, run completed, target `incomplete` (2 of 3 tasks), and a failed sweep's
       service still produced a `service_probe` that ran.
-- [ ] 29.2 **A worker takes everything it can fit.** With the default eight slots, one
-      worker leased all three port scans and the second enrolled worker sat idle until a
-      later stage produced more work. Correct — the cap is per company, not per worker —
-      but it means adding a worker does not spread the *current* wave. Worth considering:
-      prefer an idle worker over one already at work when handing out a batch.
+- [x] 29.2 **A worker takes everything it can fit — decided against, 2026-09-30.** The
+      observation stands: with eight slots one worker leased all three port scans while the
+      second stood by. The proposed fix does not, because there is no allocator to teach.
+      Leasing is **pull-based**: each connected worker's own 2-second ticker asks for
+      `MaxConcurrency − RunningTasks` tasks and takes what fits, so nothing ever chooses
+      between two workers. "Prefer an idle one" would mean inventing that choice — capping
+      what a single request may take, counting only *eligible* workers (right pool, right
+      capabilities, actually connected). Miscount and work sits idle beside a capable
+      worker, which is a worse failure than an uneven split, and the same class of bug as
+      29.5.
+      Three things argue against spending that risk. The stage this was observed on is
+      rate-limited, not CPU-bound, so spreading it buys nothing. Both workers were used as
+      soon as there was parallel work (service_probe 16/13, screenshot 5/4); only the first
+      wave was lopsided. And 29.4 turned this into a setting: a worker now says how much it
+      carries, so two workers at two slots each spread a four-task wave by construction.
+      The one real argument is blast radius — a worker holding a whole wave stalls it for a
+      lease TTL when it dies, which cost five minutes in testing — and that is answered by
+      the TTL and by more workers, not by a different allocator.
+      Revisit with evidence, not reasoning: `pinkglasses_idle_workers_with_work_waiting`
+      counts workers that are up, running nothing, and eligible for queued work. If it
+      stays at zero on a real install there is nothing here; if it does not, that is the
+      case this item needs, and the design that would follow is per-stage weights (a
+      screenshot costing more of a worker than a DNS lookup), not picking favourites among
+      workers.
 - [ ] 29.3 **One domain per company is not much of a load test.** The planner batches up to
       64 addresses into one `port_scan` task, so a company with one domain produces three
       or four tasks in total. The test now runs its workers with one slot each

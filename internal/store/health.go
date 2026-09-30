@@ -128,3 +128,33 @@ func (s *Store) PruneInstanceBeats(ctx context.Context, olderThan time.Duration)
 		WHERE name LIKE '%:%' AND last_seen < now() - $1::interval`, olderThan.String())
 	return ct.RowsAffected(), err
 }
+
+// IdleWorkersWithWorkWaiting counts active workers sitting with nothing to do
+// while tasks they could take have been waiting longer than grace.
+//
+// It exists to answer one question with data rather than argument: does a
+// worker hoarding a wave of tasks actually leave other workers idle? Leasing is
+// pull-based — each worker asks every two seconds for as much as it can carry —
+// so a first worker can take a whole wave while a second has nothing. Whether
+// that costs anything is an open question (TODO 29.2); this is the number that
+// settles it. Steadily zero means the concern is theoretical on this install.
+//
+// The grace period matters: a task is normally leased within a couple of
+// seconds, so without it this would flicker on every ordinary dispatch gap.
+func (s *Store) IdleWorkersWithWorkWaiting(ctx context.Context, grace time.Duration) (int, error) {
+	var n int
+	err := s.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM worker w
+		WHERE w.status = 'active'
+		  AND w.last_seen_at > now() - $1::interval
+		  AND w.running_tasks = 0
+		  AND EXISTS (
+		    SELECT 1 FROM scan_task t JOIN scan_run r ON r.id = t.run_id
+		    WHERE t.status = 'pending'
+		      AND r.status = 'running'
+		      AND t.created_at < now() - $2::interval
+		      AND t.pool_id IS NOT DISTINCT FROM w.pool_id
+		      AND t.requires <@ w.capabilities)`,
+		WorkerStaleAfter.String(), grace.String()).Scan(&n)
+	return n, err
+}
