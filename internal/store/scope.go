@@ -376,4 +376,3 @@ func (s *Store) RemoveScopeMember(ctx context.Context, scopeID, userID uuid.UUID
 	ct, err := s.Pool.Exec(ctx, `DELETE FROM scope_member WHERE scope_id=$1 AND user_id=$2`, scopeID, userID)
 	return ct.RowsAffected() > 0, err
 }
-

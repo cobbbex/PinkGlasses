@@ -30,6 +30,15 @@ func (p params) intStr(key, def string) string {
 	return v
 }
 
+// intVal is intStr as a number, for arithmetic rather than a command line.
+func (p params) intVal(key string, def int) int {
+	n, err := strconv.Atoi(p.str(key, ""))
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
+}
+
 func (p params) boolVal(key string, def bool) bool {
 	switch p.str(key, "") {
 	case "true":

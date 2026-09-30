@@ -142,6 +142,17 @@ service; the workers a run builds for itself start from the worker image and fet
 default templates on first use, which is part of why the first nuclei task of a fleet
 takes minutes.
 
+**No scan stage is given a fixed number of minutes.** Every tool's time budget comes from
+the work in front of it — how many ports over how many addresses, at the rate and
+concurrency the run asked for — floored so a small scan is never cut off by arithmetic and
+capped by `ASM_PORT_SCAN_MAX` (default 4 h). And when a tool does run out, **the task
+fails and says why**, keeping what it found: the ports are still ingested and still probed
+for services, but the target the run covered is marked *incomplete* rather than reading
+like a clean finish. A `top-1000` sweep over two addresses at the shipped rate of 20
+packets a second used to exhaust a flat 30-minute budget and report whatever it had
+reached as if it were the whole answer; raising **Concurrency** is what makes that sweep
+quick — see [Port scanning](wiki/Port-Scanning.md).
+
 **DNS bruteforce is a separate task per wordlist**, run one at a time per worker and
 kept in bounds so it cannot take the host — and the web app on it — down: 300 queries
 in flight, 500 resolvers per task (each is a NAT entry on your router), CPU and memory

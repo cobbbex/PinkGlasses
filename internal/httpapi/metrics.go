@@ -54,7 +54,9 @@ func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var b strings.Builder
-	g := func(name, help string) { b.WriteString("# HELP " + name + " " + help + "\n# TYPE " + name + " gauge\n") }
+	g := func(name, help string) {
+		b.WriteString("# HELP " + name + " " + help + "\n# TYPE " + name + " gauge\n")
+	}
 	val := func(name, labels string, v float64) {
 		b.WriteString(name)
 		if labels != "" {

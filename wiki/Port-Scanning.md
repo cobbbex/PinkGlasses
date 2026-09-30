@@ -96,8 +96,50 @@ nmap -Pn --open --min-hostgroup 64 --min-rate 10000 --max-retries 3 \
 `--open` means each host reports only the ports actually open on it, so
 scanning the union across the whole pool costs very little.
 
-On the `deep` profile `-sV` is replaced by `-A -vvv`, and the nmap timeout goes
-from 20 minutes to 60.
+On the `deep` profile `-sV` is replaced by `-A -vvv`.
+
+## Time budgets, and what happens when one runs out
+
+Both tools get a budget derived from the work in front of them, not a fixed
+number of minutes. A flat 30 minutes for the sweep was both too long for two
+ports on one address and far too short for a wide pool: `top-1000` over two
+addresses at the shipped settings spent the whole budget, returned the ports it
+happened to reach, and the task still read **done**.
+
+The sweep's budget is the larger of its two lower bounds, times four for the
+pacing this model does not capture:
+
+- **the send rate** — `ports × addresses` probes cannot leave faster than
+  `naabu_rate` a second;
+- **the waiting** — a port that never answers is only known to be closed once
+  `naabu_timeout_ms` and its retries have elapsed, and only
+  `naabu_concurrency` probes wait at once, so a filtered pool costs
+  `ports × addresses × timeout × (retries+1) ÷ concurrency`.
+
+That second bound is usually the one that bites, and **concurrency is the lever
+that moves it** — not the packet rate. It is floored at 15 minutes, so a small
+sweep is never cut off by arithmetic, and capped by `ASM_PORT_SCAN_MAX` on the
+worker (default 4 h). nmap's budget is `ports × host groups` at five seconds a
+probe, doubled for slack (eight times for `deep`), never below the 20 minutes
+(60 for `deep`) it always had. Each sweep logs what it was given:
+
+```
+port sweep starting hosts=2 ports=top-1000 rate=20 concurrency=4 budget=1h6m0s
+```
+
+**When a tool does run out, the task fails and says so.** The ports it found
+are kept, ingested and still probed for services — they are real, just
+incomplete — but the task carries the reason:
+
+> the port sweep did not get through top-1000 on 2 address(es) within 8m0s, so
+> the ports it reports are only those it reached: 0 open on 0 address(es)
+> before it was stopped. Raise Concurrency (naabu_concurrency, the setting that
+> decides how many ports wait at once) or Packets per second (naabu_rate) under
+> Customize scanning, or scan a narrower port set
+
+The run still completes, and the target it covered is marked **incomplete** —
+which is the honest answer to "did this scan see everything?". It is not
+retried: the same ports at the same settings take the same time.
 
 ## Settings
 
@@ -112,7 +154,7 @@ whitelist before they ever reach a command line.
 | `nmap_version_intensity` | `7` | 0–9 | 9 tries every probe, 0 only the likeliest |
 | `nmap_max_retries` | `3` | 0–10 | probe retransmissions |
 | `naabu_rate` | `20` | 1–1000 | packets per second for the sweep |
-| `naabu_concurrency` | `4` | 1–64 | parallel hosts in the sweep |
+| `naabu_concurrency` | `4` | 1–64 | how many ports wait for an answer at once — the setting that decides how long a wide sweep takes |
 | `naabu_timeout_ms` | `1000` | 100–10000 | how long to wait for a port to answer |
 | `naabu_retries` | `1` | — | sweep retries |
 

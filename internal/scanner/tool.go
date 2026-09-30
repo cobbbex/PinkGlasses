@@ -58,6 +58,34 @@ func (p permanentError) Unwrap() error { return p.err }
 // permanent wraps err so the agent reports it as not worth retrying.
 func permanent(err error) error { return permanentError{err: err} }
 
+// permanentJoin combines stage errors, keeping "not worth retrying" if any of
+// them said so. A stage can have more than one tool run out of its budget, and
+// each reason tells the operator something different.
+func permanentJoin(errs ...error) error {
+	var kept []error
+	perm := false
+	for _, e := range errs {
+		if e == nil {
+			continue
+		}
+		if isPermanent(e) {
+			perm = true
+		}
+		kept = append(kept, e)
+	}
+	switch len(kept) {
+	case 0:
+		return nil
+	case 1:
+		return kept[0]
+	}
+	joined := errors.Join(kept...)
+	if perm {
+		return permanent(joined)
+	}
+	return joined
+}
+
 // isPermanent reports whether err, anywhere in its chain, was marked permanent.
 func isPermanent(err error) bool {
 	var p permanentError

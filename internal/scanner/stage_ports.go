@@ -2,8 +2,11 @@ package scanner
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,7 +60,7 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 	if wide && have("naabu") && pr.enabled("naabu") {
 		// Wide sweeps are what naabu is for: it finds open ports far faster than
 		// nmap over a large range, and nmap then fingerprints only the hits.
-		open := s.naabuSweep(ctx, hosts, ports, deep, pr)
+		open, sweepErr := s.naabuSweep(ctx, hosts, ports, deep, pr)
 		for host, ps := range open {
 			for _, port := range ps {
 				obs = append(obs, scanproto.Observation{
@@ -65,17 +68,25 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 				})
 			}
 		}
+		var versionErr error
 		if have("nmap") && pr.enabled("nmap") {
-			obs = append(obs, s.nmapVersions(ctx, open, deep, pr)...)
+			var found []scanproto.Observation
+			found, versionErr = s.nmapVersions(ctx, open, deep, pr)
+			obs = append(obs, found...)
 		}
-		return obs, nil
+		// A tool that ran out of its budget found real ports and they are
+		// reported — but the task fails, so the run says the port list is
+		// incomplete instead of looking like a clean finish. The services
+		// already found are still probed (planner.probeNewServices). Both
+		// tools can run out, and then both reasons are worth having.
+		return obs, permanentJoin(sweepErr, versionErr)
 	}
 
 	if have("nmap") && pr.enabled("nmap") {
 		// At top-100 width nmap alone is simpler and returns service versions in
 		// the same pass, so there is nothing for a separate discovery scan to add.
-		found := s.nmapScan(ctx, hosts, "--top-ports", "100", deep, pr)
-		return found, nil
+		found, err := s.nmapScan(ctx, hosts, "--top-ports", "100", deep, pr)
+		return found, err
 	}
 
 	// No scanner installed: fall back to a Go connect scan per host.
@@ -90,10 +101,149 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 	return obs, nil
 }
 
+// portCount is how many ports a port selection covers, for sizing the sweep's
+// time budget. An explicit list or range is counted; a preset is its name.
+// Anything unrecognised is treated as the widest case, since a budget that is
+// too generous only delays a refusal while one that is too small truncates the
+// scan.
+func portCount(ports string, deep bool) int {
+	if deep || ports == "full" {
+		return 65535
+	}
+	switch ports {
+	case "", "top-100":
+		return 100
+	case "top-1000":
+		return 1000
+	}
+	n := 0
+	for _, part := range strings.Split(ports, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		lo, hi, ok := strings.Cut(part, "-")
+		if !ok {
+			if _, err := strconv.Atoi(part); err != nil {
+				return 65535 // not a port: assume the worst rather than count it as one
+			}
+			n++
+			continue
+		}
+		a, err1 := strconv.Atoi(strings.TrimSpace(lo))
+		b, err2 := strconv.Atoi(strings.TrimSpace(hi))
+		if err1 != nil || err2 != nil || b < a {
+			return 65535
+		}
+		n += b - a + 1
+	}
+	if n == 0 {
+		return 65535
+	}
+	return n
+}
+
+// portScanBudget is how long a sweep of `ports` ports across `hosts` addresses
+// may take before it is stopped.
+//
+// It was a flat 30 minutes, which is both too long for a small sweep and far
+// too short for a wide one: top-1000 over two addresses at the shipped rate
+// spent the whole budget and returned partial results, and nothing said so.
+// The time a sweep needs comes from two lower bounds:
+//
+//   - the send rate — ports×hosts probes cannot leave faster than `rate` a
+//     second;
+//   - the waiting — a port that never answers is only known to be closed once
+//     its timeout and retries have elapsed, and naabu keeps `concurrency`
+//     probes in flight, so a fully filtered pool costs
+//     ports×hosts×timeout×(retries+1)/concurrency.
+//
+// The larger of the two, times four for the pacing this model does not
+// capture, floored at fifteen minutes so a small sweep is never cut off by
+// arithmetic, and capped at `max` so a sweep that genuinely cannot finish is
+// refused with an explanation rather than run all day.
+func portScanBudget(ports, hosts, rate, timeoutMS, retries, concurrency int, max time.Duration) time.Duration {
+	if hosts < 1 {
+		hosts = 1
+	}
+	if rate < 1 {
+		rate = 1
+	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	if retries < 0 {
+		retries = 0
+	}
+	probes := ports * hosts
+	bySend := time.Duration(probes/rate+1) * time.Second
+	byWait := time.Duration(probes*timeoutMS*(retries+1)/concurrency) * time.Millisecond
+	budget := bySend
+	if byWait > budget {
+		budget = byWait
+	}
+	budget *= 4
+	if budget < 15*time.Minute {
+		budget = 15 * time.Minute
+	}
+	if max > 0 && budget > max {
+		budget = max
+	}
+	return budget
+}
+
+// portScanMax is the ceiling on one sweep's budget. A pool and port set that
+// needs longer than this is not a scan that should be left running for a day:
+// the stage stops and says what to change.
+func portScanMax() time.Duration {
+	if v := os.Getenv("ASM_PORT_SCAN_MAX"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+		slog.Warn("ignoring ASM_PORT_SCAN_MAX: not a duration like 90m or 4h", "value", v)
+	}
+	return 4 * time.Hour
+}
+
+// nmapBudget is how long service detection over `ports` ports across `hosts`
+// addresses may take. It was a flat 20 minutes (an hour for deep), which is
+// plenty for a handful of services and not enough for a large pool — and when
+// it ran out, the versions nmap had not reached were simply missing.
+//
+// Version detection costs a few seconds per open port, and nmap works on 64
+// hosts at a time (--min-hostgroup), so the work is ports × host groups. Five
+// seconds a probe, doubled for slack, four times that for deep's -A, and never
+// less than the old flat budgets.
+func nmapBudget(ports, hosts int, deep bool, max time.Duration) time.Duration {
+	if hosts < 1 {
+		hosts = 1
+	}
+	groups := (hosts + 63) / 64
+	per := 5 * time.Second
+	slack := 2
+	floor := 20 * time.Minute
+	if deep {
+		slack = 8
+		floor = 60 * time.Minute
+	}
+	budget := time.Duration(ports*groups*slack) * per
+	if budget < floor {
+		budget = floor
+	}
+	if max > 0 && budget > max {
+		budget = max
+	}
+	return budget
+}
+
 // naabuSweep runs one naabu across the whole host pool and returns open ports
 // per host. Passing the pool as a list is what lets naabu apply its concurrency
 // and rate across hosts rather than to a single address at a time.
-func (s *Scanner) naabuSweep(ctx context.Context, hosts []string, ports string, deep bool, pr params) map[string][]int {
+//
+// The error is a *ToolTimeout when the sweep was stopped at its budget: the
+// ports it had found are still returned, and the caller reports that the rest
+// were never probed.
+func (s *Scanner) naabuSweep(ctx context.Context, hosts []string, ports string, deep bool, pr params) (map[string][]int, error) {
 	// Hosts go in on stdin. naabu has no "-list -" convention: it takes the flag
 	// literally and fails trying to open a file named "-", while still exiting 0.
 	args := []string{"-silent", "-json",
@@ -115,7 +265,14 @@ func (s *Scanner) naabuSweep(ctx context.Context, hosts []string, ports string, 
 		args = append(args, "-scan-type", "c") // connect scan without CAP_NET_RAW
 	}
 
-	rows, _ := runJSONLStdin(ctx, 30*time.Minute, strings.Join(hosts, "\n"), "naabu", args...)
+	budget := portScanBudget(portCount(ports, deep), len(hosts),
+		pr.intVal("naabu_rate", 20), pr.intVal("naabu_timeout_ms", 1000),
+		pr.intVal("naabu_retries", 1), pr.intVal("naabu_concurrency", 4), portScanMax())
+	slog.Info("port sweep starting", "hosts", len(hosts), "ports", ports,
+		"rate", pr.intStr("naabu_rate", "20"), "concurrency", pr.intStr("naabu_concurrency", "4"),
+		"budget", budget.Round(time.Second))
+
+	rows, runErr := runJSONLStdin(ctx, budget, strings.Join(hosts, "\n"), "naabu", args...)
 	open := map[string][]int{}
 	for _, r := range rows {
 		host, port := str(r, "host"), num(r, "port")
@@ -132,7 +289,20 @@ func (s *Scanner) naabuSweep(ctx context.Context, hosts []string, ports string, 
 	}
 	slog.Info("port scan", "hosts", len(hosts), "with_open_ports", len(open),
 		"open", total, "scanner", "naabu")
-	return open
+
+	var to *ToolTimeout
+	if errors.As(runErr, &to) {
+		// The ports found so far are real and are returned; what the caller
+		// must not do is treat them as the whole answer.
+		return open, permanent(fmt.Errorf(
+			"the port sweep did not get through %s on %d address(es) within %s, so the "+
+				"ports it reports are only those it reached: %d open on %d address(es) "+
+				"before it was stopped. Raise Concurrency (naabu_concurrency, the setting "+
+				"that decides how many ports wait at once) or Packets per second "+
+				"(naabu_rate) under Customize scanning, or scan a narrower port set",
+			ports, len(hosts), budget.Round(time.Second), total, len(open)))
+	}
+	return open, nil
 }
 
 // portList renders open ports for a log line, bounded so a full-range scan does
@@ -173,14 +343,14 @@ func connectScan(ctx context.Context, ip string, ports []int) []int {
 
 // nmapScan scans a pool of hosts with the given port selection and returns the
 // open services it identifies, versions included.
-func (s *Scanner) nmapScan(ctx context.Context, hosts []string, portFlag, portValue string, deep bool, pr params) []scanproto.Observation {
+func (s *Scanner) nmapScan(ctx context.Context, hosts []string, portFlag, portValue string, deep bool, pr params) ([]scanproto.Observation, error) {
 	return s.nmapRun(ctx, hosts, []string{portFlag, portValue}, deep, pr)
 }
 
 // nmapVersions fingerprints ports a discovery sweep already found open. It is
 // given the union of those ports across the pool; --open means nmap reports
 // only the ones actually open on each host, so the union costs little.
-func (s *Scanner) nmapVersions(ctx context.Context, open map[string][]int, deep bool, pr params) []scanproto.Observation {
+func (s *Scanner) nmapVersions(ctx context.Context, open map[string][]int, deep bool, pr params) ([]scanproto.Observation, error) {
 	portSet := map[int]bool{}
 	var hosts []string
 	for host, ports := range open {
@@ -190,7 +360,7 @@ func (s *Scanner) nmapVersions(ctx context.Context, open map[string][]int, deep 
 		}
 	}
 	if len(hosts) == 0 || len(portSet) == 0 {
-		return nil
+		return nil, nil
 	}
 	ports := make([]int, 0, len(portSet))
 	for p := range portSet {
@@ -210,7 +380,9 @@ func (s *Scanner) nmapVersions(ctx context.Context, open map[string][]int, deep 
 // The pool is passed on stdin as a host list, which is what makes
 // --min-hostgroup meaningful: given one host at a time nmap can never form a
 // group, and the setting was decorative.
-func (s *Scanner) nmapRun(ctx context.Context, hosts []string, portArgs []string, deep bool, pr params) []scanproto.Observation {
+// The error is a *ToolTimeout when nmap was stopped at its budget: what it
+// identified is still returned, and the caller reports the rest as unreached.
+func (s *Scanner) nmapRun(ctx context.Context, hosts []string, portArgs []string, deep bool, pr params) ([]scanproto.Observation, error) {
 	args := []string{
 		"-Pn", "--open",
 		"--min-hostgroup", "64",
@@ -228,11 +400,8 @@ func (s *Scanner) nmapRun(ctx context.Context, hosts []string, portArgs []string
 	args = append(args, "--version-intensity", pr.intStr("nmap_version_intensity", "7"))
 	args = append(args, "-oG", "-", "-iL", "-") // host pool on stdin
 
-	timeout := 20 * time.Minute
-	if deep {
-		timeout = 60 * time.Minute
-	}
-	lines, _ := runLinesStdin(ctx, timeout, strings.Join(hosts, "\n"), "nmap", args...)
+	budget := nmapBudget(portArgCount(portArgs), len(hosts), deep, portScanMax())
+	lines, runErr := runLinesStdin(ctx, budget, strings.Join(hosts, "\n"), "nmap", args...)
 
 	var obs []scanproto.Observation
 	hostsWithPorts := map[string]bool{}
@@ -252,7 +421,31 @@ func (s *Scanner) nmapRun(ctx context.Context, hosts []string, portArgs []string
 	}
 	slog.Info("port scan", "hosts", len(hosts), "with_open_ports", len(hostsWithPorts),
 		"open", len(obs), "scanner", "nmap", "ports", strings.Join(portArgs, " "))
-	return obs
+
+	var to *ToolTimeout
+	if errors.As(runErr, &to) {
+		return obs, permanent(fmt.Errorf(
+			"nmap did not finish %s on %d address(es) within %s, so the services it "+
+				"identified (%d) are only those it reached. Lower Version intensity "+
+				"(nmap_version_intensity) or scan a narrower port set under Customize scanning",
+			strings.Join(portArgs, " "), len(hosts), budget.Round(time.Second), len(obs)))
+	}
+	return obs, nil
+}
+
+// portArgCount counts the ports in the flags handed to nmap, for its budget.
+func portArgCount(portArgs []string) int {
+	for i := 0; i < len(portArgs)-1; i++ {
+		switch portArgs[i] {
+		case "-p":
+			return portCount(portArgs[i+1], false)
+		case "--top-ports":
+			if n, err := strconv.Atoi(portArgs[i+1]); err == nil {
+				return n
+			}
+		}
+	}
+	return 65535
 }
 
 // parseNmapGrepHost pulls the address out of a greppable line, which starts

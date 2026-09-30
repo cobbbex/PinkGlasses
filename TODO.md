@@ -1112,19 +1112,21 @@ live worker existed, and work went out one task per company rather than all of o
 company's — the queue, the fairness rotation and the leases are sound. What the rounds
 found is below.
 
-- [ ] 29.1 **A wide port sweep cannot finish in its own time budget, and says nothing.**
-      `naabu` ships at 20 packets per second (`naabu_rate`), and `top-1000` over two
-      addresses spent the whole 30-minute tool budget, kept the partial results and
-      reported `status=ok` — the port list was incomplete and nothing in the app said so.
-      Two halves: (a) surface it — a task whose tool ran out of time should say the results
-      are partial, on the run and in the UI, rather than only in the worker log; (b) make
-      the budget follow the work, or the rate follow the port set, so a `top-1000` scan at
-      the default rate is not doomed from the start.
-- [ ] 29.2 **A worker takes everything it can fit.** With the default eight slots, one
-      worker leased all three port scans and the second enrolled worker sat idle until a
-      later stage produced more work. Correct — the cap is per company, not per worker —
-      but it means adding a worker does not spread the *current* wave. Worth considering:
-      prefer an idle worker over one already at work when handing out a batch.
+- [x] 29.1 **A wide port sweep cannot finish in its own time budget, and says nothing.**
+      Was: `naabu` at 20 packets per second over `top-1000` × 2 addresses spent a flat
+      30-minute budget, kept the partial results and reported `status=ok`. Now: both tools
+      in the stage get a budget derived from the work — the sweep from
+      `max(probes÷rate, probes×timeout×(retries+1)÷concurrency) × 4`, floored at 15 min and
+      capped by `ASM_PORT_SCAN_MAX` (default 4 h); nmap from `ports × host groups`, never
+      below the 20/60 min it had — and each logs what it was given. When a budget does run
+      out the task **fails** with what it reached and which setting to raise, the target is
+      marked *incomplete*, and it is not retried (the same scan takes the same time). The
+      ports a truncated sweep did find are still ingested **and still probed**:
+      `probeNewServices` now reads a failed port-scan task's services too, so surfacing the
+      truncation does not cost the follow-up work that used to happen silently. Verified
+      2026-09-30 against the running stack with a 3-minute ceiling: task failed with the
+      message, run completed, target `incomplete` (2 of 3 tasks), and a failed sweep's
+      service still produced a `service_probe` that ran.
 - [ ] 29.4 **A remote worker cannot be told how much to take.** The gateway stamps every
       enrolling worker with `MaxConcurrency: 8` (`internal/agentapi/gateway.go`) and ignores
       what the worker reports, so `ASM_WORKER_MAX_CONCURRENCY` on a remote worker changes

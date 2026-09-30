@@ -412,7 +412,12 @@ func (p *Planner) probeNewServices(ctx context.Context, run domain.ScanRun) erro
 
 	var specs []store.TaskSpec
 	for _, t := range tasks {
-		if t.Status != string(domain.TaskDone) {
+		// Done, or failed with something to show. A sweep stopped at its time
+		// budget fails on purpose — so the run says the port list is
+		// incomplete — but the ports it did find are real, and they still
+		// deserve to be probed. Skipping them would have made surfacing the
+		// truncation cost the follow-up work that used to happen silently.
+		if t.Status != string(domain.TaskDone) && t.Status != string(domain.TaskFailed) {
 			continue
 		}
 		sum := decode(t.Result)
