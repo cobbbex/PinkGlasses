@@ -35,7 +35,12 @@ it:
 - A **VPS worker** is a worker but not one of your containers. You installed the
   agent on a box elsewhere and enrolled it under **Workers → Add VPS worker**.
 
-Inside one worker, up to 8 **tasks** run at once (`ASM_WORKER_MAX_CONCURRENCY`).
+Inside one worker, up to 8 **tasks** run at once (`ASM_WORKER_MAX_CONCURRENCY`),
+and that same number is how many the control plane will hand it: the worker
+reports it when it enrols and on every heartbeat, so a worker on a small VPS
+says a smaller number and is given less. Raise or lower it and restart the
+worker; the change arrives on its next heartbeat, without re-enrolling. Held to
+1–64; a worker too old to report it gets 8, as before.
 So the layering is: one container, one worker, many tasks.
 
 Nobody creates a local worker by hand. The standing one is the `worker` service

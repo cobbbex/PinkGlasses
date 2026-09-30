@@ -105,6 +105,11 @@ type EnrollRequest struct {
 	Capabilities []Capability      `json:"capabilities"`
 	Tools        map[string]string `json:"tools"` // tool -> version
 	AgentVersion string            `json:"agent_version"`
+	// MaxConcurrency is how many tasks this worker can carry at once
+	// (ASM_WORKER_MAX_CONCURRENCY). The control plane hands out at most this
+	// many leases, so a small machine is not given a big machine's share.
+	// Omitted by older workers, which get the default.
+	MaxConcurrency int `json:"max_concurrency,omitempty"`
 }
 
 // EnrollResponse returns the worker's identity and long-lived credential.
@@ -142,7 +147,11 @@ type Heartbeat struct {
 	// refusing the work. Older workers send only RunningTasks.
 	Leases   []HeldLease `json:"leases,omitempty"`
 	Stopping bool        `json:"stopping,omitempty"`
-	At       time.Time   `json:"at"`
+	// MaxConcurrency repeats what the worker can carry, so changing
+	// ASM_WORKER_MAX_CONCURRENCY and restarting takes effect without
+	// re-enrolling — a worker keeps its credential across restarts.
+	MaxConcurrency int       `json:"max_concurrency,omitempty"`
+	At             time.Time `json:"at"`
 }
 
 // HeldLease is one task a worker is running, with the lease it holds it on.

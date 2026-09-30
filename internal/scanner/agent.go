@@ -232,10 +232,17 @@ func (a *Agent) ensureEnrolled(ctx context.Context) error {
 		return nil
 	}
 	if b, err := os.ReadFile(a.cfg.CredentialFile); err == nil {
-		var saved struct{ WorkerID, Credential string }
+		// Decode into the type it was written from. It used to be an untagged
+		// local struct: Go matches JSON keys to field names ignoring case but
+		// not underscores, so "worker_id" never reached WorkerID and the saved
+		// credential was silently never loaded. Every restart then enrolled
+		// again — a second row for the same worker, waiting for approval,
+		// while the one it replaced still looked live.
+		var saved scanproto.EnrollResponse
 		if json.Unmarshal(b, &saved) == nil && saved.WorkerID != "" {
 			a.workerID, a.cred = saved.WorkerID, saved.Credential
-			slog.Info("loaded worker credential", "worker", a.workerID)
+			slog.Info("loaded worker credential; reconnecting rather than enrolling again",
+				"worker", a.workerID)
 			return nil
 		}
 	}
@@ -249,6 +256,9 @@ func (a *Agent) ensureEnrolled(ctx context.Context) error {
 		Capabilities: capsList(a.caps),
 		Tools:        DetectTools(),
 		AgentVersion: a.cfg.Version,
+		// What this machine can carry, so the control plane does not hand it
+		// more than it asked for. It used to be told 8 whatever it said.
+		MaxConcurrency: a.cfg.MaxConcurrency,
 	}
 	body, _ := json.Marshal(req)
 	resp, err := a.client.Post(a.cfg.GatewayURL+"/agent/v1/enroll", "application/json", bytes.NewReader(body))
@@ -422,7 +432,8 @@ func (a *Agent) heartbeat(ctx context.Context, conn *websocket.Conn) {
 		{
 			running := a.runningTasks()
 			err := a.sendControl(conn, scanproto.Heartbeat{
-				WorkerID: a.workerID, RunningTasks: running, Leases: a.heldLeases(), At: time.Now(),
+				WorkerID: a.workerID, RunningTasks: running, Leases: a.heldLeases(),
+				MaxConcurrency: a.cfg.MaxConcurrency, At: time.Now(),
 			})
 			// A heartbeat that cannot be sent is what an expired lease looks
 			// like from this side; log the first failure and the recovery,

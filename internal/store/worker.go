@@ -144,6 +144,18 @@ func (s *Store) TouchWorker(ctx context.Context, id uuid.UUID, egressIP string) 
 	return err
 }
 
+// SetWorkerConcurrency records how many tasks a worker may be handed at once
+// and reports whether that changed anything, so a heartbeat carrying the same
+// number every fifteen seconds does not write a row or log a line.
+func (s *Store) SetWorkerConcurrency(ctx context.Context, id uuid.UUID, n int) (bool, error) {
+	ct, err := s.Pool.Exec(ctx,
+		`UPDATE worker SET max_concurrency=$2 WHERE id=$1 AND max_concurrency<>$2`, id, n)
+	if err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() > 0, nil
+}
+
 // ListWorkers returns all workers for the fleet page.
 func (s *Store) ListWorkers(ctx context.Context) ([]domain.Worker, error) {
 	rows, err := s.Pool.Query(ctx, `
@@ -170,6 +182,16 @@ func (s *Store) ListWorkers(ctx context.Context) ([]domain.Worker, error) {
 	}
 	return out, rows.Err()
 }
+
+// WorkerStaleAfter is how long a worker may go without a heartbeat before its
+// row stops meaning "a live worker is here".
+//
+// It matters in three places that must agree: the scheduler marks such a row
+// stale, a container re-enrolling replaces one, and the stranded-task check
+// treats a pool holding only such rows as unstaffed. When they disagreed, a
+// worker that had vanished kept its pool looking staffed and tasks waited with
+// nothing said.
+const WorkerStaleAfter = 90 * time.Second
 
 // StaleWorkers marks workers stale after missing heartbeats for the cutoff.
 func (s *Store) MarkStaleWorkers(ctx context.Context, cutoff time.Duration) (int64, error) {
@@ -247,9 +269,18 @@ func (s *Store) PruneReplacedWorker(ctx context.Context, name, kind string) (int
 	if name == "" {
 		return 0, nil
 	}
+	// An active row whose heartbeat has already aged out belongs to a container
+	// that is gone: the replacement is enrolling right now, under the same name
+	// and kind. Without this the scheduler's next pass was the earliest anything
+	// noticed, and until then the pool looked staffed by a worker that could
+	// take nothing. A row still heartbeating is left alone — two live workers
+	// may share a name.
 	ct, err := s.Pool.Exec(ctx, `
 		DELETE FROM worker
-		WHERE name = $1 AND kind = $2 AND status IN ('stale', 'pending')`, name, kind)
+		WHERE name = $1 AND kind = $2
+		  AND (status IN ('stale', 'pending')
+		       OR (status = 'active' AND last_seen_at < now() - $3::interval))`,
+		name, kind, WorkerStaleAfter.String())
 	if err != nil {
 		return 0, err
 	}

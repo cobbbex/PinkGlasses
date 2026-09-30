@@ -171,13 +171,17 @@ func (g *Gateway) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	worker := domain.Worker{
-		PoolID:         poolID,
-		Name:           firstNonEmpty(req.Name, req.Hostname, "worker"),
-		Kind:           kind,
-		Capabilities:   caps,
-		Tools:          req.Tools,
-		AgentVersion:   req.AgentVersion,
-		MaxConcurrency: 8,
+		PoolID:       poolID,
+		Name:         firstNonEmpty(req.Name, req.Hostname, "worker"),
+		Kind:         kind,
+		Capabilities: caps,
+		Tools:        req.Tools,
+		AgentVersion: req.AgentVersion,
+		// What the worker says it can carry, not what we wish it could. This
+		// was hardcoded to 8 and the reported value ignored, so a worker on a
+		// small machine — or one deliberately given one slot — was handed
+		// eight tasks and ran all eight.
+		MaxConcurrency: workerSlots(req.MaxConcurrency),
 	}
 	if srcIP != "" {
 		worker.EgressIP = &srcIP
@@ -545,6 +549,17 @@ func (g *Gateway) readLoop(workerID uuid.UUID, conn *websocket.Conn) {
 				"running_tasks", len(hb.RunningTasks), "lease_ttl", g.cfg.LeaseTTL.String())
 		}
 		_ = g.st.TouchWorker(ctx, workerID, "")
+		// A worker keeps its credential across restarts, so a changed
+		// ASM_WORKER_MAX_CONCURRENCY arrives on the heartbeat rather than at
+		// enrolment. Only written when it differs, so this is a no-op read for
+		// every beat after the first.
+		if n := workerSlots(hb.MaxConcurrency); hb.MaxConcurrency > 0 {
+			if changed, err := g.st.SetWorkerConcurrency(ctx, workerID, n); err != nil {
+				slog.Warn("could not record what the worker can carry", "worker", workerID, "err", err)
+			} else if changed {
+				slog.Info("worker capacity changed", "worker", workerID, "max_concurrency", n)
+			}
+		}
 		// What the worker says it is running: with lease tokens from a
 		// current worker, ids only from an older one.
 		held := hb.Leases
@@ -883,6 +898,23 @@ func firstNonEmpty(vals ...string) string {
 }
 
 var _ = planner.Apex
+
+// workerSlots is how many tasks a worker may be handed at once: what it says
+// it can carry, held to a sane range. Zero means it did not say — an older
+// agent — and keeps the historical default.
+func workerSlots(reported int) int {
+	const (
+		fallback = 8
+		most     = 64
+	)
+	switch {
+	case reported <= 0:
+		return fallback
+	case reported > most:
+		return most
+	}
+	return reported
+}
 
 // mergeTaskSummary folds a batch's summary into whatever the task has already
 // recorded, de-duplicating as it goes, and returns the merged JSON.

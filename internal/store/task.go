@@ -737,13 +737,19 @@ func (s *Store) StrandedTasks(ctx context.Context, age time.Duration) ([]Strande
 		  -- its active tasks sit on a pool that gets workers when a slot frees.
 		  AND NOT EXISTS (
 		    SELECT 1 FROM run_fleet f WHERE f.run_id = t.run_id AND f.status = 'requested')
+		  -- A worker counts only while it is still heartbeating. Trusting the
+		  -- status column alone hid a real stall: a container that vanished
+		  -- kept its row 'active' until the scheduler's next pass, so tasks no
+		  -- live worker could take were not reported and the System page said
+		  -- everything was fine.
 		  AND NOT EXISTS (
 		    SELECT 1 FROM worker w
 		    WHERE w.status = 'active'
+		      AND w.last_seen_at > now() - $2::interval
 		      AND w.pool_id IS NOT DISTINCT FROM t.pool_id
 		      AND t.requires <@ w.capabilities)
 		GROUP BY t.run_id, t.pool_id, t.stage
-		ORDER BY min(t.created_at)`, age.String())
+		ORDER BY min(t.created_at)`, age.String(), WorkerStaleAfter.String())
 	if err != nil {
 		return nil, err
 	}

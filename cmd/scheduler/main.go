@@ -145,7 +145,17 @@ func tick(ctx context.Context, st *store.Store, pl *planner.Planner, df *diff.Di
 	} else if err != nil {
 		slog.Error("reaping expired leases", "err", err)
 	}
-	// 2. Advance each running run through its stage machine.
+	// 2. Mark workers that have stopped heartbeating stale. On the tick, not
+	// on the five-minute sweep, because two decisions read that status and
+	// were wrong for as long as it lagged: which pools count as staffed, and
+	// therefore which waiting tasks are reported as work nobody can take.
+	if n, err := st.MarkStaleWorkers(ctx, store.WorkerStaleAfter); err == nil && n > 0 {
+		slog.Info("marked workers stale: no heartbeat for the cutoff",
+			"count", n, "cutoff", store.WorkerStaleAfter)
+	} else if err != nil {
+		slog.Error("marking stale workers", "err", err)
+	}
+	// 3. Advance each running run through its stage machine.
 	runs, err := st.RunningRuns(ctx)
 	if err != nil {
 		slog.Error("running runs", "err", err)
@@ -187,10 +197,6 @@ func sweep(ctx context.Context, st *store.Store, seeder *wordlists.Seeder, nt *n
 	// at boot would need a restart to clear.
 	go seeder.Run(ctx)
 
-	// Mark workers stale after 90s without a heartbeat.
-	if n, err := st.MarkStaleWorkers(ctx, 90*time.Second); err == nil && n > 0 {
-		slog.Info("marked stale workers", "count", n)
-	}
 	// Local workers are cattle: scaling recreates containers and each recreation
 	// self-enrolls fresh. Scaling down deletes their rows directly; this is the
 	// backstop for containers that died on their own. Remote workers are kept.

@@ -1127,25 +1127,45 @@ found is below.
       2026-09-30 against the running stack with a 3-minute ceiling: task failed with the
       message, run completed, target `incomplete` (2 of 3 tasks), and a failed sweep's
       service still produced a `service_probe` that ran.
-- [ ] 29.4 **A remote worker cannot be told how much to take.** The gateway stamps every
-      enrolling worker with `MaxConcurrency: 8` (`internal/agentapi/gateway.go`) and ignores
-      what the worker reports, so `ASM_WORKER_MAX_CONCURRENCY` on a remote worker changes
-      nothing about how many leases it is handed: a worker started with one slot was given
-      four port scans and ran four naabu processes at once. A worker on a small VPS needs to
-      be able to say how much it can carry.
-- [ ] 29.5 **A worker that goes away keeps its pool looking staffed.** A container
-      re-enrolling under a name an earlier run used produced *two* rows: the new one
-      `pending` approval, the old one still `active` because `MarkStaleWorkers` runs only in
-      the scheduler's 5-minute sweep, not on its 15-second tick. `PruneReplacedWorker` did
-      not clear it either — it deletes only `stale` and `pending` rows. For 100 seconds four
-      port scans sat pending with no worker able to take them while the System page said
-      **ok** and reported nothing stranded, because the stranded query asks whether an
-      `active` worker exists in the pool. Three fixes, smallest first: mark workers stale on
-      the tick; let `PruneReplacedWorker` also replace an `active` row whose heartbeat is
-      already older than the stale threshold; and have the stranded query ignore workers
-      whose heartbeat has aged out rather than trusting the status column.
+- [ ] 29.2 **A worker takes everything it can fit.** With the default eight slots, one
+      worker leased all three port scans and the second enrolled worker sat idle until a
+      later stage produced more work. Correct — the cap is per company, not per worker —
+      but it means adding a worker does not spread the *current* wave. Worth considering:
+      prefer an idle worker over one already at work when handing out a batch.
 - [ ] 29.3 **One domain per company is not much of a load test.** The planner batches up to
       64 addresses into one `port_scan` task, so a company with one domain produces three
       or four tasks in total. The test now runs its workers with one slot each
       (`LOAD_WORKER_SLOTS`) to make the queue rotate; a heavier test needs companies with
       many addresses, not more companies.
+- [x] 29.4 **A remote worker cannot be told how much to take.** The gateway stamped every
+      enrolling worker with `MaxConcurrency: 8` and ignored what it reported. The worker now
+      states `ASM_WORKER_MAX_CONCURRENCY` when it enrols **and on every heartbeat** — the
+      heartbeat matters because a worker keeps its credential across restarts, so a changed
+      setting would otherwise never arrive — and the gateway holds it to 1–64, keeping 8 for
+      a worker too old to say. Verified 2026-09-30: enrolled with 2 and the row said 2;
+      restarted with 5 and the row followed on the next heartbeat, no re-enrolment.
+- [x] 29.5 **A worker that goes away keeps its pool looking staffed.** Three places had to
+      agree on what "a live worker is here" means and did not; `store.WorkerStaleAfter` (90 s)
+      is now one shared constant, and: the scheduler marks workers stale **on its 15-second
+      tick** rather than in the 5-minute sweep; `PruneReplacedWorker` also replaces an
+      `active` row whose heartbeat has already aged out (a row still beating is left alone —
+      two live workers may share a name); and the stranded-task query requires a **live
+      heartbeat**, not just `status='active'`, which is the line that let the System page say
+      *ok* while four port scans waited with nobody able to take them.
+      Note the normal case was never broken: the gateway marks a worker stale the moment its
+      control channel closes. What the load test hit is the case where the gateway never sees
+      the close — it was restarted, or died with the worker. Reproduced exactly (gateway
+      stopped, worker killed while it was down, gateway restarted): the ghost row went stale
+      111 s after the kill, and the moment its task's lease expired the stall was reported as
+      stranded in the same 15-second window. A worker returning takes its task back and the
+      install goes to *ok*.
+- [x] 29.6 **A worker never loaded the credential it saved, so every restart enrolled anew.**
+      Found while testing 29.4. The credential is written as the enrolment response
+      (`{"worker_id": …}`) and was read back into an untagged local struct: Go matches JSON
+      keys to field names ignoring case but **not underscores**, so `worker_id` never reached
+      `WorkerID` and the file was silently useless. Every worker restart therefore enrolled
+      again — a second row waiting for approval while the row it replaced still looked live,
+      which is the shape 29.5 was chasing. Decoding into `scanproto.EnrollResponse` fixes it,
+      with a test that fails if the untagged shape ever comes back. Verified: a restarted
+      container logged *loaded worker credential; reconnecting rather than enrolling again*,
+      kept its id and row, and needed no re-approval.
