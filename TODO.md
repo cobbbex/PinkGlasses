@@ -1188,3 +1188,45 @@ found is below.
       with a test that fails if the untagged shape ever comes back. Verified: a restarted
       container logged *loaded worker credential; reconnecting rather than enrolling again*,
       kept its id and row, and needed no re-approval.
+
+## Phase 30 — What the full-port test found (2026-10-01)
+
+Four companies, each with lanet.ua, gigakyiv.net and volia.com (8 resolved addresses
+each), all 65535 ports, two workers at two slots. All four runs completed and nothing was
+stuck, but every port sweep ran out of its 3h38m budget with a quarter of the addresses
+reached — correctly reported, since 29.1, as a failed task and an *incomplete* target. The
+reason turned out to be a one-line bug.
+
+- [x] 30.1 **The sweep was doing a connect scan while holding the capability for a SYN
+      scan.** `naabu`'s own default is `-scan-type c`, and the stage passed that flag only
+      when `CAP_NET_RAW` was *missing* — so a worker that had detected `raw_socket` and been
+      granted `NET_RAW` still completed a three-way handshake on every port. Measured on one
+      address over 10000 ports at rate 1000 and 64 threads: **11 s** with `-s s`, still
+      unfinished after **5 min** without it. The stage now says which scan to run both ways
+      round. End to end on the same company and the same 65535 ports: **3h39m, stopped at
+      its budget, 10 open on 4 of 8 addresses → 8m47s, complete, 68 open on 6 of 8** — 25×
+      faster, and the run's targets came back `completed` rather than `incomplete`.
+- [x] 30.2 **The parameter ceilings were too low for a wide sweep.** `naabu_rate` was capped
+      at 1000 — naabu's own default — and `naabu_concurrency` at 64, against naabu's default
+      of 25. A full sweep cannot leave at 1000 packets a second inside any sane budget. Now
+      20000 and 1000. The defaults stay at 20 and 4: the default port set is `top-100`, where
+      they are plenty and quiet.
+      Also corrected in the wiki: `naabu_concurrency` is naabu's *internal worker threads*,
+      not "parallel hosts", and the page claimed the sweep ran as SYN when it did not.
+- [ ] 30.3 **IPv6 addresses are scanned with no IPv6 egress, which wastes a quarter of the
+      work.** Two of the eight addresses per company are IPv6 (Cloudflare's), the worker
+      container has no IPv6 default route, and so all 131070 probes against them could only
+      time out — they found 0 services in both the truncated and the complete sweep. Worth
+      either skipping an address family the worker cannot reach (with a line in the run
+      saying so) or giving worker containers IPv6; scanning an unreachable address and
+      reporting "nothing open" is the one answer that is actively misleading.
+- [ ] 30.4 **The harness killed its own scans when interrupted.** Fixed in the test, noted
+      here because it cost half an hour of scanning: the exit trap removed the test workers,
+      and the four in-flight sweeps died with them. It now removes workers only when the test
+      reaches its own end, and prints the `docker rm` lines otherwise.
+
+Capacity, for the record: no strain anywhere. Host load peaked 5.3, memory 14.6 of 63.9 GB,
+each worker container 27% CPU and 405 MB against its 2 CPU / 2 GB cap, postgres 8% and
+110 MB. `pinkglasses_idle_workers_with_work_waiting` was 0 in all 412 samples over the
+3h40m run, so 29.2 remains theoretical here. The only lease expiries were five from the
+attempts I killed.

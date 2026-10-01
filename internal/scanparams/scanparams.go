@@ -135,9 +135,16 @@ var Specs = []Spec{
 	{Key: "ports", Tool: "naabu", Label: "Port set", Kind: KindPorts,
 		Default: "top-100", Help: "top-100, top-1000, full, a range like 1-1024, or a list like 80,443."},
 	{Key: "naabu_rate", Tool: "naabu", Label: "Packets per second", Kind: KindInt,
-		Min: 1, Max: 1000, Default: "20", Help: "Higher is faster but far more likely to be rate-limited or blocked."},
+		// The ceiling was 1000 — naabu's own default — which is far too low for
+		// a wide sweep: 65535 ports over eight addresses cannot leave at that
+		// rate inside any sane budget. 20 stays the default because the default
+		// port set is top-100, where it is plenty and quiet.
+		Min: 1, Max: 20000, Default: "20", Help: "Higher is faster but far more likely to be rate-limited or blocked. A full port sweep needs thousands; top-100 does not."},
 	{Key: "naabu_concurrency", Tool: "naabu", Label: "Concurrency", Kind: KindInt,
-		Min: 1, Max: 64, Default: "4", Help: "Parallel hosts scanned at once."},
+		// naabu calls this "general internal worker threads"; it is not a count
+		// of hosts, which is what this said for a long time. Its own default is
+		// 25, so the ceiling was barely above it.
+		Min: 1, Max: 1000, Default: "4", Help: "How many probes are in flight at once. This, not the packet rate, is what decides how long a wide sweep takes."},
 	{Key: "naabu_timeout_ms", Tool: "naabu", Label: "Port timeout (ms)", Kind: KindInt,
 		Min: 100, Max: 10000, Default: "1000", Help: "How long to wait for a port to answer. Raise it for distant or slow hosts."},
 	{Key: "naabu_retries", Tool: "naabu", Label: "Retries", Kind: KindInt,

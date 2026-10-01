@@ -10,9 +10,12 @@
 # What it needs:
 #   ASM_TOKEN         an API token with the operator or admin role (Accounts →
 #                     API tokens), or ASM_ADMIN_PASSWORD to sign in instead
-#   LOAD_TARGETS      the domains or addresses to scan, one per company, space
-#                     separated. Each one is authorized for ACTIVE scanning:
-#                     only pass targets you are allowed to send traffic at.
+#   LOAD_TARGETS      what each company scans: one entry per company, space
+#                     separated, and an entry may be several targets joined by
+#                     commas. Every one is authorized for ACTIVE scanning, so
+#                     pass only targets you are allowed to send traffic at.
+#                       "a.example b.example"          two companies, one each
+#                       "a,b,c a,b,c"                  two companies, three each
 #
 # What it does not do: it never touches an existing company. It works in
 # companies of its own (load-1…load-N) and leaves them behind to look at.
@@ -77,15 +80,25 @@ api() { # method path [body]
 }
 py() { python3 -c "$1" ${2:+"$2"}; }
 
+# Workers are removed only when the test reaches its own end. If this script is
+# interrupted — a terminal closed, a wrapper's time limit, Ctrl-C — the scans it
+# started are still running on those workers, and taking the workers away kills
+# them: half an hour of sweeping was lost that way once. An interrupted test
+# leaves its workers behind and says how to remove them.
+test_complete=0
 cleanup() {
   rm -f "$JAR"
-  if [ "${LOAD_KEEP_WORKERS:-}" = "1" ]; then
-    note "LOAD_KEEP_WORKERS=1: the test workers are still running"
+  if [ "${LOAD_KEEP_WORKERS:-}" = "1" ] || [ "$test_complete" = "0" ]; then
+    local why="LOAD_KEEP_WORKERS=1"
+    [ "$test_complete" = "0" ] && why="the test did not finish, so the scans may still be running"
+    note "test workers left running ($why). Remove them with:"
+    for i in $(seq 1 "$WORKERS"); do note "  docker rm -f ${PREFIX}-w${STAMP}-$i"; done
     return
   fi
   for i in $(seq 1 "$WORKERS"); do docker rm -f "${PREFIX}-w${STAMP}-$i" >/dev/null 2>&1 || true; done
 }
 trap cleanup EXIT
+trap 'echo; note "interrupted — leaving the workers so the scans survive"; exit 130' INT TERM
 
 say "the install"
 curl -sf "$API_BASE/healthz" >/dev/null || fail "no api on $API_BASE"
@@ -97,18 +110,20 @@ fi
 api GET /scopes >/dev/null || fail "the token was refused"
 note "api $API_BASE · $N companies · $WORKERS test workers · output in $OUT"
 
-say "companies, one target each, authorized for active scanning"
+say "companies, authorized for active scanning"
 SCOPES=(); NAMES=()
 for i in $(seq 1 "$N"); do
   name="${PREFIX}-$i"
   target="${TARGETS[$((i-1))]}"
+  # One entry may hold several targets: "a,b,c" is one company scanning three.
+  values=$(py 'import json,sys;print(json.dumps([v.strip() for v in sys.argv[1].split(",") if v.strip()]))' "$target")
   existing=$(api GET /scopes | py 'import json,sys;print(next((s["id"] for s in json.load(sys.stdin) if s["name"]==sys.argv[1]),""))' "$name")
   if [ -n "$existing" ]; then
     sid="$existing"
   else
     sid=$(api POST /scopes "{\"name\":\"$name\"}" | py 'import json,sys;print(json.load(sys.stdin)["id"])')
     api POST "/scopes/$sid/target-groups" \
-      "{\"name\":\"$name\",\"values\":[\"$target\"],\"authorize\":true}" >/dev/null
+      "{\"name\":\"$name\",\"values\":$values,\"authorize\":true}" >/dev/null
   fi
   SCOPES+=("$sid"); NAMES+=("$name")
   note "$name → $target ($sid)"
@@ -258,5 +273,6 @@ q=d.get("queue") or []
 print("  queue now         ", ", ".join("%s %d/%d" % (x["stage"], x["pending"], x["in_flight"]) for x in q) or "empty")'
 
 note "timeline: $OUT/timeline.tsv"
-if [ "$bad" -gt 0 ]; then fail "$bad of $N runs did not complete"; fi
+if [ "$bad" -gt 0 ]; then test_complete=1; fail "$bad of $N runs did not complete"; fi
+test_complete=1
 say "$N companies scanned at once with nothing stuck"

@@ -261,8 +261,18 @@ func (s *Scanner) naabuSweep(ctx context.Context, hosts []string, ports string, 
 	default:
 		args = append(args, "-top-ports", "100")
 	}
-	if !s.Detected[scanproto.CapRawSocket] {
-		args = append(args, "-scan-type", "c") // connect scan without CAP_NET_RAW
+	// Say which scan to run, both ways round. naabu's own default is a
+	// *connect* scan, so leaving this out when raw sockets are available meant
+	// the capability was detected, the container was given NET_RAW, and then
+	// the sweep completed a three-way handshake on every port anyway. Measured
+	// on one address, 10000 ports, rate 1000 and 64 threads: 11 seconds with
+	// -s s, still unfinished after five minutes without it. That is the
+	// difference between a wide sweep that lands and one that runs out of its
+	// budget with a quarter of the addresses reached.
+	if s.Detected[scanproto.CapRawSocket] {
+		args = append(args, "-scan-type", "s")
+	} else {
+		args = append(args, "-scan-type", "c") // no CAP_NET_RAW: connect is all there is
 	}
 
 	budget := portScanBudget(portCount(ports, deep), len(hosts),

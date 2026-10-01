@@ -153,18 +153,23 @@ whitelist before they ever reach a command line.
 | `nmap_timing` | `T4` | `T0`–`T5` | timing template |
 | `nmap_version_intensity` | `7` | 0–9 | 9 tries every probe, 0 only the likeliest |
 | `nmap_max_retries` | `3` | 0–10 | probe retransmissions |
-| `naabu_rate` | `20` | 1–1000 | packets per second for the sweep |
-| `naabu_concurrency` | `4` | 1–64 | how many ports wait for an answer at once — the setting that decides how long a wide sweep takes |
+| `naabu_rate` | `20` | 1–20000 | packets per second for the sweep. A full sweep needs thousands; `top-100` does not |
+| `naabu_concurrency` | `4` | 1–1000 | probes in flight at once — naabu calls these its internal worker threads, and this, not the packet rate, is what decides how long a wide sweep takes |
 | `naabu_timeout_ms` | `1000` | 100–10000 | how long to wait for a port to answer |
 | `naabu_retries` | `1` | — | sweep retries |
 
 ## Three things worth knowing
 
-**The scan type is implicit.** There is no `-sS` or `-sT` in the arguments, so
-nmap decides for itself. The bundled worker runs as root with `NET_RAW`, so you
-get a **SYN scan**. Remove that capability and the same flags silently become a
-connect scan, with a different footprint and different results on filtered
-ports.
+**The scan type is explicit for naabu and implicit for nmap.** naabu is told
+`-s s` when the worker has `NET_RAW` and `-s c` when it does not, because
+naabu's own default is a **connect** scan: leaving the flag out meant the
+capability was detected, the container was given `NET_RAW`, and the sweep
+completed a three-way handshake on every port anyway. Measured on one address
+over 10000 ports at rate 1000 and 64 threads: **11 seconds** with `-s s`, still
+unfinished after five minutes without it. nmap has no such flag here and decides
+for itself — as root with `NET_RAW` it runs a SYN scan, and without that
+capability the same arguments silently become a connect scan, with a different
+footprint and different results on filtered ports.
 
 **The defaults are loud.** `--min-rate 10000` is a floor, not a cap, and with
 `-Pn` every one of the 100 ports is probed on every address whether or not
