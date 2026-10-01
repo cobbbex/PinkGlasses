@@ -1215,6 +1215,28 @@ reason turned out to be a one-line bug.
       they are plenty and quiet.
       Also corrected in the wiki: `naabu_concurrency` is naabu's *internal worker threads*,
       not "parallel hosts", and the page claimed the sweep ran as SYN when it did not.
+- [x] 30.5 **CDN addresses are not the client, and are no longer scanned.** Of the eight
+      addresses a company's three domains resolved to, four were Cloudflare (AS13335) and two
+      Akamai (AS33905) — six eighths of an eighteen-hour sweep aimed at someone else's edge,
+      which also authorized nothing. Address enrichment already looks up the ASN, so
+      `internal/scanner/cdn.go` names the provider from it (by number for the big networks,
+      by the operator name the registries return for the rest), the observation carries
+      `shared` and `cloud`, and the scope guard already refused shared addresses — the field
+      existed and nothing had ever set it. `skip_cdn_addresses` (default true) turns it off
+      for the case where the CDN is the client. Clouds are deliberately not CDNs: AWS, Google,
+      Azure, Hetzner and DigitalOcean hosts are usually the client's own machines.
+      Re-ran the four-company full-port test with it: **6 of 8 addresses skipped per company,
+      budget 3h38m → 54m37s, and all four runs completed in 181 s with no failures** (against
+      3h40m and four truncated sweeps before this and 30.1).
+- [x] 30.6 **The launch dialog arrives with the default wordlists ticked.** The launcher
+      already fell back to the registry defaults for any kind left unchosen, so a plain scan
+      used them — but the dialog showed three empty pickers, which said the opposite.
+      Defaults are now ticked as soon as they load, can be unticked or swapped, and a kind
+      with nothing ticked still falls back to them.
+- [x] 30.7 **A redeployed api copy was reported as a copy that is down.** Its heartbeat row
+      outlived the container, and the System page calls an `api:` row older than 90 seconds
+      down — so every redeploy looked like a failure for ten minutes, and this test tripped
+      over it. A copy shutting down now deletes its own row.
 - [ ] 30.3 **IPv6 addresses are scanned with no IPv6 egress, which wastes a quarter of the
       work.** Two of the eight addresses per company are IPv6 (Cloudflare's), and a worker
       container has **no global IPv6 address and no IPv6 default route** (checked directly:
@@ -1223,6 +1245,8 @@ reason turned out to be a one-line bug.
       either skipping an address family the worker cannot reach (with a line in the run
       saying so) or giving worker containers IPv6; scanning an unreachable address and
       reporting "nothing open" is the one answer that is actively misleading.
+      Narrower than it was: in this test every IPv6 address was Cloudflare's, so 30.5 already
+      removes them. It still stands for a client with their own IPv6 host.
 - [ ] 30.4 **The harness killed its own scans when interrupted.** Fixed in the test, noted
       here because it cost half an hour of scanning: the exit trap removed the test workers,
       and the four in-flight sweeps died with them. It now removes workers only when the test

@@ -129,6 +129,16 @@ func (s *Store) PruneInstanceBeats(ctx context.Context, olderThan time.Duration)
 	return ct.RowsAffected(), err
 }
 
+// DropComponentBeat removes one component's heartbeat row.
+//
+// A copy that is shutting down on purpose should leave nothing behind: its row
+// would otherwise be reported as a copy that is *down* until the scheduler
+// prunes it an hour later, which is a redeploy made to look like a failure.
+func (s *Store) DropComponentBeat(ctx context.Context, name string) error {
+	_, err := s.Pool.Exec(ctx, `DELETE FROM component_heartbeat WHERE name=$1`, name)
+	return err
+}
+
 // IdleWorkersWithWorkWaiting counts active workers sitting with nothing to do
 // while tasks they could take have been waiting longer than grace.
 //

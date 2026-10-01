@@ -132,6 +132,11 @@ var Specs = []Spec{
 		Min: 1, Max: 5, Default: "2", Help: "Retries per name before giving up. Raise it on lossy links."},
 
 	// --- port scanning ---
+	{Key: "skip_cdn_addresses", Tool: "naabu", Label: "Skip CDN addresses", Kind: KindBool,
+		Default: "true",
+		Help: "Leave out addresses that belong to a CDN or scrubbing service (Cloudflare, Akamai, Fastly…). " +
+			"What answers there is a shared edge node, not the client's host, so scanning it learns nothing " +
+			"about them and aims traffic at a third party. Turn it off only if the CDN is the client."},
 	{Key: "ports", Tool: "naabu", Label: "Port set", Kind: KindPorts,
 		Default: "top-100", Help: "top-100, top-1000, full, a range like 1-1024, or a list like 80,443."},
 	{Key: "naabu_rate", Tool: "naabu", Label: "Packets per second", Kind: KindInt,

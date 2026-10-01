@@ -325,9 +325,24 @@ function LaunchModal({
   const [manual, setManual] = useState(false);
   const [params, setParams] = useState<Record<string, string>>({});
   const [presetID, setPresetID] = useState("");
-  // Explicitly chosen lists. Empty is the normal case and means "whatever the
-  // registry marks default", so a plain scan needs no wordlist knowledge.
+  // The lists this run will use. The registry's defaults are ticked as soon as
+  // they are known, so the dialog shows what is actually going to run instead
+  // of three empty pickers and a promise that something sensible happens. They
+  // can be unticked or swapped; a kind with nothing ticked still falls back to
+  // the defaults, which is what the launcher does with an empty selection.
   const [wordlistIDs, setWordlistIDs] = useState<string[]>([]);
+  const [listsTouched, setListsTouched] = useState(false);
+  const { data: defaultLists } = useQuery({
+    queryKey: ["wordlists", "defaults"],
+    queryFn: async () => {
+      const kinds = await Promise.all(["dns", "resolvers", "dir"].map((k) => api.wordlists(k)));
+      return kinds.flat().filter((l) => l.is_default && l.status === "ready").map((l) => l.id);
+    },
+  });
+  useEffect(() => {
+    if (listsTouched || !defaultLists || defaultLists.length === 0) return;
+    setWordlistIDs(defaultLists);
+  }, [defaultLists, listsTouched]);
   // Where the run's active stages leave from. Passive stages never touch the
   // target and always run on the standing workers, so a passive profile needs
   // no exit. Anything else needs exactly one: "local" builds this run its own
@@ -649,7 +664,7 @@ function LaunchModal({
             presetID={presetID}
             onPresetChange={setPresetID}
             wordlistIDs={wordlistIDs}
-            onWordlistsChange={setWordlistIDs}
+            onWordlistsChange={(ids) => { setListsTouched(true); setWordlistIDs(ids); }}
           />
         </div>
       )}

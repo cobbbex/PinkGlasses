@@ -348,8 +348,15 @@ func (s *Scanner) enrichAddresses(ctx context.Context, ips []string, pr params) 
 		}
 	}
 
+	cdnCount := 0
+	for _, info := range infos {
+		if cdnProvider(info.Number, info.Name) != "" {
+			cdnCount++
+		}
+	}
 	slog.Info("address enrichment",
-		"addresses", len(ips), "with_asn", len(infos), "with_ptr", len(ptr))
+		"addresses", len(ips), "with_asn", len(infos), "with_ptr", len(ptr),
+		"behind_a_cdn", cdnCount)
 
 	var obs []scanproto.Observation
 	for _, ip := range ips {
@@ -358,6 +365,12 @@ func (s *Scanner) enrichAddresses(ctx context.Context, ips []string, pr params) 
 		if !hasASN && !hasPTR {
 			continue
 		}
+		// An address that belongs to a CDN or a scrubbing service is shared
+		// infrastructure: the client's own host is behind it, and what answers
+		// is an edge node serving millions of other sites. Recorded here, at
+		// the point the network is identified, so the planner can leave it out
+		// of the port scan (internal/scanner/cdn.go).
+		cdn := cdnProvider(info.Number, info.Name)
 		obs = append(obs, scanproto.Observation{
 			Type: scanproto.ObsIP, IP: ip,
 			PTR:     name,
@@ -365,6 +378,8 @@ func (s *Scanner) enrichAddresses(ctx context.Context, ips []string, pr params) 
 			ASOrg:   info.Name,
 			ASRange: info.Prefix,
 			Country: info.Country,
+			Cloud:   cdn,
+			Shared:  cdn != "",
 		})
 	}
 	return obs

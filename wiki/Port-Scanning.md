@@ -141,6 +141,19 @@ The run still completes, and the target it covered is marked **incomplete** —
 which is the honest answer to "did this scan see everything?". It is not
 retried: the same ports at the same settings take the same time.
 
+## What is left out, and why
+
+**CDN and scrubbing-service addresses.** Identified from the ASN that address
+enrichment already looks up — by number for the big networks and by the operator
+name the registries return (`CLOUDFLARENET - Cloudflare, Inc., US`) — and marked
+`is_shared`, which the scope guard refuses. They stay in the inventory with the
+provider recorded in `cloud`, so you can see the client is behind Cloudflare;
+they are simply not probed. `skip_cdn_addresses=false` scans them anyway.
+
+Not treated as a CDN: AWS, Google Cloud, Azure, Hetzner, DigitalOcean. A host in
+a cloud is usually the client's own machine, and refusing those would refuse most
+of the modern internet.
+
 ## Settings
 
 All per-run, in the scan settings panel. Values are validated against a
@@ -153,6 +166,7 @@ whitelist before they ever reach a command line.
 | `nmap_timing` | `T4` | `T0`–`T5` | timing template |
 | `nmap_version_intensity` | `7` | 0–9 | 9 tries every probe, 0 only the likeliest |
 | `nmap_max_retries` | `3` | 0–10 | probe retransmissions |
+| `skip_cdn_addresses` | `true` | bool | leave out Cloudflare/Akamai/Fastly-style addresses — see above |
 | `naabu_rate` | `20` | 1–20000 | packets per second for the sweep. A full sweep needs thousands; `top-100` does not |
 | `naabu_concurrency` | `4` | 1–1000 | probes in flight at once — naabu calls these its internal worker threads, and this, not the packet rate, is what decides how long a wide sweep takes |
 | `naabu_timeout_ms` | `1000` | 100–10000 | how long to wait for a port to answer |

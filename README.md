@@ -142,6 +142,16 @@ service; the workers a run builds for itself start from the worker image and fet
 default templates on first use, which is part of why the first nuclei task of a fleet
 takes minutes.
 
+**Addresses behind a CDN are not scanned.** A client's name resolving to Cloudflare,
+Akamai or Fastly means their own host is somewhere behind that edge — what answers on the
+address is shared with a few million other sites. Scanning it learns nothing about the
+client and aims traffic at a third party who authorized nothing, so those addresses are
+kept in the inventory, marked with the provider, and left out of the port scan. Measured on
+one real company: of the eight addresses its three domains resolved to, **six were
+Cloudflare or Akamai** — three quarters of a full-port sweep was pointed at someone else's
+edge. Turn it off with `skip_cdn_addresses=false` under Customize scanning, for the case
+where the CDN *is* the client.
+
 **No scan stage is given a fixed number of minutes.** Every tool's time budget comes from
 the work in front of it — how many ports over how many addresses, at the rate and
 concurrency the run asked for — floored so a small scan is never cut off by arithmetic and

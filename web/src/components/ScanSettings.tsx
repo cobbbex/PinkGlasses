@@ -192,8 +192,9 @@ function isEnableKey(spec: ParamSpec) {
 /**
  * Ticks the lists of one kind a run should use.
  *
- * Ticking nothing is meaningful and is the default: the run uses whatever the
- * registry has marked default, so a scan needs no wordlist knowledge at all.
+ * The launch dialog arrives with the registry's defaults already ticked, so
+ * what will run is visible rather than implied. Unticking everything of a kind
+ * is still safe: the launcher falls back to those same defaults.
  * Kinds differ in how many lists a run consumes — subdomain brute-forcing runs
  * one task per list, while resolution and directory search take one — which the
  * hint says rather than the UI pretending otherwise.

@@ -78,6 +78,13 @@ func main() {
 	<-stop
 	shutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	// Take this copy's heartbeat row with it. Left behind, the System page
+	// reports it as another copy that is down — every redeploy looked like a
+	// failure for the next ten minutes.
+	host, _ := os.Hostname()
+	if err := st.DropComponentBeat(shutCtx, "api:"+host); err != nil {
+		slog.Warn("could not remove this copy's heartbeat", "err", err)
+	}
 	_ = srv.Shutdown(shutCtx)
 }
 

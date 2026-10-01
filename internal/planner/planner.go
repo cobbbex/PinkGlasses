@@ -319,6 +319,12 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 		return err
 	}
 
+	// Default true: an address fronted by a CDN is not the client's host.
+	skipCDN := true
+	if rp, err := p.st.GetRunParams(ctx, run.ID); err == nil && rp["skip_cdn_addresses"] == "false" {
+		skipCDN = false
+	}
+
 	fresh := make([]string, 0, len(ipSet))
 	skipped := 0
 	refused := map[string]int{}
@@ -337,7 +343,11 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 			skipped++
 			continue
 		}
-		if d := guard.CheckIP(ip, shared[ip]); !d.Allowed {
+		// A CDN or scrubbing-service address is marked shared when its network
+		// is identified, and the guard refuses a shared address outright. The
+		// run may ask for them anyway — when the CDN *is* the client, say —
+		// and then the flag is ignored for this decision.
+		if d := guard.CheckIP(ip, shared[ip] && skipCDN); !d.Allowed {
 			refused[d.Reason]++
 			continue
 		}
@@ -348,8 +358,13 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 			"run", run.ID, "addresses", skipped)
 	}
 	for reason, n := range refused {
+		why := reason
+		if reason == "shared" {
+			why = "shared infrastructure, a CDN or scrubbing service edge rather than the client's host" +
+				" — set skip_cdn_addresses=false to scan them anyway"
+		}
 		slog.Info("addresses refused by the scope guard",
-			"run", run.ID, "reason", reason, "addresses", n)
+			"run", run.ID, "reason", reason, "addresses", n, "why", why)
 	}
 	if len(fresh) == 0 {
 		return nil
