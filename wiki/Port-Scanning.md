@@ -165,8 +165,10 @@ whitelist before they ever reach a command line.
 naabu's own default is a **connect** scan: leaving the flag out meant the
 capability was detected, the container was given `NET_RAW`, and the sweep
 completed a three-way handshake on every port anyway. Measured on one address
-over 10000 ports at rate 1000 and 64 threads: **11 seconds** with `-s s`, still
-unfinished after five minutes without it. nmap has no such flag here and decides
+over 10000 ports at rate 1000 and 64 threads: **11 seconds** with `-s s` against
+**1248 seconds** without it, both finding the same four open ports — 113 times
+the work for the same answer. Over all 65535 ports and eight addresses that is
+nine minutes against eighteen hours. nmap has no such flag here and decides
 for itself — as root with `NET_RAW` it runs a SYN scan, and without that
 capability the same arguments silently become a connect scan, with a different
 footprint and different results on filtered ports.

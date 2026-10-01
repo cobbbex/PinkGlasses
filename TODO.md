@@ -1201,8 +1201,10 @@ reason turned out to be a one-line bug.
       scan.** `naabu`'s own default is `-scan-type c`, and the stage passed that flag only
       when `CAP_NET_RAW` was *missing* — so a worker that had detected `raw_socket` and been
       granted `NET_RAW` still completed a three-way handshake on every port. Measured on one
-      address over 10000 ports at rate 1000 and 64 threads: **11 s** with `-s s`, still
-      unfinished after **5 min** without it. The stage now says which scan to run both ways
+      address over 10000 ports at rate 1000 and 64 threads: **11 s** with `-s s` against
+      **1248 s** without it, both finding the same four open ports — 113× the work for the
+      same answer, or nine minutes against eighteen hours over the full range and eight
+      addresses. The stage now says which scan to run both ways
       round. End to end on the same company and the same 65535 ports: **3h39m, stopped at
       its budget, 10 open on 4 of 8 addresses → 8m47s, complete, 68 open on 6 of 8** — 25×
       faster, and the run's targets came back `completed` rather than `incomplete`.

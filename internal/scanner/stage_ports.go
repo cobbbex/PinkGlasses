@@ -266,9 +266,10 @@ func (s *Scanner) naabuSweep(ctx context.Context, hosts []string, ports string, 
 	// the capability was detected, the container was given NET_RAW, and then
 	// the sweep completed a three-way handshake on every port anyway. Measured
 	// on one address, 10000 ports, rate 1000 and 64 threads: 11 seconds with
-	// -s s, still unfinished after five minutes without it. That is the
-	// difference between a wide sweep that lands and one that runs out of its
-	// budget with a quarter of the addresses reached.
+	// -s s against 1248 without it, both finding the same four open ports —
+	// 113 times the work for the same answer. Over 65535 ports and eight
+	// addresses that is the difference between nine minutes and eighteen
+	// hours, which is why every full sweep ran out of its budget.
 	if s.Detected[scanproto.CapRawSocket] {
 		args = append(args, "-scan-type", "s")
 	} else {
