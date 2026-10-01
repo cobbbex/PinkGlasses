@@ -1216,9 +1216,10 @@ reason turned out to be a one-line bug.
       Also corrected in the wiki: `naabu_concurrency` is naabu's *internal worker threads*,
       not "parallel hosts", and the page claimed the sweep ran as SYN when it did not.
 - [ ] 30.3 **IPv6 addresses are scanned with no IPv6 egress, which wastes a quarter of the
-      work.** Two of the eight addresses per company are IPv6 (Cloudflare's), the worker
-      container has no IPv6 default route, and so all 131070 probes against them could only
-      time out — they found 0 services in both the truncated and the complete sweep. Worth
+      work.** Two of the eight addresses per company are IPv6 (Cloudflare's), and a worker
+      container has **no global IPv6 address and no IPv6 default route** (checked directly:
+      `ip -6 addr show scope global` and `ip -6 route show default` are both empty), so all
+      131070 probes against them could only time out — they found 0 services in both the truncated and the complete sweep. Worth
       either skipping an address family the worker cannot reach (with a line in the run
       saying so) or giving worker containers IPv6; scanning an unreachable address and
       reporting "nothing open" is the one answer that is actively misleading.
