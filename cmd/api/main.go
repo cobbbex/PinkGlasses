@@ -43,7 +43,9 @@ func main() {
 	// This copy's own heartbeat. Several api copies may run behind a load
 	// balancer; the System page shows the one answering the request, and each
 	// of the others by name from these rows.
-	go beat(ctx, st)
+	beatCtx, stopBeat := context.WithCancel(ctx)
+	beatDone := make(chan struct{})
+	go func() { defer close(beatDone); beat(beatCtx, st) }()
 	mux := http.NewServeMux()
 	routes := api.Routes()
 	mux.Handle("/api/", routes)
@@ -76,15 +78,17 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
+	// Stop the heartbeat and let it take its row away before the process goes.
+	// Deleting the row from here instead raced the beat loop, which wrote it
+	// again moments later and left exactly the ghost this is meant to avoid.
+	stopBeat()
+	select {
+	case <-beatDone:
+	case <-time.After(5 * time.Second):
+		slog.Warn("the heartbeat did not stop in time; its row may linger for a few minutes")
+	}
 	shutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	// Take this copy's heartbeat row with it. Left behind, the System page
-	// reports it as another copy that is down — every redeploy looked like a
-	// failure for the next ten minutes.
-	host, _ := os.Hostname()
-	if err := st.DropComponentBeat(shutCtx, "api:"+host); err != nil {
-		slog.Warn("could not remove this copy's heartbeat", "err", err)
-	}
 	_ = srv.Shutdown(shutCtx)
 }
 
@@ -96,6 +100,19 @@ func beat(ctx context.Context, st *store.Store) {
 	name := "api:" + host
 	t := time.NewTicker(20 * time.Second)
 	defer t.Stop()
+	// The row belongs to this loop, so this loop takes it away. Left behind,
+	// the System page reports a copy that is *down* until the scheduler prunes
+	// it an hour later — every redeploy looked like a failure. Its own context
+	// is already cancelled by then, hence a fresh one.
+	defer func() {
+		c, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := st.DropComponentBeat(c, name); err != nil {
+			slog.Warn("could not remove this copy's heartbeat row", "name", name, "err", err)
+		} else {
+			slog.Info("removed this copy's heartbeat row", "name", name)
+		}
+	}()
 	for {
 		_ = st.BeatComponent(ctx, name, map[string]any{
 			"version": version.Version, "commit": version.Commit, "instance": host,
