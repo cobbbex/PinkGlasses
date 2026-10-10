@@ -155,3 +155,33 @@ func TestCDNPortsAcceptsWordsAndPorts(t *testing.T) {
 		t.Error(`ports="all" accepted; only cdn_ports takes the words`)
 	}
 }
+
+// A rerun replays a past run's stored settings, and runs from the week
+// skip_cdn_addresses existed carry it. Refusing it made Rerun fail with
+// "unknown parameter" on exactly those runs.
+func TestRetiredSkipCDNAddressesIsTranslated(t *testing.T) {
+	out, err := Validate(map[string]string{"skip_cdn_addresses": "true", "ports": "full"})
+	if err != nil {
+		t.Fatalf("an old run's settings were refused: %v", err)
+	}
+	if _, has := out["skip_cdn_addresses"]; has {
+		t.Error("the retired key survived validation")
+	}
+	if v, has := out["cdn_ports"]; has {
+		t.Errorf(`"true" was the old default and should leave cdn_ports to today's default, got %q`, v)
+	}
+
+	out, err = Validate(map[string]string{"skip_cdn_addresses": "false"})
+	if err != nil || out["cdn_ports"] != "all" {
+		t.Errorf(`"false" meant scan CDN addresses too, want cdn_ports=all, got %v (%v)`, out, err)
+	}
+
+	out, err = Validate(map[string]string{"skip_cdn_addresses": "false", "cdn_ports": "80,443,8443"})
+	if err != nil || out["cdn_ports"] != "80,443,8443" {
+		t.Errorf("an explicit cdn_ports should win over a translated one, got %v (%v)", out, err)
+	}
+
+	if _, err := Validate(map[string]string{"no_such_thing": "1"}); err == nil {
+		t.Error("a key that never existed is still refused")
+	}
+}

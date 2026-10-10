@@ -240,11 +240,45 @@ var specByKey = func() map[string]Spec {
 var portListRe = regexp.MustCompile(`^\d{1,5}(,\d{1,5})*$`)
 var portRangeRe = regexp.MustCompile(`^\d{1,5}-\d{1,5}$`)
 
+// retired translates parameters that have been replaced by others, so settings
+// stored before the change — a past run being rerun, a saved profile, an API
+// client — keep working instead of being refused as unknown. It returns the
+// replacement key and value, or ok=false to drop the key altogether.
+//
+// skip_cdn_addresses (on/off, Oct 2026) became cdn_ports. "true" was simply
+// the default of its week, never a choice anyone made, so it maps to today's
+// default — scan the CDN edge on 80 and 443 — by being dropped. "false" was a
+// deliberate "scan CDN addresses too", which is cdn_ports=all.
+func retired(k, v string) (string, string, bool) {
+	switch k {
+	case "skip_cdn_addresses":
+		if strings.TrimSpace(v) == "false" {
+			return "cdn_ports", "all", true
+		}
+		return "", "", false
+	}
+	return k, v, true
+}
+
 // Validate checks a raw parameter map and returns a clean, typed copy. Unknown
-// keys and invalid values are errors, never silently dropped or forwarded.
+// keys and invalid values are errors, never silently dropped or forwarded —
+// except a retired key, which is translated (see retired).
 func Validate(in map[string]string) (map[string]string, error) {
 	out := map[string]string{}
 	for k, v := range in {
+		if _, known := specByKey[k]; !known {
+			nk, nv, keep := retired(k, v)
+			if nk != k || !keep {
+				if !keep {
+					continue
+				}
+				// An explicit value for the new key wins over a translated one.
+				if _, set := in[nk]; set {
+					continue
+				}
+				k, v = nk, nv
+			}
+		}
 		spec, ok := specByKey[k]
 		if !ok {
 			return nil, fmt.Errorf("unknown parameter %q", k)

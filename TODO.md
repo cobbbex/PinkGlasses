@@ -1288,4 +1288,13 @@ attempts I killed.
       each attempt dials the next resolver — and an attempt waits 2 s, not 5. That matters
       beyond the tests: the name is how CDN detection recognises a provider whose AS number
       is not in the list.
+- [x] 31.5 **Rerun refused runs from the week `skip_cdn_addresses` existed.** 31.1 replaced
+      the setting and I checked saved profiles and schedules for it, but not past runs — and
+      Rerun replays a run's stored settings, so six runs failed with *unknown parameter
+      "skip_cdn_addresses"*. The validator now translates retired settings instead of refusing
+      them (`true`, which was only that week's default, gives way to today's 80,443; `false`
+      becomes `cdn_ports=all`; an explicit `cdn_ports` wins), so old runs, API clients and MCP
+      calls keep working; migration 00045 rewrites the stored runs, profiles and schedules.
+      Verified by rerunning one of the six through the API: accepted, `cdn_ports=80,443`, no old
+      key.
 
