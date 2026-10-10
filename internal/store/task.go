@@ -186,7 +186,8 @@ func (s *Store) LeaseTasksWhere(ctx context.Context, workerID uuid.UUID, caps []
 		if len(tgt.IPs) > 0 {
 			targets = make([]scanproto.Target, 0, len(tgt.IPs))
 			for _, ip := range tgt.IPs {
-				targets = append(targets, scanproto.Target{IP: ip})
+				// The port override belongs to the batch and to every address in it.
+				targets = append(targets, scanproto.Target{IP: ip, Ports: tgt.Ports})
 			}
 		}
 

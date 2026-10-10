@@ -76,6 +76,15 @@ th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: upp
 tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: var(--panel2); }
 td.wrap { white-space: normal; }
+/* Text that must stay readable however long it is: an error, a reason, a path.
+   Every cell is nowrap, so anything inside one inherited that and ran straight
+   off the right edge, where a fitted table's overflow:hidden cut it away — a
+   VPN gateway's failure was unreadable exactly when it mattered. On any
+   element, and breaking long unbroken tokens (paths, ids, JSON) as well. */
+.wrap { white-space: normal; overflow-wrap: anywhere; word-break: normal; }
+/* The expanded detail of a row is prose, not a cell value. */
+.run-detail-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin: 4px 0 2px; }
+td.detail-cell { white-space: normal; overflow-wrap: anywhere; overflow: visible; }
 
 /* controls */
 input, select, button, textarea { font: inherit; }

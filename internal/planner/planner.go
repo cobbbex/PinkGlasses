@@ -319,13 +319,14 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 		return err
 	}
 
-	// Default true: an address fronted by a CDN is not the client's host.
-	skipCDN := true
-	if rp, err := p.st.GetRunParams(ctx, run.ID); err == nil && rp["skip_cdn_addresses"] == "false" {
-		skipCDN = false
-	}
+	// An address that belongs to a CDN is an edge shared with millions of other
+	// sites. The client's site answers there on the web ports, so those are
+	// scanned by default; the rest are the CDN's own. "all" treats the address
+	// like any other, "none" leaves it out (cdn_ports).
+	cdnPorts := cdnPortsFor(ctx, p.st, run.ID)
 
-	fresh := make([]string, 0, len(ipSet))
+	fresh := make([]string, 0, len(ipSet)) // the run's own port set
+	edge := make([]string, 0)              // CDN addresses, on cdnPorts
 	skipped := 0
 	refused := map[string]int{}
 	for ip, origins := range ipSet {
@@ -343,15 +344,23 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 			skipped++
 			continue
 		}
-		// A CDN or scrubbing-service address is marked shared when its network
-		// is identified, and the guard refuses a shared address outright. The
-		// run may ask for them anyway — when the CDN *is* the client, say —
-		// and then the flag is ignored for this decision.
-		if d := guard.CheckIP(ip, shared[ip] && skipCDN); !d.Allowed {
+		isCDN := shared[ip] && cdnPorts != "all"
+		if isCDN && cdnPorts == "none" {
+			refused["cdn"]++
+			continue
+		}
+		// The guard's other checks — private ranges, exclusions — apply to a
+		// CDN address as to any other. Its shared flag is answered here, by
+		// scanning it on the web ports rather than refusing it.
+		if d := guard.CheckIP(ip, false); !d.Allowed {
 			refused[d.Reason]++
 			continue
 		}
-		fresh = append(fresh, ip)
+		if isCDN {
+			edge = append(edge, ip)
+		} else {
+			fresh = append(fresh, ip)
+		}
 	}
 	if skipped > 0 {
 		slog.Info("not port scanning addresses from unauthorized targets",
@@ -359,43 +368,53 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 	}
 	for reason, n := range refused {
 		why := reason
-		if reason == "shared" {
-			why = "shared infrastructure, a CDN or scrubbing service edge rather than the client's host" +
-				" — set skip_cdn_addresses=false to scan them anyway"
+		if reason == "cdn" {
+			why = "belong to a CDN or scrubbing service and cdn_ports is none — set it to 80,443 to scan the web edge"
 		}
 		slog.Info("addresses refused by the scope guard",
 			"run", run.ID, "reason", reason, "addresses", n, "why", why)
 	}
-	if len(fresh) == 0 {
+	if len(edge) > 0 {
+		slog.Info("addresses behind a CDN scanned on the web ports only",
+			"run", run.ID, "addresses", len(edge), "ports", cdnPorts,
+			"why", "the rest of a CDN edge's ports are the CDN's, not the client's")
+	}
+	if len(fresh) == 0 && len(edge) == 0 {
 		return nil
 	}
-	sort.Strings(fresh) // deterministic batches make a run reproducible
 
 	var specs []store.TaskSpec
-	for i := 0; i < len(fresh); i += scanBatchSize {
-		end := i + scanBatchSize
-		if end > len(fresh) {
-			end = len(fresh)
-		}
-		batch := fresh[i:end]
+	batches := func(ips []string, ports string) {
+		sort.Strings(ips) // deterministic batches make a run reproducible
+		for i := 0; i < len(ips); i += scanBatchSize {
+			end := i + scanBatchSize
+			if end > len(ips) {
+				end = len(ips)
+			}
+			batch := ips[i:end]
 
-		// A batch serves every run_target that contributed an address to it, so
-		// results attribute back to each domain that pointed there.
-		var origins []uuid.UUID
-		for _, ip := range batch {
-			origins = mergeOrigins(origins, ipSet[ip])
+			// A batch serves every run_target that contributed an address to
+			// it, so results attribute back to each domain that pointed there.
+			var origins []uuid.UUID
+			for _, ip := range batch {
+				origins = mergeOrigins(origins, ipSet[ip])
+			}
+			if len(origins) == 0 {
+				continue
+			}
+			sp := spec(scanproto.StagePortScan, scanproto.Target{IPs: batch, Ports: ports},
+				100, origins[0], string(scanproto.CapRawSocket))
+			sp.Origins = origins
+			specs = append(specs, sp)
 		}
-		if len(origins) == 0 {
-			continue
-		}
-		sp := spec(scanproto.StagePortScan, scanproto.Target{IPs: batch},
-			100, origins[0], string(scanproto.CapRawSocket))
-		sp.Origins = origins
-		specs = append(specs, sp)
 	}
+	// Separate batches: one port set per task.
+	batches(fresh, "")
+	batches(edge, cdnPorts)
 	if len(specs) == 0 {
 		return nil
 	}
+	fresh = append(fresh, edge...)
 	slog.Info("queued port scans", "run", run.ID, "addresses", len(fresh), "tasks", len(specs))
 	routed, err := routeTasks(specs, rt)
 	if err != nil {
@@ -403,6 +422,20 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 	}
 	_, err = p.st.InsertTasks(ctx, run.ID, routed)
 	return err
+}
+
+// cdnPortsFor reads the run's cdn_ports, defaulting to the web ports. "all"
+// and "none" pass through; anything else is a port spec, already validated.
+func cdnPortsFor(ctx context.Context, st *store.Store, runID uuid.UUID) string {
+	const def = "80,443"
+	rp, err := st.GetRunParams(ctx, runID)
+	if err != nil {
+		return def
+	}
+	if v := rp["cdn_ports"]; v != "" {
+		return v
+	}
+	return def
 }
 
 // probeNewServices enqueues service_probe for open ports as port scans finish.

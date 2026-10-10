@@ -207,7 +207,7 @@ export interface Wordlist {
 }
 export interface ParamSpec {
   key: string; tool: string; label: string;
-  kind: "int" | "enum" | "ports" | "wordlist" | "bool" | "csv" | "text" | "proxy";
+  kind: "int" | "enum" | "ports" | "cdn_ports" | "wordlist" | "bool" | "csv" | "text" | "proxy";
   min?: number; max?: number; enum?: string[];
   default: string; help: string;
 }

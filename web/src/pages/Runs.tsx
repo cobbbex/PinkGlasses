@@ -36,7 +36,9 @@ export default function Runs({ scopeID }: { scopeID: string }) {
   const [open, setOpen] = useState("");
   const [launch, setLaunch] = useState(false);
   const closeLaunch = () => setLaunch(false);
-  const lay = useTableLayout("asm.runs", RUN_COLUMNS);
+  // Room for the run controls in the last column: Pause or Resume, Stop, and
+  // for a finished run Rerun and Delete, plus the expand arrow.
+  const lay = useTableLayout("asm.runs", RUN_COLUMNS, 230);
 
   return (
     <div>
@@ -90,7 +92,7 @@ export default function Runs({ scopeID }: { scopeID: string }) {
                     </td>
                   </tr>
                   {open === r.id && (
-                    <tr><td colSpan={lay.visible.length + 1} style={{ background: "var(--bg)" }}><RunDetail runID={r.id} /></td></tr>
+                    <tr><td colSpan={lay.visible.length + 1} className="detail-cell" style={{ background: "var(--bg)" }}><RunDetail run={r} onChange={refetch} /></td></tr>
                   )}
                 </Fragment>
               ))}
@@ -753,7 +755,7 @@ function FleetBanner({ runID }: { runID: string }) {
         borderColor: f.status === "failed" ? "var(--warn)" : undefined,
       }}
     >
-      <strong>{line[f.status]}</strong>
+      <strong className="wrap">{line[f.status]}</strong>
       {f.egress_ip && (
         <span className="muted"> Scanning from <span className="mono">{f.egress_ip}</span>.</span>
       )}
@@ -787,7 +789,8 @@ function FleetBanner({ runID }: { runID: string }) {
   );
 }
 
-function RunDetail({ runID }: { runID: string }) {
+function RunDetail({ run, onChange }: { run: Run; onChange: () => void }) {
+  const runID = run.id;
   const qc = useQueryClient();
   const [targets, setTargets] = useState<RunTarget[]>([]);
   useEffect(() => {
@@ -805,9 +808,19 @@ function RunDetail({ runID }: { runID: string }) {
 
   // The banner renders before the targets check: a run waiting on containers
   // that will never arrive is exactly the case where "Planning…" alone is a lie.
+  // The run's own controls, at the top of what is being watched. They are also
+  // in the row; here they stay in reach while the activity below scrolls.
+  const controls = (
+    <div className="run-detail-actions">
+      <span className="muted" style={{ fontSize: 12 }}>This run:</span>
+      <RunControls run={run} onChange={onChange} />
+    </div>
+  );
+
   if (!targets.length) {
     return (
       <div style={{ padding: 12 }}>
+        {controls}
         <FleetBanner runID={runID} />
         <span className="muted">Planning…</span>
       </div>
@@ -816,6 +829,7 @@ function RunDetail({ runID }: { runID: string }) {
 
   return (
     <>
+    {controls}
     <FleetBanner runID={runID} />
     <table style={{ margin: "6px 0" }}>
       <thead><tr><th>Target</th><th>Status</th><th>Progress</th></tr></thead>
@@ -918,13 +932,15 @@ function RunWorkers({ runID }: { runID: string }) {
                   <td>{t.stage}</td>
                   <td className="mono">{t.target || "—"}</td>
                   <td className="mono">{t.worker_name ?? <span className="muted">unassigned</span>}</td>
-                  <td>
+                  <td style={{ minWidth: 160, maxWidth: 460 }}>
                     <Badge status={t.status} />
                     {t.attempts > 1 && <span className="muted"> retry {t.attempts}</span>}
                     {t.error && (
                       // A finished task whose text says a lease expired was
                       // redone by a later attempt: a note, not a failure.
-                      <div className={t.status === "done" ? "muted" : "sev-high"} style={{ fontSize: 11.5 }}
+                      // Wraps: a failure's reason is the one thing in this row
+                      // that must be read in full.
+                      <div className={(t.status === "done" ? "muted" : "sev-high") + " wrap"} style={{ fontSize: 11.5, marginTop: 3 }}
                            title={t.status === "done" && /lease expired/.test(t.error)
                              ? "An earlier attempt's lease expired — no heartbeat named the task for the lease TTL — and this attempt redid the work. The scheduler and gateway logs say why."
                              : undefined}>

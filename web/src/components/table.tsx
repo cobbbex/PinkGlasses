@@ -13,7 +13,15 @@ export interface LayoutDef extends ColumnDef {
   min?: number; weight?: number;
 }
 
-export function useTableLayout(key: string, defs: LayoutDef[]) {
+/**
+ * `trailing` is the width of an unnamed last column that holds controls (the
+ * runs table's Pause / Stop / Rerun / Delete). In "Fit screen" the table is
+ * fixed-layout and the named columns used to share the whole width between
+ * them, so a column with no <col> of its own got zero pixels and its buttons
+ * were clipped out of sight — they existed and nobody could see them. A page
+ * with such a column says how wide it is, and that much is kept back for it.
+ */
+export function useTableLayout(key: string, defs: LayoutDef[], trailing = 0) {
   const cols = useColumns(key + ".columns", defs);
   const cw = useColumnWidths(key + ".widths");
   const [fit, setFitState] = useState<boolean>(() => {
@@ -42,7 +50,7 @@ export function useTableLayout(key: string, defs: LayoutDef[]) {
   const weightOf = (c: LayoutDef) => c.weight ?? 5;
   const minSum = unsized.reduce((n, c) => n + minOf(c), 0);
   const weightSum = unsized.reduce((n, c) => n + weightOf(c), 0);
-  const room = Math.max(0, tableW - fixedPx);
+  const room = Math.max(0, tableW - fixedPx - trailing);
   const shrink = tableW > 0 && minSum > room ? room / minSum : 1;
   const colWidth = (c: LayoutDef): number => {
     if (cw.widths[c.key] > 0) return cw.widths[c.key];
@@ -61,7 +69,10 @@ export function useTableLayout(key: string, defs: LayoutDef[]) {
       : { className: base || undefined };
   };
   const colgroup: ReactNode = fit
-    ? <colgroup>{visible.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}</colgroup>
+    ? <colgroup>
+        {visible.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}
+        {trailing > 0 && <col style={{ width: trailing }} />}
+      </colgroup>
     : null;
   const controls: ReactNode = (
     <>

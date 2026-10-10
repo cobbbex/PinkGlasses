@@ -39,6 +39,14 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 	deep := job.Profile == "deep"
 	pr := jobParams(job)
 	ports := pr.str("ports", "top-100")
+	// A batch can carry its own port set: addresses behind a CDN are scanned on
+	// the web ports only (cdn_ports), whatever the run asked for elsewhere.
+	// Every target in the batch carries the same value. A CDN batch is never a
+	// deep scan either — the full range of a CDN edge is the CDN's business.
+	if len(job.Targets) > 0 && job.Targets[0].Ports != "" {
+		ports = job.Targets[0].Ports
+		deep = false
+	}
 
 	// Which scanner to use depends on how wide the sweep is. The named presets
 	// have to be matched before testing for an explicit range: "top-100"

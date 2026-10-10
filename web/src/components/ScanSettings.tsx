@@ -305,6 +305,26 @@ function ParamInput({
           spellCheck={false}
         />
       );
+    case "cdn_ports": {
+      // Addresses behind a CDN: the web edge by default, the run's own port
+      // set ("all"), nothing ("none"), or a list of one's own.
+      const preset = ["80,443", "all", "none"].includes(value) ? value : "custom";
+      return (
+        <div className="row" style={{ margin: 0, gap: 6 }}>
+          <select value={preset}
+            onChange={(e) => onChange(e.target.value === "custom" ? "80,443,8080,8443" : e.target.value)}>
+            <option value="80,443">80 and 443 — the client's site</option>
+            <option value="all">same ports as everything else</option>
+            <option value="none">none — leave them out</option>
+            <option value="custom">custom…</option>
+          </select>
+          {preset === "custom" && (
+            <input style={{ width: 150 }} value={value} onChange={(e) => onChange(e.target.value)}
+              placeholder="80,443,8443" />
+          )}
+        </div>
+      );
+    }
     case "ports":
       return (
         <div className="row" style={{ margin: 0, gap: 6 }}>

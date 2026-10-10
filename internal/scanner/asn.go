@@ -46,7 +46,15 @@ func newASNResolver() *asnResolver {
 		res: net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-				// Round-robin so one unreachable resolver cannot stall lookups.
+				// Rotate, so consecutive queries go to different resolvers.
+				//
+				// This is *not* a fallback, whatever the loop below looks
+				// like: dialing UDP has no handshake, so it "succeeds" against
+				// an address nobody answers on and the first resolver tried is
+				// always the one used. A dead resolver shows up later, as a
+				// read timeout inside the lookup. What routes around it is the
+				// retry at the query level (cymruAttempts), each attempt
+				// dialing the next resolver in the rotation.
 				var lastErr error
 				n := atomic.AddUint32(&idx, 1)
 				for i := range cymruResolvers {
@@ -63,10 +71,18 @@ func newASNResolver() *asnResolver {
 	}
 }
 
-// cymruAttempts is how many times an origin lookup is retried before giving up.
-// Cymru rate-limits and answers over UDP, so a single dropped reply is normal
-// under load; without a retry that silently costs an address its whole ASN.
+// cymruAttempts is how many times a lookup is tried before giving up. Cymru
+// rate-limits and answers over UDP, so a single dropped reply is normal under
+// load; and since each attempt dials the next resolver in the rotation, the
+// retries are also what gets past a resolver this network cannot reach — Quad9
+// was unreachable from one install, and a single attempt that landed there lost
+// the answer every time.
 const cymruAttempts = 3
+
+// cymruAttemptTimeout bounds one attempt. A healthy resolver answers in tens of
+// milliseconds; waiting five seconds on a dead one was most of what a lost
+// lookup cost.
+const cymruAttemptTimeout = 2 * time.Second
 
 // Lookup returns the ASN, announcing prefix, country and AS name for an address.
 // The error is returned rather than a bare false so a systematic failure (no
@@ -89,7 +105,7 @@ func (a *asnResolver) Lookup(ctx context.Context, ip string) (ASNInfo, error) {
 			case <-time.After(time.Duration(attempt) * 250 * time.Millisecond):
 			}
 		}
-		qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		qctx, cancel := context.WithTimeout(ctx, cymruAttemptTimeout)
 		txts, err := a.res.LookupTXT(qctx, q)
 		cancel()
 		if err != nil {
@@ -150,14 +166,28 @@ func (a *asnResolver) name(ctx context.Context, num int) string {
 		return n
 	}
 
-	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	txts, err := a.res.LookupTXT(qctx, fmt.Sprintf("AS%d.asn.cymru.com", num))
-	cancel()
+	// Retried like the origin lookup, and for the same reasons. It made a
+	// single attempt, so an AS whose name query landed on an unreachable
+	// resolver got no name at all — and the name is what tells Cloudflare from
+	// a client's own network when the number is not one we list.
 	name := ""
-	if err == nil && len(txts) > 0 {
-		// "13335 | AU | apnic | 2011-08-11 | CLOUDFLARENET, US"
-		if parts := splitCymru(txts[0]); len(parts) >= 5 {
-			name = parts[4]
+	for attempt := 0; attempt < cymruAttempts && name == ""; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				attempt = cymruAttempts
+				continue
+			case <-time.After(time.Duration(attempt) * 250 * time.Millisecond):
+			}
+		}
+		qctx, cancel := context.WithTimeout(ctx, cymruAttemptTimeout)
+		txts, err := a.res.LookupTXT(qctx, fmt.Sprintf("AS%d.asn.cymru.com", num))
+		cancel()
+		if err == nil && len(txts) > 0 {
+			// "13335 | AU | apnic | 2011-08-11 | CLOUDFLARENET, US"
+			if parts := splitCymru(txts[0]); len(parts) >= 5 {
+				name = parts[4]
+			}
 		}
 	}
 	a.mu.Lock()

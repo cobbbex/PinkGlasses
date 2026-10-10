@@ -22,6 +22,9 @@ const (
 	KindPorts    Kind = "ports"    // "top-100" | "top-1000" | "full" | "1-1024" | "80,443"
 	KindWordlist Kind = "wordlist" // a named wordlist key, resolved to a server path
 	KindBool     Kind = "bool"
+	// KindCDNPorts is a port set for addresses behind a CDN, plus two words:
+	// "all" scans them with the run's own port set, "none" leaves them out.
+	KindCDNPorts Kind = "cdn_ports"
 	// KindCSV is a short comma-separated token list (e.g. "php,html" or
 	// "200,301"). Deliberately narrow: letters, digits, dot, dash, underscore
 	// and commas only, and it may never begin with '-' — otherwise a value
@@ -132,11 +135,12 @@ var Specs = []Spec{
 		Min: 1, Max: 5, Default: "2", Help: "Retries per name before giving up. Raise it on lossy links."},
 
 	// --- port scanning ---
-	{Key: "skip_cdn_addresses", Tool: "naabu", Label: "Skip CDN addresses", Kind: KindBool,
-		Default: "true",
-		Help: "Leave out addresses that belong to a CDN or scrubbing service (Cloudflare, Akamai, Fastly…). " +
-			"What answers there is a shared edge node, not the client's host, so scanning it learns nothing " +
-			"about them and aims traffic at a third party. Turn it off only if the CDN is the client."},
+	{Key: "cdn_ports", Tool: "naabu", Label: "Ports on CDN addresses", Kind: KindCDNPorts,
+		Default: "80,443",
+		Help: "Addresses that belong to a CDN or scrubbing service (Cloudflare, Akamai, Fastly…) are an edge " +
+			"shared with millions of other sites. The client's site answers there on 80 and 443, so those " +
+			"are scanned; every other port is the CDN's own and says nothing about the client. " +
+			"\"all\" scans them like any other address, \"none\" leaves them out entirely."},
 	{Key: "ports", Tool: "naabu", Label: "Port set", Kind: KindPorts,
 		Default: "top-100", Help: "top-100, top-1000, full, a range like 1-1024, or a list like 80,443."},
 	{Key: "naabu_rate", Tool: "naabu", Label: "Packets per second", Kind: KindInt,
@@ -299,6 +303,15 @@ func validateOne(spec Spec, v string) error {
 		case portListRe.MatchString(v):
 		default:
 			return fmt.Errorf("bad port spec")
+		}
+	case KindCDNPorts:
+		switch {
+		case v == "all" || v == "none":
+		case v == "top-100" || v == "top-1000" || v == "full":
+		case portRangeRe.MatchString(v):
+		case portListRe.MatchString(v):
+		default:
+			return fmt.Errorf(`bad port spec: a port list like 80,443, "all" or "none"`)
 		}
 	}
 	return nil

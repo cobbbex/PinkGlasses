@@ -136,3 +136,22 @@ func TestEveryToolHasOneEnableSwitch(t *testing.T) {
 		}
 	}
 }
+
+// The CDN port setting takes a port list like any other, plus the two words
+// that change what happens to a CDN address altogether.
+func TestCDNPortsAcceptsWordsAndPorts(t *testing.T) {
+	for _, ok := range []string{"80,443", "all", "none", "80,443,8443", "1-1024", "top-100"} {
+		if _, err := Validate(map[string]string{"cdn_ports": ok}); err != nil {
+			t.Errorf("cdn_ports=%q refused: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"everything", "80;443", "443-80x"} {
+		if _, err := Validate(map[string]string{"cdn_ports": bad}); err == nil {
+			t.Errorf("cdn_ports=%q accepted", bad)
+		}
+	}
+	// And the words stay where they belong: they are not port sets elsewhere.
+	if _, err := Validate(map[string]string{"ports": "all"}); err == nil {
+		t.Error(`ports="all" accepted; only cdn_ports takes the words`)
+	}
+}

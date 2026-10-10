@@ -195,6 +195,11 @@ type Target struct {
 	// carries as SNI and Host header. The URL is built from it; IP and Port say
 	// which service the results belong to. Empty for an address-only target.
 	Host string `json:"host,omitempty"`
+	// Ports overrides the run's port set for this task's addresses. Set when
+	// the addresses belong to a CDN: what answers there for the client is the
+	// web edge, on 80 and 443; the rest of the ports are the CDN's own and say
+	// nothing about the client (see cdn_ports). Empty: the run's own port set.
+	Ports string `json:"ports,omitempty"`
 }
 
 // Params are stage-specific knobs.

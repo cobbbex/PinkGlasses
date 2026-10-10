@@ -1257,3 +1257,35 @@ each worker container 27% CPU and 405 MB against its 2 CPU / 2 GB cap, postgres 
 110 MB. `pinkglasses_idle_workers_with_work_waiting` was 0 in all 412 samples over the
 3h40m run, so 29.2 remains theoretical here. The only lease expiries were five from the
 attempts I killed.
+
+## Phase 31 — Asked for on 2026-10-10
+
+- [x] 31.1 **CDN addresses are scanned on 80 and 443 by default, not skipped.** The client's
+      site answers on the CDN edge's web ports, so those are worth scanning and probing under
+      the client's names; every other port is the CDN's. `skip_cdn_addresses` (on/off, a
+      week old, used by no saved profile or schedule) is replaced by **`cdn_ports`**:
+      `80,443` (default), `all` (the run's own port set), `none` (leave them out) or a port
+      list. CDN addresses go into port-scan batches of their own, carrying the port set on the
+      task (`Target.Ports`, kept through the per-address expansion). Verified: one company,
+      full ports — two batches, the client's 2 addresses on all 65535 ports in 141 s and the 6
+      CDN addresses on 80,443 in 16 s; run completed, 28 tasks, 0 failed.
+- [x] 31.2 **Error text ran off the screen in the run details and in Activity.** Every table
+      cell is `white-space: nowrap`, the run details render inside a cell, and the `wrap` class
+      only applied to `<td>` — the errors are `<div>`s, so they inherited `nowrap` and a fitted
+      table's `overflow: hidden` cut them off. `.wrap` now works on any element and breaks long
+      unbroken tokens; the detail cell wraps as prose; the Activity status column is bounded
+      (160–460 px) so a long reason wraps instead of widening the table.
+- [x] 31.3 **Pause / Stop / Rerun / Delete were there, and invisible.** With *Fit screen* on
+      (the default) the named columns shared the whole width, and the controls column had no
+      `<col>` of its own — zero pixels, clipped. `useTableLayout` takes a `trailing` width and
+      keeps it back; the runs table reserves 230 px. The same controls also sit at the top of
+      an opened run, in reach while its activity scrolls.
+- [x] 31.4 **AS names went missing whenever a lookup landed on an unreachable resolver.**
+      Found by three live tests failing on this network, where Quad9 (9.9.9.9) does not
+      answer: the "fallback" in the resolver's dial loop cannot fire for UDP (dialing succeeds
+      against anything), and the AS-name query made a single attempt, so a rotation that put it
+      on Quad9 lost the name every time. The name lookup now retries like the origin lookup —
+      each attempt dials the next resolver — and an attempt waits 2 s, not 5. That matters
+      beyond the tests: the name is how CDN detection recognises a provider whose AS number
+      is not in the list.
+
