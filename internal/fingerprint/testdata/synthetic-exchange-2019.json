@@ -1,0 +1,12 @@
+{
+  "source": "synthetic",
+  "expect": ["Microsoft Exchange"],
+  "response": {
+    "path": "/owa/auth/logon.aspx",
+    "status": 200,
+    "headers": {"X-Feserver": ["EXCH01"], "Server": ["Microsoft-IIS/10.0"]},
+    "cookies": ["ClientId", "OutlookSession"],
+    "title": "Outlook",
+    "body": "<link rel=\"shortcut icon\" href=\"/owa/auth/15.2.1544/themes/resources/favicon.ico\"><form action=\"/owa/auth.owa\" method=\"POST\">"
+  }
+}

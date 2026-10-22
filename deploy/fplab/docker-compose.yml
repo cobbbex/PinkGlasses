@@ -1,0 +1,146 @@
+# A lab of the products internal/fingerprint names, for checking the probes
+# against something that is ours to scan. Everything binds to the loopback.
+#
+#   docker compose -f deploy/fplab/docker-compose.yml --profile atlassian up -d
+#   docker compose -f deploy/fplab/docker-compose.yml --profile zammad up -d
+#   go run ./tools/fpcheck -lab http://127.0.0.1:28090
+#
+# The web services also join the stack's network (pinkglasses_default), so a
+# worker enrolled there can scan them through the whole pipeline; that needs
+# ASM_ALLOW_PRIVATE_TARGETS=true on the api and the scheduler.
+#
+# Products with no container image (Zimbra, Exchange, Kerio Connect,
+# NetScaler) are set up as VMs; deploy/fplab/README.md says how.
+name: pinkglasses-fplab
+
+x-zammad: &zammad
+  image: ${ZAMMAD_IMAGE:-ghcr.io/zammad/zammad:6.5}
+  profiles: [zammad]
+  restart: unless-stopped
+  environment: &zammad-env
+    POSTGRESQL_HOST: zammad-postgresql
+    POSTGRESQL_USER: zammad
+    POSTGRESQL_PASS: zammad
+    POSTGRESQL_DB: zammad_production
+    REDIS_URL: redis://zammad-redis:6379
+    MEMCACHE_SERVERS: zammad-memcached:11211
+    ELASTICSEARCH_ENABLED: "false"
+  volumes: ["zammad-storage:/opt/zammad/storage"]
+  depends_on: [zammad-postgresql, zammad-redis, zammad-memcached]
+
+services:
+  # --- Atlassian: Confluence on 28090, Jira on 28085 ---
+  # Both start in their setup wizard, which does not look like a production
+  # front page. Finish setup with a free 30-day trial licence from
+  # my.atlassian.com before trusting what fpcheck says about them.
+  confluence:
+    image: atlassian/confluence:8.5
+    profiles: [atlassian]
+    ports: ["127.0.0.1:28090:8090"]
+    networks: [default, stack]
+    environment:
+      JVM_MAXIMUM_MEMORY: 2048m
+      ATL_JDBC_URL: jdbc:postgresql://confluence-db:5432/confluence
+      ATL_JDBC_USER: confluence
+      ATL_JDBC_PASSWORD: confluence
+      ATL_DB_TYPE: postgresql
+    volumes: ["confluence-home:/var/atlassian/application-data/confluence"]
+    depends_on: [confluence-db]
+  confluence-db:
+    image: postgres:16-alpine
+    profiles: [atlassian]
+    environment: {POSTGRES_USER: confluence, POSTGRES_PASSWORD: confluence, POSTGRES_DB: confluence}
+    volumes: ["confluence-db:/var/lib/postgresql/data"]
+
+  jira:
+    image: atlassian/jira-software:9.12
+    profiles: [atlassian]
+    ports: ["127.0.0.1:28085:8080"]
+    networks: [default, stack]
+    environment:
+      JVM_MAXIMUM_MEMORY: 2048m
+      ATL_JDBC_URL: jdbc:postgresql://jira-db:5432/jira
+      ATL_JDBC_USER: jira
+      ATL_JDBC_PASSWORD: jira
+      ATL_DB_DRIVER: org.postgresql.Driver
+      ATL_DB_TYPE: postgres72
+    volumes: ["jira-home:/var/atlassian/application-data/jira"]
+    depends_on: [jira-db]
+  jira-db:
+    image: postgres:16-alpine
+    profiles: [atlassian]
+    environment: {POSTGRES_USER: jira, POSTGRES_PASSWORD: jira, POSTGRES_DB: jira}
+    volumes: ["jira-db:/var/lib/postgresql/data"]
+
+  # --- Zammad on 28081 ---
+  # Service names are the ones the image's nginx and init expect.
+  zammad-init:
+    <<: *zammad
+    command: ["zammad-init"]
+    restart: on-failure
+    user: "0:0"
+  zammad-railsserver:
+    <<: *zammad
+    command: ["zammad-railsserver"]
+  zammad-scheduler:
+    <<: *zammad
+    command: ["zammad-scheduler"]
+  zammad-websocket:
+    <<: *zammad
+    command: ["zammad-websocket"]
+  zammad-nginx:
+    <<: *zammad
+    command: ["zammad-nginx"]
+    ports: ["127.0.0.1:28081:8080"]
+    networks: [default, stack]
+    depends_on: [zammad-railsserver, zammad-websocket]
+  zammad-postgresql:
+    image: postgres:16-alpine
+    profiles: [zammad]
+    environment: {POSTGRES_USER: zammad, POSTGRES_PASSWORD: zammad, POSTGRES_DB: zammad_production}
+    volumes: ["zammad-db:/var/lib/postgresql/data"]
+  zammad-redis:
+    image: redis:7-alpine
+    profiles: [zammad]
+  zammad-memcached:
+    image: memcached:1.6-alpine
+    profiles: [zammad]
+    command: memcached -m 256M
+
+  # --- PHP on 28082 ---
+  # Every PHP signal the header and cookie rules read, and a page that leaves
+  # display_errors on: PHP in Server (ServerTokens Full) and X-Powered-By,
+  # PHPSESSID, a Laravel-style session pair, and a warning naming its path.
+  php:
+    image: php:8.2-apache
+    profiles: [php]
+    ports: ["127.0.0.1:28082:80"]
+    networks: [default, stack]
+    command:
+      - sh
+      - -c
+      - |
+        echo 'ServerTokens Full' > /etc/apache2/conf-enabled/tokens.conf
+        printf 'display_errors=On\nerror_reporting=E_ALL\n' > /usr/local/etc/php/conf.d/lab.ini
+        cat > /var/www/html/index.php <<'PHP'
+        <?php
+        session_start();
+        setcookie('laravel_session', 'lab');
+        setcookie('XSRF-TOKEN', 'lab');
+        include 'config.local.php';
+        ?><html><head><title>PHP lab</title></head><body>PHP lab</body></html>
+        PHP
+        exec apache2-foreground
+
+networks:
+  stack:
+    name: pinkglasses_default
+    external: true
+
+volumes:
+  confluence-home:
+  confluence-db:
+  jira-home:
+  jira-db:
+  zammad-storage:
+  zammad-db:

@@ -1,0 +1,10 @@
+{
+  "source": "synthetic",
+  "expect": ["Citrix NetScaler"],
+  "response": {
+    "path": "/",
+    "status": 302,
+    "headers": {"Location": ["/logon/LogonPoint/tmindex.html"]},
+    "cookies": ["NSC_TMAS"]
+  }
+}

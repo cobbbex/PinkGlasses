@@ -66,3 +66,58 @@ func TestTechObservationsSkipNamed(t *testing.T) {
 		t.Fatalf("got %+v", obs)
 	}
 }
+
+// Apache with mod_php names PHP only as the second token of Server; the
+// product parse keeps the first, so the module rule is what records PHP.
+func TestServerModules(t *testing.T) {
+	got := techFromHeaders(http.Header{"Server": {"Apache/2.4.41 (Ubuntu) PHP/7.4.3-4ubuntu2.24 OpenSSL/1.1.1f"}}.Get)
+	want := []techHint{{"PHP", "7.4.3-4ubuntu2.24", 85}, {"OpenSSL", "1.1.1f", 70}}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("hint %d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if got := techFromHeaders(http.Header{"Server": {"nginx/1.24.0"}}.Get); len(got) != 0 {
+		t.Errorf("a lone server product is the service's, not a module: %+v", got)
+	}
+	// X-Powered-By and Server agreeing is one PHP, not two.
+	both := techFromHeaders(http.Header{"X-Powered-By": {"PHP/8.2.20"}, "Server": {"Apache/2.4.62 PHP/8.2.20"}}.Get)
+	if len(both) != 1 || both[0].Name != "PHP" || both[0].Version != "8.2.20" {
+		t.Errorf("got %+v, want one PHP 8.2.20", both)
+	}
+}
+
+func TestTechFromCookies(t *testing.T) {
+	cases := []struct {
+		name    string
+		cookies []string
+		want    []techHint
+	}{
+		{"php session", []string{"PHPSESSID"}, []techHint{{"PHP", "", 75}}},
+		{"laravel", []string{"XSRF-TOKEN", "laravel_session"},
+			[]techHint{{"Laravel", "", 90}, {"PHP", "", 80}}},
+		{"renamed laravel session", []string{"XSRF-TOKEN", "acme_portal_session"},
+			[]techHint{{"Laravel", "", 75}, {"PHP", "", 70}}},
+		{"codeigniter", []string{"ci_session"}, []techHint{{"CodeIgniter", "", 85}, {"PHP", "", 80}}},
+		{"symfony profiler", []string{"sf_redirect", "PHPSESSID"},
+			[]techHint{{"Symfony", "", 85}, {"PHP", "", 75}}},
+		{"xsrf alone is not laravel", []string{"XSRF-TOKEN"}, nil},
+		{"nothing telling", []string{"JSESSIONID", "_ga"}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := techFromCookies(c.cookies)
+			if len(got) != len(c.want) {
+				t.Fatalf("got %+v, want %+v", got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Errorf("hint %d: got %+v, want %+v", i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}
