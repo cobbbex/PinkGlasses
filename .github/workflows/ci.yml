@@ -114,4 +114,8 @@ jobs:
         run: ./deploy/e2e/run.sh
       - name: logs, if it failed
         if: failure()
+        # The e2e override requires the admin password run.sh sets; this step
+        # runs in its own shell, so give it one or compose refuses to start.
+        env:
+          E2E_ADMIN_PASSWORD: unused-for-logs
         run: docker compose -p pinkglasses-e2e -f docker-compose.yml -f deploy/e2e/docker-compose.e2e.yml logs --tail 200

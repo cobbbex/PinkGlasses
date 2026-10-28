@@ -17,7 +17,14 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    # MinIO stopped publishing images: minio/minio on Docker Hub, quay.io and
+    # ghcr.io are gone, so a machine without a cached copy cannot pull it.
+    # Chainguard builds the same server from MinIO's source, daily, free to pull.
+    image: cgr.dev/chainguard/minio:latest
+    # Chainguard's image runs as uid 65532; the old one ran as root, and the
+    # data volumes (and restores from backups/, extracted as root) are owned
+    # by root. Running as root keeps every existing volume working.
+    user: "0:0"
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
