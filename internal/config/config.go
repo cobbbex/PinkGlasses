@@ -27,6 +27,9 @@ type Gateway struct {
 	// LocalBootstrapToken is shared with local worker containers so they can
 	// self-enroll; leave empty to disable local self-enrollment entirely.
 	LocalBootstrapToken string
+	// TrustedProxies: who may say, in X-Forwarded-For, where a request
+	// came from. Addresses, CIDRs and host names; empty trusts nobody.
+	TrustedProxies string
 }
 
 // Scheduler holds configuration for the scheduler binary.
@@ -85,6 +88,7 @@ func LoadGateway() Gateway {
 		DatabaseURL:      env("ASM_DATABASE_URL", "postgres://asm:asm@localhost:5432/asm?sslmode=disable"),
 		Addr:             env("ASM_GATEWAY_ADDR", ":8090"),
 		PublicGatewayURL: env("ASM_PUBLIC_GATEWAY_URL", "http://localhost:8090"),
+		TrustedProxies:   env("ASM_TRUSTED_PROXIES", ""),
 		S3:               s3FromEnv(),
 		// How long a task stays a worker's without a heartbeat naming it.
 		// Heartbeats are every 15s, so two minutes was eight misses — but a

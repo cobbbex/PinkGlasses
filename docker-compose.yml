@@ -107,6 +107,10 @@ services:
       ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
       ASM_GATEWAY_ADDR: ":8090"
       ASM_PUBLIC_GATEWAY_URL: "http://gateway:8090"
+      # Who may say, in X-Forwarded-For, where a worker's request came from:
+      # the https profile's Caddy, looked up by name. Anyone else's header is
+      # ignored, so a worker cannot pass for a container on this host.
+      ASM_TRUSTED_PROXIES: "${ASM_TRUSTED_PROXIES:-caddy}"
       ASM_S3_ENDPOINT: "http://minio:9000"
       # Shared with local worker containers so they self-enroll with no manual
       # token step. Only honoured for connections from private addresses.

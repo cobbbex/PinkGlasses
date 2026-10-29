@@ -13,7 +13,6 @@ import (
 	"github.com/benlik386/pinkglasses/internal/store"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -39,6 +38,7 @@ import (
 type Gateway struct {
 	st       *store.Store
 	cfg      config.Gateway
+	proxies  *trustedProxies
 	disp     *dispatch.Dispatcher
 	ingest   *ingest.Ingestor
 	obj      *obj.Store
@@ -60,8 +60,9 @@ type Gateway struct {
 // New builds a Gateway.
 func New(st *store.Store, cfg config.Gateway) *Gateway {
 	return &Gateway{
-		st:  st,
-		cfg: cfg,
+		st:      st,
+		proxies: parseTrustedProxies(cfg.TrustedProxies),
+		cfg:     cfg,
 		disp: dispatch.New(st, int(cfg.LeaseTTL.Seconds())).
 			WithBruteCap(cfg.BrutePerWorker).
 			WithCompanyCap(cfg.TasksPerCompany),
@@ -154,7 +155,7 @@ func (g *Gateway) enroll(w http.ResponseWriter, r *http.Request) {
 		caps[i] = string(c)
 	}
 
-	srcIP := observedIP(r)
+	srcIP := g.observedIP(r)
 	isLocal := kind == string(scanproto.KindLocal)
 
 	// A local worker is only trusted as local if it actually connected from a
@@ -234,7 +235,7 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 	}
 	g.register(workerID, conn)
 	defer g.unregister(workerID)
-	_ = g.st.TouchWorker(r.Context(), workerID, egressToRecord(worker.Kind, observedIP(r)))
+	_ = g.st.TouchWorker(r.Context(), workerID, egressToRecord(worker.Kind, g.observedIP(r)))
 
 	// reader: heartbeats and acks
 	// closed when the reader gives up, which is how a dead worker ends this
@@ -909,18 +910,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func observedIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if host, _, err := net.SplitHostPort(xff); err == nil {
-			return host
-		}
-		return xff
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+// observedIP is where a worker's request came from (see proxies.go).
+func (g *Gateway) observedIP(r *http.Request) string {
+	return g.proxies.clientIP(r)
 }
 
 // egressToRecord is the address to store for a worker that just connected,
