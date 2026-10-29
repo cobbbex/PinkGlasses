@@ -83,7 +83,8 @@ func (s *Scanner) serviceProbe(ctx context.Context, job scanproto.Job) ([]scanpr
 		// here as well as by tech_detect: this stage always runs, sees the
 		// raw response, and a redirect or error page is where the page
 		// fingerprint has nothing to go on.
-		obs = append(obs, techObservations(ip, port, host, techFromHeaders(resp.Header.Get), nil)...)
+		hints := mergeHints(techFromHeaders(resp.Header.Get), techFromCookies(cookieNamesFromResponse(resp)))
+		obs = append(obs, techObservations(ip, port, host, hints, nil)...)
 		// TLS certificate capture on https.
 		if scheme == "https" && resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
 			c := resp.TLS.PeerCertificates[0]
@@ -129,6 +130,7 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 	var obs []scanproto.Observation
 
 	pr := jobParams(job)
+	hxNamed := map[string]bool{}
 	if have("httpx") && pr.enabled("httpx") {
 		// Tools.md: httpx -title -sc -cl -location -fr -silent -delay 1s
 		hxArgs := []string{
@@ -202,10 +204,15 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 			}
 			// Headers name what the page fingerprint missed — WordPress behind
 			// a redirect, for one. -irh above is what puts them in the row.
-			obs = append(obs, techObservations(ip, port, host, techFromHeaders(httpxHeader(r)), named)...)
+			hints := mergeHints(techFromHeaders(httpxHeader(r)),
+				techFromCookies(cookieNamesFromHeader(headerField(r, "set_cookie"))))
+			obs = append(obs, techObservations(ip, port, host, hints, named)...)
+			for n := range named {
+				hxNamed[n] = true
+			}
 		}
 		if len(obs) > 0 {
-			return obs, nil
+			return append(obs, productObservations(ctx, job, pr, url, hxNamed)...), nil
 		}
 	}
 
@@ -223,12 +230,13 @@ func (s *Scanner) techDetect(ctx context.Context, job scanproto.Job) ([]scanprot
 		obs = append(obs, scanproto.Observation{Type: scanproto.ObsTech, IP: ip, Port: port, Host: host,
 			TechName: name, TechVersion: version, TechConfidence: 60})
 	}
-	obs = append(obs, techObservations(ip, port, host, techFromHeaders(resp.Header.Get), nil)...)
+	hints := mergeHints(techFromHeaders(resp.Header.Get), techFromCookies(cookieNamesFromResponse(resp)))
+	obs = append(obs, techObservations(ip, port, host, hints, nil)...)
 	if names := cookieNamesFromResponse(resp); len(names) > 0 {
 		obs = append(obs, scanproto.Observation{Type: scanproto.ObsHTTP, IP: ip, Port: port, Host: host,
 			Status: resp.StatusCode, Cookies: names})
 	}
-	return obs, nil
+	return append(obs, productObservations(ctx, job, pr, url, nil)...), nil
 }
 
 // screenshot captures a page with httpx and uploads the PNG to object storage.
