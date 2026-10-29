@@ -60,17 +60,29 @@ func (s *Store) PoolByName(ctx context.Context, name string) (uuid.UUID, error) 
 
 // RedeemEnrollmentToken validates and burns one use of a token, returning the
 // pool and the worker kind it grants. Safe under concurrency (atomic update).
-func (s *Store) RedeemEnrollmentToken(ctx context.Context, hash []byte) (*uuid.UUID, string, bool, error) {
-	var poolID *uuid.UUID
-	var kind string
+// Enrollment is what a redeemed token says about the worker redeeming it.
+type Enrollment struct {
+	PoolID *uuid.UUID
+	Kind   string
+	// Preapproved: the token was delivered over a session the app itself
+	// authenticated (an SSH exit), so the worker needs no approval.
+	Preapproved bool
+	// EgressHint is the worker's real address when its connection arrives
+	// through a tunnel and the source address would be the tunnel's end.
+	EgressHint *string
+}
+
+// RedeemEnrollment uses one redemption of a token and says what it grants.
+func (s *Store) RedeemEnrollment(ctx context.Context, hash []byte) (Enrollment, bool, error) {
+	var t Enrollment
 	err := s.Pool.QueryRow(ctx, `
 		UPDATE enrollment_token SET uses = uses + 1
 		WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > now() AND uses < max_uses
-		RETURNING pool_id, kind`, hash).Scan(&poolID, &kind)
+		RETURNING pool_id, kind, preapproved, host(egress_hint)`, hash).Scan(&t.PoolID, &t.Kind, &t.Preapproved, &t.EgressHint)
 	if err != nil {
-		return nil, "", false, nil //nolint:nilerr // invalid/expired token
+		return Enrollment{}, false, nil //nolint:nilerr // invalid/expired token
 	}
-	return poolID, kind, true, nil
+	return t, true, nil
 }
 
 // CreateWorker inserts a worker with the given status. Remote workers land in

@@ -1619,3 +1619,72 @@ paths:
         "403": {$ref: "#/components/responses/e403"}
         "404": {$ref: "#/components/responses/e404"}
         "409": {$ref: "#/components/responses/e409"}
+  /api/v1/ssh-exits:
+    get:
+      operationId: getSshExits
+      summary: "{exits, secrets_ready, secrets_reason}: host, user, the public key to authorize, pinned host key, session status and last error, install status and log — never the private key"
+      x-required-role: admin
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postSshExits
+      summary: "{name, host, port, username, private_key?, remote_port, pool_id?, worker_name?}; with no private_key an Ed25519 key is generated and its public_key returned for the VPS's authorized_keys; a key with a passphrase is refused; the pool defaults to remote; 409 on a duplicate name"
+      x-required-role: admin
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/ssh-exits/{exitID}/install:
+    post:
+      operationId: postSshExitsByExitIDInstall
+      summary: "202; the connector mints a single-use, pre-approved enrolment token, runs the install over the session and records install_status (pending, running, done, failed) and its output; 409 while one is running"
+      x-required-role: admin
+      parameters:
+        - {name: exitID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/ssh-exits/{exitID}:
+    delete:
+      operationId: deleteSshExitsByExitID
+      summary: "202; the connector removes the worker from the VPS if it can reach it, closes the session, then deletes the exit"
+      x-required-role: admin
+      parameters:
+        - {name: exitID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}

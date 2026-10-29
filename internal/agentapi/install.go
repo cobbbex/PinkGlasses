@@ -20,7 +20,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$URL" ] && [ -n "$TOKEN" ] || { echo "usage: install.sh --url <gw> --token <tok> [--name n]"; exit 1; }
 
-IMAGE="${ASM_WORKER_IMAGE:-ghcr.io/benlik386/pinkglasses-worker:latest}"
+IMAGE="${ASM_WORKER_IMAGE:-ghcr.io/cobbbex/pinkglasses-worker:latest}"
 CRED_DIR="/etc/pinkglasses-worker"
 mkdir -p "$CRED_DIR"; chmod 700 "$CRED_DIR"
 

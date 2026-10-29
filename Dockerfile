@@ -36,7 +36,8 @@ RUN CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/api       ./cmd/api      
     CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/scheduler ./cmd/scheduler && \
     CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/migrate   ./cmd/migrate && \
     CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/provisioner ./cmd/provisioner && \
-    CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/mcp       ./cmd/mcp
+    CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/mcp       ./cmd/mcp && \
+    CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o /out/connector ./cmd/connector
 
 # --- runtime ---
 FROM alpine:3.20

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, Worker, FleetView, User, atLeast } from "../api";
+import { api, Worker, FleetView, User, SSHExit, atLeast } from "../api";
 import { Link } from "react-router-dom";
 import { Modal, Stat, Badge, useToast, Spinner, InfoDot } from "../components/ui";
 
@@ -71,6 +71,8 @@ export default function Fleet({ me }: { me: User }) {
       </div>
 
       <VPSModal open={vpsOpen} onClose={() => setVpsOpen(false)} />
+
+      {atLeast(me.role, "admin") && <SSHExits />}
 
       <RunFleets />
 
@@ -151,6 +153,230 @@ function VPSModal({ open, onClose }: { open: boolean; onClose: () => void }) {
           </button>
         </>
       )}
+    </Modal>
+  );
+}
+
+/* ---------- SSH exits ---------- */
+
+/**
+ * A VPS reached over SSH, for an install the internet cannot reach. The
+ * "Add VPS worker" command needs the VPS to reach this stack's gateway; here
+ * the stack reaches the VPS instead, holds the session, and the VPS's
+ * loopback leads back to the gateway through it. Installing runs over the
+ * same session, so nothing is typed on the VPS but the key.
+ */
+function SSHExits() {
+  const toast = useToast();
+  const { data, refetch } = useQuery({ queryKey: ["ssh-exits"], queryFn: () => api.sshExits(), refetchInterval: 3000 });
+  const [addOpen, setAddOpen] = useState(false);
+  const [created, setCreated] = useState<SSHExit | null>(null);
+  const [logOf, setLogOf] = useState<SSHExit | null>(null);
+  const [removing, setRemoving] = useState<SSHExit | null>(null);
+  const exits = data?.exits ?? [];
+
+  async function install(e: SSHExit) {
+    try { await api.installSSHExit(e.id); toast("ok", `Installing on ${e.name}`); refetch(); }
+    catch (err) { toast("err", String(err).replace(/^Error:\s*/, "")); }
+  }
+  async function remove() {
+    const e = removing;
+    if (!e) return;
+    setRemoving(null);
+    try { await api.deleteSSHExit(e.id); toast("ok", `Removing ${e.name}`); refetch(); }
+    catch (err) { toast("err", String(err).replace(/^Error:\s*/, "")); }
+  }
+
+  const session = (e: SSHExit) => {
+    if (e.deleting) return <span className="badge b-draining">removing</span>;
+    const badge = e.status === "connected" ? <span className="badge b-open">connected</span>
+      : e.status === "error" ? <span className="badge b-failed">not connected</span>
+      : <span className="badge b-queued">connecting</span>;
+    return <>{badge}{e.last_error && <div className={(e.status === "connected" ? "muted" : "sev-high") + " wrap"} style={{ fontSize: 11.5 }}>{e.last_error}</div>}</>;
+  };
+  const worker = (e: SSHExit) => {
+    switch (e.install_status) {
+      case "none": return <span className="muted">not installed</span>;
+      case "pending": return <span className="badge b-pending">{e.status === "connected" ? "starting" : "waiting for the session"}</span>;
+      case "running": return <span className="badge b-running">installing</span>;
+      case "done": return <span className="badge b-completed">installed</span>;
+      default: return <span className="badge b-failed">failed</span>;
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div className="section-title" style={{ marginBottom: 4 }}>
+        SSH exits
+        <InfoDot title="When to use an SSH exit">
+          <p style={{ marginTop: 0 }}>
+            Use one when this install is not reachable from the internet: at home, behind NAT, no
+            public address. "Add VPS worker" needs the VPS to reach this gateway; an SSH exit
+            works the other way round.
+          </p>
+          <p>
+            This stack opens an SSH session to the VPS and asks it to listen on its own
+            loopback (127.0.0.1, the remote port). Whatever connects there is carried back to
+            this gateway. The worker on the VPS talks to that port. Nothing here is exposed,
+            and scans still leave from the VPS's address: only tasks, results, wordlists and
+            screenshots travel through the session.
+          </p>
+          <p style={{ marginBottom: 0 }}>
+            The VPS needs Docker, and the user must be root or have passwordless sudo.
+          </p>
+        </InfoDot>
+      </div>
+      <div className="sub" style={{ marginBottom: 8 }}>
+        For an install the internet cannot reach: this stack connects out to the VPS over SSH,
+        and the worker there reaches the gateway back through that session.
+      </div>
+      {data && !data.secrets_ready ? (
+        <div className="empty" style={{ padding: 14 }}>{data.secrets_reason}</div>
+      ) : (
+        <div className="row"><button className="ghost" onClick={() => setAddOpen(true)}>+ Add SSH exit</button></div>
+      )}
+      {exits.length > 0 && (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>VPS</th><th>Session</th><th>Worker</th><th>Actions</th></tr></thead>
+            <tbody>
+              {exits.map((e) => (
+                <tr key={e.id}>
+                  <td>{e.name}<div className="muted mono" style={{ fontSize: 11.5 }}>worker {e.worker_name}</div></td>
+                  <td>
+                    <span className="mono">{e.username}@{e.host}{e.port !== 22 ? `:${e.port}` : ""}</span>
+                    <div className="muted mono" style={{ fontSize: 11 }} title="The VPS's host key, pinned on first contact">
+                      {e.host_key ?? "host key not seen yet"}
+                    </div>
+                  </td>
+                  <td>{session(e)}</td>
+                  <td>
+                    {worker(e)}
+                    {e.install_log && <button className="ghost sm" style={{ marginLeft: 6 }} onClick={() => setLogOf(e)}>log</button>}
+                  </td>
+                  <td>
+                    <button className="ghost sm" onClick={() => setCreated(e)}>key</button>
+                    {!e.deleting && e.install_status !== "pending" && e.install_status !== "running" && (
+                      <button className="sm" style={{ marginLeft: 6 }} onClick={() => install(e)}
+                        title={e.status === "connected" ? "" : "It runs as soon as the session is up"}>
+                        {e.install_status === "done" ? "reinstall" : "install worker"}
+                      </button>
+                    )}
+                    {!e.deleting && <button className="danger sm" style={{ marginLeft: 6 }} onClick={() => setRemoving(e)}>remove</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <AddSSHExit open={addOpen} onClose={() => setAddOpen(false)}
+        onCreated={(e) => { setAddOpen(false); setCreated(e); refetch(); }} />
+
+      <Modal title={`Authorize ${created?.name ?? ""} on the VPS`} open={!!created} onClose={() => setCreated(null)}
+        footer={<button className="ghost" onClick={() => setCreated(null)}>Done</button>}>
+        <p style={{ marginTop: 0 }}>
+          Add this key to <span className="mono">~/.ssh/authorized_keys</span> of
+          <span className="mono"> {created?.username}</span> on <span className="mono">{created?.host}</span>.
+          Over your own SSH session, this does it:
+        </p>
+        <div className="pre">{created && `mkdir -p ~/.ssh && echo '${created.public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`}</div>
+        <button className="ghost sm" style={{ marginTop: 10 }}
+          onClick={() => { navigator.clipboard?.writeText(`mkdir -p ~/.ssh && echo '${created?.public_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`); toast("ok", "Copied"); }}>
+          Copy command
+        </button>
+        <p className="muted" style={{ fontSize: 13 }}>
+          The session comes up within a few seconds of the key being there. Then press
+          <strong> install worker</strong>: it pulls the worker image on the VPS and starts it, already approved.
+        </p>
+      </Modal>
+
+      <Modal title={`Install log — ${logOf?.name ?? ""}`} open={!!logOf} onClose={() => setLogOf(null)}
+        footer={<button className="ghost" onClick={() => setLogOf(null)}>Close</button>}>
+        <div className="pre" style={{ maxHeight: 400, overflow: "auto" }}>{logOf?.install_log}</div>
+      </Modal>
+
+      <Modal title="Remove SSH exit" open={!!removing} onClose={() => setRemoving(null)}
+        footer={<>
+          <button className="ghost" onClick={() => setRemoving(null)}>Cancel</button>
+          <button className="danger" onClick={remove}>Remove</button>
+        </>}>
+        <p style={{ marginTop: 0 }}>Remove <strong>{removing?.name}</strong>?</p>
+        <p className="muted" style={{ fontSize: 13 }}>
+          If the session is up, the worker container and its credential are removed from the VPS
+          first. The key stays in its authorized_keys; delete that line yourself.
+        </p>
+      </Modal>
+    </div>
+  );
+}
+
+function AddSSHExit({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (e: SSHExit) => void }) {
+  const toast = useToast();
+  const [f, setF] = useState({ name: "", host: "", port: "22", username: "root", remote_port: "47090", private_key: "" });
+  const [ownKey, setOwnKey] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+
+  async function save() {
+    setBusy(true);
+    try {
+      const e = await api.createSSHExit({
+        name: f.name.trim(), host: f.host.trim(), port: Number(f.port) || 22,
+        username: f.username.trim(), remote_port: Number(f.remote_port) || 47090,
+        private_key: ownKey ? f.private_key : undefined,
+      });
+      setF({ name: "", host: "", port: "22", username: "root", remote_port: "47090", private_key: "" });
+      setOwnKey(false);
+      onCreated(e);
+    } catch (err) {
+      toast("err", String(err).replace(/^Error:\s*/, ""));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Add an SSH exit" open={open} onClose={onClose}
+      footer={<>
+        <button className="ghost" onClick={onClose}>Cancel</button>
+        <button onClick={save} disabled={busy || !f.name || !f.host}>{busy ? "Saving…" : "Add"}</button>
+      </>}>
+      <div className="field">
+        <label>Name</label>
+        <input value={f.name} onChange={set("name")} placeholder="hetzner-fsn1" />
+        <div className="hint">Also the worker's name. Letters, digits, dot, dash, underscore.</div>
+      </div>
+      <div className="field">
+        <label>VPS address and SSH port</label>
+        <div className="row" style={{ gap: 8, marginBottom: 0 }}>
+          <input style={{ flex: 1 }} value={f.host} onChange={set("host")} placeholder="203.0.113.10 or vps.example.org" />
+          <input style={{ width: 80 }} value={f.port} onChange={set("port")} />
+        </div>
+      </div>
+      <div className="field">
+        <label>SSH user</label>
+        <input value={f.username} onChange={set("username")} />
+        <div className="hint">root, or a user with passwordless sudo. The VPS needs Docker.</div>
+      </div>
+      <div className="field">
+        <label>Port on the VPS's loopback</label>
+        <input value={f.remote_port} onChange={set("remote_port")} />
+        <div className="hint">Where the worker reaches the gateway, on 127.0.0.1 only. Any free port; change it if something else uses 47090.</div>
+      </div>
+      <div className="field">
+        <label className="param-toggle" style={{ cursor: "pointer" }}>
+          <input type="checkbox" checked={ownKey} onChange={(e) => setOwnKey(e.target.checked)} />
+          <span>Use a private key I already have</span>
+        </label>
+        {ownKey ? (
+          <textarea rows={6} className="mono" value={f.private_key} onChange={set("private_key")}
+            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" />
+        ) : (
+          <div className="hint">A new key is generated for this exit; you get its public half to add on the VPS. The private key is stored sealed and never shown.</div>
+        )}
+      </div>
     </Modal>
   );
 }

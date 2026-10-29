@@ -228,6 +228,20 @@ Event kinds: `new_finding`, `finding_gone`, `finding_returned`, `new_port`,
 | `POST /workers/{workerID}/{action}` | admin | `approve`, `drain`, `resume`, `quarantine` |
 | `DELETE /workers/{workerID}` | admin | a local worker's container is removed first |
 
+## SSH exits
+
+A VPS the **connector** reaches over SSH to carry a worker when this stack is
+not reachable from the internet. The connector asks the VPS to listen on its
+own loopback and hands those connections back to the gateway; scans still
+leave from the VPS. Administrators see every exit, anyone else their own.
+
+| Route | Role | Purpose |
+|---|---|---|
+| `GET /ssh-exits` | admin | `{exits, secrets_ready, secrets_reason}`: host, user, the public key to authorize, pinned host key, session status and last error, install status and log — **never the private key** |
+| `POST /ssh-exits` | admin | `{name, host, port, username, private_key?, remote_port, pool_id?, worker_name?}`; with no `private_key` an Ed25519 key is generated and its `public_key` returned for the VPS's authorized_keys; a key with a passphrase is refused; the pool defaults to `remote`; 409 on a duplicate name |
+| `POST /ssh-exits/{exitID}/install` | admin | 202; the connector mints a single-use, pre-approved enrolment token, runs the install over the session and records `install_status` (`pending`, `running`, `done`, `failed`) and its output; 409 while one is running |
+| `DELETE /ssh-exits/{exitID}` | admin | 202; the connector removes the worker from the VPS if it can reach it, closes the session, then deletes the exit |
+
 ## VPN configurations
 
 | Route | Role | Purpose |

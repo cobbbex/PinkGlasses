@@ -276,6 +276,22 @@ export interface VPNConfig {
   created_by: string; created_at: string;
 }
 
+/** A VPS the connector reaches over SSH to carry a worker for a stack the
+ *  internet cannot reach. The private key never leaves the server. */
+export interface SSHExit {
+  id: string; owner_id: string; name: string; host: string; port: number; username: string;
+  /** the authorized_keys line to add on the VPS */
+  public_key: string;
+  /** pinned on first contact */
+  host_key?: string | null;
+  remote_port: number; pool_id?: string | null; worker_name: string;
+  status: "connecting" | "connected" | "error";
+  last_error?: string | null; connected_at?: string | null; remote_addr?: string | null;
+  install_status: "none" | "pending" | "running" | "done" | "failed";
+  install_log?: string | null; installed_at?: string | null;
+  deleting: boolean; created_by: string; created_at: string;
+}
+
 export interface NotificationChannel {
   id: string; scope_id: string; name: string; kind: "webhook" | "slack";
   /** masked — the path of a Slack webhook is the secret */
@@ -454,6 +470,16 @@ export const api = {
   createVPNConfig: (body: { name: string; config: string }) =>
     req<VPNConfig>(`/vpn-configs`, { method: "POST", body: JSON.stringify(body) }),
   deleteVPNConfig: (id: string) => req(`/vpn-configs/${id}`, { method: "DELETE" }),
+  /** Admin: VPS boxes reached over SSH, each carrying a worker. */
+  sshExits: () =>
+    req<{ exits: SSHExit[] | null; secrets_ready: boolean; secrets_reason: string }>(
+      `/ssh-exits`).then((r) => ({ ...r, exits: r.exits ?? [] })),
+  createSSHExit: (body: {
+    name: string; host: string; port?: number; username?: string;
+    private_key?: string; remote_port?: number; worker_name?: string;
+  }) => req<SSHExit>(`/ssh-exits`, { method: "POST", body: JSON.stringify(body) }),
+  installSSHExit: (id: string) => req(`/ssh-exits/${id}/install`, { method: "POST" }),
+  deleteSSHExit: (id: string) => req(`/ssh-exits/${id}`, { method: "DELETE" }),
   notifications: (s: string) =>
     req<{ channels: NotificationChannel[] | null; events: string[] | null }>(`/scopes/${s}/notifications`)
       .then((r) => ({ channels: r.channels ?? [], events: r.events ?? [] })),

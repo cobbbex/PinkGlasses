@@ -147,6 +147,29 @@ services:
       postgres: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}
 
+  # Connector: carries workers on VPS boxes when this stack is not reachable
+  # from the internet (at home, behind NAT). For each SSH exit added under
+  # Workers it holds an SSH session to the VPS, asks it to listen on its own
+  # loopback, and hands those connections back to the gateway and the object
+  # store here. It dials out only; nothing is published. Idle when no exit
+  # exists. Needs ASM_SECRET_KEY to open the exits' private keys.
+  connector:
+    build:
+      context: .
+      args: {VERSION: "${PINKGLASSES_VERSION:-dev}", COMMIT: "${PINKGLASSES_COMMIT:-}"}
+    entrypoint: ["/usr/local/bin/connector"]
+    restart: unless-stopped
+    environment:
+      ASM_SECRET_KEY: "${ASM_SECRET_KEY:-}"
+      ASM_DATABASE_URL: postgres://asm:asm@postgres:5432/asm?sslmode=disable
+      ASM_CONNECTOR_GATEWAY: "gateway:8090"
+      ASM_S3_ENDPOINT: "http://minio:9000"
+      # What a VPS pulls. Published by .github/workflows/publish.yml.
+      ASM_REMOTE_WORKER_IMAGE: "${ASM_REMOTE_WORKER_IMAGE:-ghcr.io/cobbbex/pinkglasses-worker:latest}"
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      gateway: {condition: service_started}
+
   # Provisioner: the ONLY container with the Docker socket. It exists so the
   # fleet UI can create local workers without the api ever holding a
   # root-equivalent handle on the host. It speaks a fixed vocabulary (list /

@@ -31,6 +31,10 @@ rationale, [Architecture](Architecture).
   workers, active stages from a chosen exit: an ephemeral fleet behind a VPN
   gateway, or a pool of remote workers. Why the privilege is not in the worker,
   why routing is per task, and what happens when the tunnel drops.
+- **[Remote workers for an install at home](Remote-Workers-From-Home)** — when
+  nothing on the internet can reach your install: an SSH exit the app holds
+  open to the VPS, or a mesh VPN. What crosses the tunnel and what leaves from
+  the VPS.
 - **[API](API)** — every route the server serves, grouped by the role it needs,
   with request and response shapes; kept in step with the code by a test.
 - **[Wordlists](Wordlists)** — the three kinds of list, how a run picks them,

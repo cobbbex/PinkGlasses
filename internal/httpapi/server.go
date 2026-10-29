@@ -224,6 +224,13 @@ func (s *Server) Routes() http.Handler {
 				// Deleting a company takes its whole inventory and history with it.
 				a.Post("/workers/{workerID}/{action}", s.workerAction)
 				a.Delete("/workers/{workerID}", s.deleteWorker)
+				// A VPS reached over SSH, carrying a worker for a stack the
+				// internet cannot reach; installing one runs a script as root
+				// on it.
+				a.Get("/ssh-exits", s.listSSHExits)
+				a.Post("/ssh-exits", s.createSSHExit)
+				a.Post("/ssh-exits/{exitID}/install", s.installSSHExit)
+				a.Delete("/ssh-exits/{exitID}", s.deleteSSHExit)
 			})
 		})
 	})

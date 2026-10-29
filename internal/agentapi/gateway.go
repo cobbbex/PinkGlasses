@@ -138,7 +138,8 @@ func (g *Gateway) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sum := sha256.Sum256([]byte(req.Token))
-	poolID, kind, ok, _ := g.st.RedeemEnrollmentToken(r.Context(), sum[:])
+	tok, ok, _ := g.st.RedeemEnrollment(r.Context(), sum[:])
+	poolID, kind := tok.PoolID, tok.Kind
 	if !ok {
 		http.Error(w, "invalid or expired token", http.StatusUnauthorized)
 		return
@@ -169,6 +170,12 @@ func (g *Gateway) enroll(w http.ResponseWriter, r *http.Request) {
 	if trustedLocal {
 		status = domain.WorkerActive // no human approval needed on your own network
 	}
+	// A token an SSH exit delivered: a signed-in user asked for this worker
+	// and the app put the token on the box itself, over a session it
+	// authenticated, so there is nobody left to ask.
+	if tok.Preapproved {
+		status = domain.WorkerActive
+	}
 
 	worker := domain.Worker{
 		PoolID:       poolID,
@@ -183,7 +190,11 @@ func (g *Gateway) enroll(w http.ResponseWriter, r *http.Request) {
 		// eight tasks and ran all eight.
 		MaxConcurrency: workerSlots(req.MaxConcurrency),
 	}
-	if srcIP != "" {
+	if tok.EgressHint != nil {
+		// Through a tunnel the source is the tunnel's private end; the
+		// token names the box the worker really runs on.
+		worker.EgressIP = tok.EgressHint
+	} else if srcIP != "" {
 		worker.EgressIP = &srcIP
 	}
 	// A restarted container re-enrols under the same hostname; drop the row it
@@ -214,13 +225,16 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "worker not permitted", http.StatusForbidden)
 		return
 	}
+	// Where this worker reaches the gateway: the address its jobs' result
+	// and wordlist URLs are built on.
+	base := g.workerBase(r)
 	conn, err := g.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 	g.register(workerID, conn)
 	defer g.unregister(workerID)
-	_ = g.st.TouchWorker(r.Context(), workerID, observedIP(r))
+	_ = g.st.TouchWorker(r.Context(), workerID, egressToRecord(worker.Kind, observedIP(r)))
 
 	// reader: heartbeats and acks
 	// closed when the reader gives up, which is how a dead worker ends this
@@ -278,9 +292,9 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 			}
 			for i := range jobs {
 				job := &jobs[i]
-				job.Ingest = scanproto.IngestInfo{URL: g.cfg.PublicGatewayURL + "/agent/v1/results"}
+				job.Ingest = scanproto.IngestInfo{URL: base + "/agent/v1/results"}
 				job.Params.Tool = g.paramsForRun(ctx, job.RunID)
-				g.attachWordlist(ctx, job)
+				g.attachWordlist(ctx, job, base)
 				env := scanproto.Envelope{Type: "job", Job: job}
 				if err := conn.WriteJSON(env); err != nil {
 					return
@@ -297,7 +311,7 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 // search runs one task per URL and uses a single list: the run's default. A run
 // without one is not an error — the worker falls back to the list baked into
 // its image.
-func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job) {
+func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job, base string) {
 	runID, err := uuid.Parse(job.RunID)
 	if err != nil {
 		return
@@ -318,7 +332,7 @@ func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job) {
 		slog.Warn("several directory wordlists are marked default; using the first",
 			"using", wl.Name, "available", strings.Join(names, ", "))
 	}
-	url, err := g.listURL(wl)
+	url, err := g.listURL(wl, base)
 	if err != nil {
 		slog.Warn("could not build a download url for the directory wordlist", "list", wl.Name, "err", err)
 		return
@@ -330,11 +344,31 @@ func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job) {
 	}
 }
 
+// workerBase is the gateway's address as the worker making this request
+// reached it, for the URLs handed back to that worker. A fixed public URL was
+// used once, and a worker that reaches the gateway any other way — through an
+// SSH exit's tunnel (127.0.0.1:<port> on its VPS), a mesh VPN, a relay — was
+// told to post its results somewhere it could not reach: the scan ran and
+// nothing arrived. The Host the worker sent is by definition reachable from
+// it. Behind a TLS-terminating proxy the scheme comes from X-Forwarded-Proto.
+func (g *Gateway) workerBase(r *http.Request) string {
+	if r.Host == "" {
+		return g.cfg.PublicGatewayURL
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	} else if p := r.Header.Get("X-Forwarded-Proto"); p == "https" || p == "http" {
+		scheme = p
+	}
+	return scheme + "://" + r.Host
+}
+
 // listURL is the download URL a job carries for a list: the gateway's own
 // route when the list has a content hash, a presigned store URL otherwise.
-func (g *Gateway) listURL(wl store.Wordlist) (string, error) {
-	if wl.SHA256 != nil && *wl.SHA256 != "" && g.cfg.PublicGatewayURL != "" {
-		return g.cfg.PublicGatewayURL + "/agent/v1/wordlists/" + *wl.SHA256, nil
+func (g *Gateway) listURL(wl store.Wordlist, base string) (string, error) {
+	if wl.SHA256 != nil && *wl.SHA256 != "" && base != "" {
+		return base + "/agent/v1/wordlists/" + *wl.SHA256, nil
 	}
 	return g.obj.PresignGet(wl.ObjectKey, 2*time.Hour, time.Now())
 }
@@ -346,6 +380,7 @@ func (g *Gateway) listWordlists(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	base := g.workerBase(r)
 	all, err := g.st.ListWordlists(r.Context(), "")
 	if err != nil {
 		http.Error(w, "wordlists unavailable", http.StatusInternalServerError)
@@ -363,7 +398,7 @@ func (g *Gateway) listWordlists(w http.ResponseWriter, r *http.Request) {
 		if wl.Status != "ready" || wl.SHA256 == nil || *wl.SHA256 == "" {
 			continue
 		}
-		u, err := g.listURL(wl)
+		u, err := g.listURL(wl, base)
 		if err != nil {
 			continue
 		}
@@ -423,9 +458,9 @@ var wordlistClient = &http.Client{Timeout: 30 * time.Minute}
 // attachWordlist gives a dns_brute job a short-lived download URL for the list
 // it must use. The URL is minted at dispatch rather than at planning time so it
 // is still valid when the task is actually leased, which may be much later.
-func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job) {
+func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job, base string) {
 	if job.Stage == scanproto.StageDirBrute {
-		g.attachDirWordlist(ctx, job)
+		g.attachDirWordlist(ctx, job, base)
 		return
 	}
 	if job.Stage != scanproto.StageDNSBrute || len(job.Targets) == 0 {
@@ -443,7 +478,7 @@ func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job) {
 	if err != nil || wl.Status != "ready" {
 		return
 	}
-	url, err := g.listURL(wl)
+	url, err := g.listURL(wl, base)
 	if err != nil {
 		slog.Warn("could not build a download url for the wordlist", "wordlist", wl.Name, "err", err)
 		return
@@ -465,7 +500,7 @@ func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job) {
 		return
 	}
 	rl := res[0]
-	rurl, err := g.listURL(rl)
+	rurl, err := g.listURL(rl, base)
 	if err != nil {
 		slog.Warn("could not build a download url for the resolvers", "list", rl.Name, "err", err)
 		return
@@ -886,6 +921,17 @@ func observedIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// egressToRecord is the address to store for a worker that just connected,
+// "" to keep the one on record. A remote worker never legitimately arrives
+// from a private address: when it does, it came through a tunnel (an SSH
+// exit) or a relay, and the address is that end's, not the worker's.
+func egressToRecord(kind, src string) string {
+	if kind != string(scanproto.KindLocal) && isPrivateAddr(src) {
+		return ""
+	}
+	return src
 }
 
 func firstNonEmpty(vals ...string) string {
