@@ -71,8 +71,8 @@ Three, ordered. Each adds to the one below rather than replacing it.
 | Role | Adds |
 |---|---|
 | **viewer** | Reads everything: inventory, findings, runs, search, worker list, the *names* of their own VPN configs. Changes nothing. |
-| **operator** | Creating companies, target groups, wordlists, alert channels — and **starting, pausing, stopping, rerunning and deleting scans**. |
-| **admin** | Accounts, API tokens, worker enrollment, deleting anyone's VPN configuration — and **deleting a company**, since that takes its whole inventory and history with it. |
+| **operator** | Creating companies, target groups, wordlists, alert channels; **starting, pausing, stopping, rerunning and deleting scans**; and **the fleet**: enrolling, approving, draining, quarantining and removing workers, which pool runs discovery, their own VPN configurations and SSH exits. |
+| **admin** | Accounts, everyone's API tokens, system health, deleting anyone's VPN configuration or SSH exit — and **deleting a company**, since that takes its whole inventory and history with it. |
 
 Two boundaries are worth explaining because they are the whole design:
 
@@ -80,8 +80,15 @@ Two boundaries are worth explaining because they are the whole design:
 somebody else's infrastructure. Everything a viewer can do is look at what has
 already been collected; the first thing an operator can do is cause traffic.
 
-**Enrolling a worker is admin** because it hands out a credential for the control
-plane itself. **A VPN configuration is the account's own**: it belongs to whoever
+**Workers are the operator's** because operators are the ones starting the scans
+that need them. It is a real grant: an enrollment token is a credential for the
+gateway, and a worker an operator approves leases every company's tasks in its
+pool — targets of private companies they cannot open included. Give the operator
+role to people you would trust with that; every enrollment, approval and removal
+is in the audit log with who did it. Workers are install-wide: any operator can
+change any worker, not only the ones they enrolled. **An SSH exit is the
+account's own**, like a VPN configuration: an operator sees and removes their own,
+an administrator everyone's. **A VPN configuration is the account's own**: it belongs to whoever
 added it, is usable in every company they scan, and is offered to nobody else — so
 an operator adds their own, since they are the one starting the scans that use it,
 and only an administrator can remove somebody else's. Its body is sealed and is

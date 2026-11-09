@@ -11,8 +11,8 @@ import { Modal, useToast } from "../components/ui";
  */
 const ROLES: { id: Role; label: string; desc: string }[] = [
   { id: "viewer", label: "Viewer", desc: "Reads everything. Changes nothing." },
-  { id: "operator", label: "Operator", desc: "Adds companies and targets, and starts scans." },
-  { id: "admin", label: "Admin", desc: "Also manages accounts, workers and VPN configurations." },
+  { id: "operator", label: "Operator", desc: "Adds companies and targets, starts scans, and manages workers, SSH exits and their own VPN configurations." },
+  { id: "admin", label: "Admin", desc: "Also manages accounts, and can delete anyone's VPN configuration." },
 ];
 
 export default function Users({ me }: { me: User }) {

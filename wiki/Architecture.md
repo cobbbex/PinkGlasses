@@ -1228,13 +1228,16 @@ on their next request.
 | Role | Adds |
 |---|---|
 | `viewer` | reads everything; changes nothing |
-| `operator` | scopes, targets, wordlists, notification channels — **and starting runs** |
-| `admin` | accounts, API tokens, workers, enrollment, VPN configurations |
+| `operator` | scopes, targets, wordlists, notification channels, **starting runs**, and the fleet: workers, enrollment, pools, their own VPN configurations and SSH exits |
+| `admin` | accounts, everyone's API tokens, system health, anyone's VPN configurations and SSH exits, deleting a company |
 
 Starting a run is the boundary between reading and acting, because it sends
-packets at somebody else's infrastructure. Managing VPN configurations and
-enrolling workers are admin because both hand out credentials — one for a
-network that is not ours, one for the control plane itself.
+packets at somebody else's infrastructure. The fleet sits with operators
+because they start the scans it runs; enrolling still hands out a credential
+for the gateway, and an approved worker leases every company's tasks in its
+pool, so the role is one to give only to people trusted with that. VPN
+configurations and SSH exits stay per-account: an operator manages their own,
+an administrator anyone's.
 
 Roles are applied per route group in `Routes()`, and the whole of `/api/v1` sits
 inside `requireAuth` with three exceptions: `auth/status`, `auth/setup` and
