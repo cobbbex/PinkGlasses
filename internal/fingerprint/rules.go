@@ -19,6 +19,7 @@ var rules = []product{
 	zimbraRule,
 	exchangeRule,
 	kerioRule,
+	mikrotikRule,
 }
 
 // --- Citrix NetScaler (ADC / Gateway / AAA) ---
@@ -283,4 +284,45 @@ var kerioRule = product{
 		return strings.TrimSpace(firstGroup(r.Headers.Get("Server"), kerioServer))
 	},
 	probes: []string{"/webmail/login/"},
+}
+
+// --- MikroTik RouterOS (WebFig, web proxy) ---
+//
+// Checked against RouterOS 6.49.10 and 7.16 (CHR). 6.x answers / with
+// "RouterOS router configuration page" and prints the version in its <h1>;
+// 7.x titles the page just "RouterOS" and prints no version. Both serve
+// /webfig/roteros.info without a login, a one-line manifest of WebFig's
+// script that ends version: "7.16" — the version on every release. The
+// router sends no Server header from WebFig; its web proxy (port 8080 when
+// enabled) names itself in Server instead, and its error pages carry
+// "<h2>Mikrotik HttpProxy</h2>" (both from nmap's probe database, not the
+// lab). A Hotspot answers a client that has not logged in with
+// "302 Hotspot login required" and a page titled the same (6.49.10 lab, on
+// the proxy port), redirecting to /login.
+
+var (
+	mikrotikH1      = regexp.MustCompile(`(?i)<h1>\s*RouterOS v([0-9]+\.[0-9][0-9.]*(?:rc[0-9]+|beta[0-9]+)?)`)
+	mikrotikInfo    = regexp.MustCompile(`name:\s*"roteros\.jg".*?version:\s*"([0-9]+\.[0-9][0-9.]*(?:rc[0-9]+|beta[0-9]+)?)"`)
+	mikrotikProxyRe = regexp.MustCompile(`(?i)mikrotik httpproxy`)
+)
+
+var mikrotikRule = product{
+	name:    MikroTik,
+	aliases: []string{"mikrotik", "routeros", "webfig"},
+	signals: []signal{
+		{"title RouterOS router configuration page", 95, "WebFig", titleHas("routeros router configuration page")},
+		{"body <h1>RouterOS v<version>", 95, "WebFig", bodyMatches(mikrotikH1)},
+		{"WebFig roteros.info manifest", 97, "WebFig", bodyMatches(mikrotikInfo)},
+		{"body WebFig Login", 90, "WebFig", bodyHas("webfig login:")},
+		{"body mikrotik_logo.png", 85, "WebFig", bodyHas(`src="mikrotik_logo.png"`)},
+		{"body router login notice", 70, "", bodyHas("you have connected to a router. administrative access only.")},
+		{"title RouterOS", 55, "", titleHas("routeros")},
+		{"Server Mikrotik HttpProxy", 95, "Web proxy", headerHas("Server", "mikrotik httpproxy")},
+		{"title Hotspot login required", 92, "Hotspot", titleHas("hotspot login required")},
+		{"body Mikrotik HttpProxy error page", 85, "Web proxy", func(r *Response) bool {
+			return mikrotikProxyRe.MatchString(r.Body)
+		}},
+	},
+	version: func(r *Response) string { return firstGroup(r.Body, mikrotikH1, mikrotikInfo) },
+	probes:  []string{"/webfig/roteros.info"},
 }

@@ -1,0 +1,36 @@
+{
+  "source": "lab RouterOS CHR (deploy/fplab)",
+  "expect": [
+    "MikroTik RouterOS"
+  ],
+  "response": {
+    "path": "/webfig/roteros.info",
+    "status": 200,
+    "headers": {
+      "Cache-Control": [
+        "max-age=31536000"
+      ],
+      "Connection": [
+        "Keep-Alive"
+      ],
+      "Content-Length": [
+        "108"
+      ],
+      "Content-Type": [
+        "application/octet-stream"
+      ],
+      "Date": [
+        "Fri, 30 Oct 2026 23:01:42 GMT"
+      ],
+      "Expires": [
+        "Sat, 30 Oct 2027 23:01:42 GMT"
+      ],
+      "X-Frame-Options": [
+        "sameorigin"
+      ]
+    },
+    "title": "",
+    "body": "{ crc: 107471256, size: 72026, name: \"roteros.jg\", unique: \"roteros-623d68cb9339.jg\", version: \"6.49.10\" },\n"
+  },
+  "version": "6.49.10"
+}

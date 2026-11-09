@@ -440,6 +440,10 @@ func (s *Scanner) nmapRun(ctx context.Context, hosts []string, portArgs []string
 	}
 	slog.Info("port scan", "hosts", len(hosts), "with_open_ports", len(hostsWithPorts),
 		"open", len(obs), "scanner", "nmap", "ports", strings.Join(portArgs, " "))
+	found := len(obs)
+	if pr.boolVal("product_fingerprint", true) {
+		obs = append(obs, deviceObservations(obs)...)
+	}
 
 	var to *ToolTimeout
 	if errors.As(runErr, &to) {
@@ -447,7 +451,7 @@ func (s *Scanner) nmapRun(ctx context.Context, hosts []string, portArgs []string
 			"nmap did not finish %s on %d address(es) within %s, so the services it "+
 				"identified (%d) are only those it reached. Lower Version intensity "+
 				"(nmap_version_intensity) or scan a narrower port set under Customize scanning",
-			strings.Join(portArgs, " "), len(hosts), budget.Round(time.Second), len(obs)))
+			strings.Join(portArgs, " "), len(hosts), budget.Round(time.Second), found))
 	}
 	return obs, nil
 }
