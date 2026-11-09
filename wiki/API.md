@@ -33,8 +33,8 @@ table below.
 | Role | Adds |
 |---|---|
 | **viewer** | read everything; create and revoke your own API tokens |
-| **operator** | companies, targets, scan profiles, alerts, wordlists, your own VPN configurations — and starting runs |
-| **admin** | accounts, everyone's tokens, workers and enrollment, deleting a company, deleting anyone's VPN configuration |
+| **operator** | companies, targets, scan profiles, alerts, wordlists, your own VPN configurations and SSH exits, workers, enrollment and pools — and starting runs |
+| **admin** | accounts, everyone's tokens, system health, deleting a company, deleting anyone's VPN configuration, seeing and removing anyone's SSH exit |
 
 A route above your role answers `403` with the role it needs.
 
@@ -118,7 +118,7 @@ asset route is under a scope.
 | `POST /runs/{runID}/cancel` | operator | stop: unfinished tasks are cancelled, the run ends as `cancelled`; works on a paused run too |
 | `POST /runs/{runID}/pause` | operator | hold a running run: nothing more is leased, tasks in flight finish, its own fleet stays up; 409 unless `running` |
 | `POST /runs/{runID}/resume` | operator | continue a paused run; 409 unless `paused` |
-| `DELETE /runs/{runID}` | operator | delete a finished run: tasks, targets, observations, fleet record and change events go with it, and its screenshots and raw output are removed from object storage — history that came from the run disappears. 409 while the run is going (stop it first) or its fleet is still being removed; answers `{deleted, artifacts_removed, artifacts_failed}` |
+| `DELETE /runs/{runID}` | operator | delete a finished, failed, stopped or paused run (a paused one is stopped first; a running one answers 409): tasks, targets, observations, fleet record and change events go with it, and its screenshots and raw output are removed from object storage — history that came from the run disappears. 409 while the run is going (stop it first) or its fleet is still being removed; answers `{deleted, artifacts_removed, artifacts_failed}` |
 | `POST /runs/{runID}/rerun` | operator | start a new run with this one's targets, profile, parameters, wordlists and exit, through the same checks as a fresh start; 201 with the new run |
 
 **Starting a run:**
@@ -223,10 +223,10 @@ Event kinds: `new_finding`, `finding_gone`, `finding_returned`, `new_port`,
 | `GET /workers` | viewer | every worker: status, egress, load, tools, `run_scoped` for a run's own containers |
 | `GET /fleets` | viewer | runs' own fleets — the VPN gateway (tunnel state, exit address, VPN config) and the workers beside it, with the run and company — every fleet up or being built plus those ended in the last day |
 | `GET /pools` | viewer | pools a run may choose as its remote exit, with `active_workers` — remote workers only; the standing local workers run passive stages and are never an exit |
-| `PATCH /pools/{poolID}` | admin | `{takes_discovery}` — whether this pool runs the stages that never touch a target (passive discovery, DNS), moving that work off the control-plane host. A run's own pool cannot be changed |
-| `POST /workers/enrollment-tokens` | admin | `{kind: vps, name, pool_id, ttl_mins, max_uses}` → `{token, install_command, expires_in}`. `kind: local` is refused: the standing worker enrols itself and a run's fleet is built by the scheduler |
-| `POST /workers/{workerID}/{action}` | admin | `approve`, `drain`, `resume`, `quarantine` |
-| `DELETE /workers/{workerID}` | admin | a local worker's container is removed first |
+| `PATCH /pools/{poolID}` | operator | `{takes_discovery}` — whether this pool runs the stages that never touch a target (passive discovery, DNS), moving that work off the control-plane host. A run's own pool cannot be changed |
+| `POST /workers/enrollment-tokens` | operator | `{kind: vps, name, pool_id, ttl_mins, max_uses}` → `{token, install_command, expires_in}`. `kind: local` is refused: the standing worker enrols itself and a run's fleet is built by the scheduler |
+| `POST /workers/{workerID}/{action}` | operator | `approve`, `drain`, `resume`, `quarantine`, `revoke`; any worker, not only ones you enrolled |
+| `DELETE /workers/{workerID}` | operator | a local worker's container is removed first |
 
 ## SSH exits
 
@@ -237,10 +237,10 @@ leave from the VPS. Administrators see every exit, anyone else their own.
 
 | Route | Role | Purpose |
 |---|---|---|
-| `GET /ssh-exits` | admin | `{exits, secrets_ready, secrets_reason}`: host, user, the public key to authorize, pinned host key, session status and last error, install status and log — **never the private key** |
-| `POST /ssh-exits` | admin | `{name, host, port, username, private_key?, remote_port, pool_id?, worker_name?}`; with no `private_key` an Ed25519 key is generated and its `public_key` returned for the VPS's authorized_keys; a key with a passphrase is refused; the pool defaults to `remote`; 409 on a duplicate name |
-| `POST /ssh-exits/{exitID}/install` | admin | 202; the connector mints a single-use, pre-approved enrolment token, runs the install over the session and records `install_status` (`pending`, `running`, `done`, `failed`) and its output; 409 while one is running |
-| `DELETE /ssh-exits/{exitID}` | admin | 202; the connector removes the worker from the VPS if it can reach it, closes the session, then deletes the exit |
+| `GET /ssh-exits` | operator | `{exits, secrets_ready, secrets_reason}`: host, user, the public key to authorize, pinned host key, session status and last error, install status and log — **never the private key** |
+| `POST /ssh-exits` | operator | `{name, host, port, username, private_key?, remote_port, pool_id?, worker_name?}`; with no `private_key` an Ed25519 key is generated and its `public_key` returned for the VPS's authorized_keys; a key with a passphrase is refused; the pool defaults to `remote`; 409 on a duplicate name |
+| `POST /ssh-exits/{exitID}/install` | operator | 202; the connector mints a single-use, pre-approved enrolment token, runs the install over the session and records `install_status` (`pending`, `running`, `done`, `failed`) and its output; 409 while one is running |
+| `DELETE /ssh-exits/{exitID}` | operator | 202; the connector removes the worker from the VPS if it can reach it, closes the session, then deletes the exit |
 
 ## VPN configurations
 

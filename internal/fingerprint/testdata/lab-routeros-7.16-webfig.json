@@ -1,0 +1,35 @@
+{
+  "source": "lab RouterOS CHR (deploy/fplab)",
+  "expect": [
+    "MikroTik RouterOS"
+  ],
+  "response": {
+    "path": "/",
+    "status": 200,
+    "headers": {
+      "Cache-Control": [
+        "max-age=31536000"
+      ],
+      "Connection": [
+        "Keep-Alive"
+      ],
+      "Content-Length": [
+        "2723"
+      ],
+      "Content-Type": [
+        "text/html"
+      ],
+      "Date": [
+        "Fri, 30 Oct 2026 23:01:43 GMT"
+      ],
+      "Expires": [
+        "Sat, 30 Oct 2027 23:01:43 GMT"
+      ],
+      "X-Frame-Options": [
+        "sameorigin"
+      ]
+    },
+    "title": "RouterOS",
+    "body": "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<link rel=\"icon\" href=\"/favicon.png\">\n<link rel=\"icon\" href=\"/favicon.svg\">\n<title>RouterOS</title>\n<style>\nbody {\n    font-family: Verdana, Geneva, sans-serif;\n    font-size: 11px;\n}\nimg {border: none}\nimg:hover {opacity: 0.8;}\nh1 {\n    font-size: 1.7em;\n    display: inline;\n    margin-bottom: 10px;\n}\n#container {\n    width: 70%;\n    margin: 10% auto;\n}\n#box {\n    background: linear-gradient(#ffffff,#f3f3f3);\n    border: 1px solid #c1c1c1;\n    padding: 30px;\n}\n.floater {float: left; margin-right: 10px;}\n.floater label {display: block; text-align: center;}\n\n#login {margin: 2em 0 2em 0;}\n#login td {padding: 0 4px 0 0;}\n#login td.label {text-align: right;}\n\n#login input {\n    margin: 2px;\n    padding: 2px;\n    border: 1px solid #888;\n    box-shadow: 1px 1px 3px rgba(0,0,0,0.3);\n}\n#error {\n    color:red;\n    padding: 1em 0 0 0;\n}\n#login input[type=submit] {\n    box-shadow:inset 0px 1px 0px 0px #ffffff;\n    background-color:#ededed;\n    border-radius:3px;\n    border:1px solid #dcdcdc;\n    cursor:pointer;\n    color:#000;\n    font-size:12px;\n    padding:4px 24px;\n}\n#login input[type=submit]:hover {\n    background-color:#dfdfdf;\n}\n#login input[type=submit]:active {\n    position:relative;\n    top:1px;\n}\n</style>\n<script src=\"script.js\"></script>\n\n<div id=\"container\">\n<div id=\"box\">\n<a href=\"https://mikrotik.com\"><img src=\"mikrotik_logo.png\" style=\"float: right;\" alt=\"Mikrotik\"></a><br style=\"clear: both;\">\n<h1>RouterOS</h1>\n<p>You have connected to a router. Administrative access only. If this device is not in your possession, please contact your local network administrator.</p>\n<form id=\"login\">\n<table>\n    <tr><td class=\"label\"><label for=\"name\">Login:</label>\n        <td><input id=\"name\" autocomplete=\"username\" type=\"text\" data-defaultuser=\"admin\">\n    <tr><td class=\"label\"><label for=\"password\">Password:</label>\n        <td><input id=\"password\" type=\"password\" autofocus>\n        <td><input type=\"submit\" value=\"Login\">\n        <td>\n    <tr><td colspan=\"3\">\n    <div id=\"error\"></div>\n</table>\n</form>\n<div>\n    <div class=\"floater\"><a href=\"https://mt.lv/winbox64\"><img src=\"winbox.png\" alt=\"Winbox\"></a><br><label>Winbox</label></div>\n    <div class=\"floater\"><a href=\"/graphs\"><img src=\"green.png\" alt=\"Graphs\"></a><br><label>Graphs</label></div>\n    <div class=\"floater\"><a href=\"/help/license.html\"><img src=\"license.png\" alt=\"License\"></a><br><label>License</label></div>\n    <div class=\"floater\"><a href=\"https://help.mikrotik.com/docs/\"><img src=\"help.png\" alt=\"Help\"></a><br><label>Help</label></div>\n</div>\n<br style=\"clear: both\">\n<div style=\"float: right\">&copy; <a href=\"https://mikrotik.com\">mikrotik</a></div>\n</div>\n</div>\n"
+  }
+}

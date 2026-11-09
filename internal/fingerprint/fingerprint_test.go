@@ -174,7 +174,9 @@ func TestFetcherFollowsOneSite(t *testing.T) {
 }
 
 // Every file in testdata/ is a response and the products it must be named
-// as. Real banners land here through `fpcheck -fixtures`; each one is a case
+// as — with "version", the version the first of them must read; with an
+// empty "expect", a response nothing may be named from. Real banners land
+// here through `fpcheck -fixtures`, lab responses by hand; each one is a case
 // a rule change must not lose.
 func TestFixtures(t *testing.T) {
 	files, _ := filepath.Glob("testdata/*.json")
@@ -189,6 +191,7 @@ func TestFixtures(t *testing.T) {
 			}
 			var fx struct {
 				Expect   []string `json:"expect"`
+				Version  string   `json:"version"`
 				Response Response `json:"response"`
 			}
 			if err := json.Unmarshal(data, &fx); err != nil {
@@ -197,14 +200,20 @@ func TestFixtures(t *testing.T) {
 			if fx.Response.Headers == nil {
 				fx.Response.Headers = http.Header{}
 			}
-			named := map[string]bool{}
+			named := map[string]Match{}
 			for _, m := range Settled(Detect(fx.Response)) {
-				named[m.Product] = true
+				named[m.Product] = m
+			}
+			if len(fx.Expect) == 0 && len(named) > 0 {
+				t.Errorf("named %+v from a response that shows nothing", named)
 			}
 			for _, want := range fx.Expect {
-				if !named[want] {
+				if _, ok := named[want]; !ok {
 					t.Errorf("not named %s; detect gave %+v", want, Detect(fx.Response))
 				}
+			}
+			if fx.Version != "" && len(fx.Expect) > 0 && named[fx.Expect[0]].Version != fx.Version {
+				t.Errorf("%s version %q, want %q", fx.Expect[0], named[fx.Expect[0]].Version, fx.Version)
 			}
 		})
 	}

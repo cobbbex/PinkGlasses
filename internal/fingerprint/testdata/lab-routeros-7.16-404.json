@@ -1,0 +1,36 @@
+{
+  "source": "lab RouterOS CHR (deploy/fplab)",
+  "expect": [],
+  "response": {
+    "path": "/login",
+    "status": 404,
+    "headers": {
+      "Cache-Control": [
+        "no-store"
+      ],
+      "Connection": [
+        "Keep-Alive"
+      ],
+      "Content-Length": [
+        "99"
+      ],
+      "Content-Type": [
+        "text/html"
+      ],
+      "Date": [
+        "Fri, 30 Oct 2026 23:01:44 GMT"
+      ],
+      "Expires": [
+        "0"
+      ],
+      "Pragma": [
+        "no-cache"
+      ],
+      "X-Frame-Options": [
+        "sameorigin"
+      ]
+    },
+    "title": "Error 404 : Not Found",
+    "body": "<!doctype html>\n<html lang=en>\n<title>Error 404 : Not Found</title>\n<h1>Error 404 : Not Found</h1>\n"
+  }
+}

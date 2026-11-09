@@ -200,9 +200,29 @@ func (s *Server) Routes() http.Handler {
 				o.Patch("/wordlists/{wordlistID}", s.patchWordlist)
 				o.Put("/wordlists/{wordlistID}/content", s.putWordlistContent)
 				o.Delete("/wordlists/{wordlistID}", s.deleteWordlist)
+
+				// The fleet the scans run on. Operators start the scans, so
+				// they also bring up, approve and retire the workers those
+				// scans need. Enrolling hands out a credential for the
+				// gateway, and an approved worker leases every company's tasks
+				// in its pool — private companies included — which is why
+				// every change here is in the audit log.
+				o.Post("/workers/enrollment-tokens", s.createEnrollmentToken)
+				o.Post("/workers/{workerID}/{action}", s.workerAction)
+				// A local worker's container is removed too.
+				o.Delete("/workers/{workerID}", s.deleteWorker)
+				// Which pool runs discovery, so it can move off this host.
+				o.Patch("/pools/{poolID}", s.patchPool)
+				// A VPS reached over SSH, carrying a worker for a stack the
+				// internet cannot reach; installing one runs a script as root
+				// on it.
+				o.Get("/ssh-exits", s.listSSHExits)
+				o.Post("/ssh-exits", s.createSSHExit)
+				o.Post("/ssh-exits/{exitID}/install", s.installSSHExit)
+				o.Delete("/ssh-exits/{exitID}", s.deleteSSHExit)
 			})
 
-			// --- admin: everything that changes what the system can do ---
+			// --- admin: accounts, and the health of the install ---
 			r.Group(func(r chi.Router) {
 				r.Use(require(auth.RoleAdmin))
 				a := roled(r, "admin", s)
@@ -213,24 +233,6 @@ func (s *Server) Routes() http.Handler {
 				a.Post("/users", s.createUser)
 				a.Patch("/users/{userID}", s.patchUser)
 				a.Delete("/users/{userID}", s.deleteUser)
-
-				// Credentials for somebody else's network.
-
-				// Enrolling a worker hands out a credential; scaling them
-				// creates containers on the host.
-				a.Post("/workers/enrollment-tokens", s.createEnrollmentToken)
-				// Which pool runs discovery, so it can move off this host.
-				a.Patch("/pools/{poolID}", s.patchPool)
-				// Deleting a company takes its whole inventory and history with it.
-				a.Post("/workers/{workerID}/{action}", s.workerAction)
-				a.Delete("/workers/{workerID}", s.deleteWorker)
-				// A VPS reached over SSH, carrying a worker for a stack the
-				// internet cannot reach; installing one runs a script as root
-				// on it.
-				a.Get("/ssh-exits", s.listSSHExits)
-				a.Post("/ssh-exits", s.createSSHExit)
-				a.Post("/ssh-exits/{exitID}/install", s.installSSHExit)
-				a.Delete("/ssh-exits/{exitID}", s.deleteSSHExit)
 			})
 		})
 	})

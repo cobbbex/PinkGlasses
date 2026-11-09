@@ -3,6 +3,7 @@
 #
 #   docker compose -f deploy/fplab/docker-compose.yml --profile atlassian up -d
 #   docker compose -f deploy/fplab/docker-compose.yml --profile zammad up -d
+#   docker compose -f deploy/fplab/docker-compose.yml --profile mikrotik up -d
 #   go run ./tools/fpcheck -lab http://127.0.0.1:28090
 #
 # The web services also join the stack's network (pinkglasses_default), so a
@@ -131,6 +132,25 @@ services:
         ?><html><head><title>PHP lab</title></head><body>PHP lab</body></html>
         PHP
         exec apache2-foreground
+
+  # --- MikroTik RouterOS 6.49 and 7.16 (CHR in QEMU; needs /dev/kvm) ---
+  # Not published on the host: reach them on the stack's network, from a
+  # worker or `fpcheck -lab http://<container address>`. A router that never
+# answers on its address after a minute has missed the image's DHCP offer:
+# recreate it (`up -d --force-recreate`). The admin password is
+  # empty, so they stay off every network but these two.
+  routeros6:
+    image: evilfreelancer/docker-routeros:6.49.10
+    profiles: [mikrotik]
+    networks: [stack] # one network: the image hands its first interface to the VM
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun", "/dev/kvm"]
+  routeros7:
+    image: evilfreelancer/docker-routeros:7.16
+    profiles: [mikrotik]
+    networks: [stack] # one network: the image hands its first interface to the VM
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun", "/dev/kvm"]
 
 networks:
   stack:

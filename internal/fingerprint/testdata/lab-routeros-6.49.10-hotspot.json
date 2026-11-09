@@ -1,0 +1,26 @@
+{
+  "source": "lab RouterOS CHR (deploy/fplab)",
+  "expect": [
+    "MikroTik RouterOS"
+  ],
+  "response": {
+    "path": "/",
+    "status": 302,
+    "headers": {
+      "Cache-Control": [
+        "no-cache"
+      ],
+      "Content-Type": [
+        "text/html"
+      ],
+      "Expires": [
+        "0"
+      ],
+      "Location": [
+        "http://172.18.0.13/login"
+      ]
+    },
+    "title": "Error 302: Hotspot login required",
+    "body": "<html>\n<head><title>Error 302: Hotspot login required</title></head>\n<body>\n<h1>Error 302: Hotspot login required</h1>\n</body>\n</html>\n"
+  }
+}

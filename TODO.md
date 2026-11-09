@@ -1298,3 +1298,129 @@ attempts I killed.
       Verified by rerunning one of the six through the API: accepted, `cdn_ports=80,443`, no old
       key.
 
+
+## Phase 32 — Asked for between 2026-10-10 and 2026-10-29
+
+### Product fingerprints and PHP
+
+- [x] 32.1 **Name the edge products breaches start from.** `internal/fingerprint` names Citrix
+      NetScaler (with Gateway, AAA and SAML as features), Atlassian Confluence and Jira, Zammad,
+      Zimbra, Microsoft Exchange (with its release: 2013, 2016, 2019 or SE) and Kerio Connect
+      from one HTTP response, with a version where the site gives one away. At most six
+      follow-up paths per site, only for a product the front page already resembles; a
+      redirect is followed only while it stays on the same name. Runs in `tech_detect` behind
+      `product_fingerprint` (on by default). Verified in the lab: Jira 9.12.40, Confluence,
+      Zammad.
+- [x] 32.2 **`tools/fpcheck`: measure the rules without scanning anybody.** Reads banners
+      exported from Shodan, Censys (v2 and Platform) and FOFA and reports per export how many
+      were named, with what version, and the misses; `=none` marks a sample of unrelated
+      servers, where every name is a false positive. `-fixtures` writes regression cases;
+      `-lab` fetches a lab instance and refuses anything but loopback or private addresses.
+- [x] 32.3 **Fingerprint lab, `deploy/fplab`.** Confluence, Jira, Zammad and a PHP page on the
+      loopback (ports 28xxx) and on the stack's network; the README covers the VM-only products.
+- [x] 32.4 **PHP from what the responses already carry.** The `PHP/x.y.z` token after the
+      first product in `Server` (the product parse stopped at Apache), `PHPSESSID`,
+      `laravel_session` or a renamed `*_session` beside `XSRF-TOKEN`, `ci_session`, `symfony`
+      and `sf_redirect`.
+- [x] 32.5 **A PHP error printed into a page is a finding.** `php_error_disclosure`, low, with
+      the URL, message, path and line, when the error names an absolute `.php`/`.inc`/`.phtml`
+      path. Verified on the lab's PHP page.
+- [ ] 32.6 Run `fpcheck` over real Shodan, Censys and FOFA exports and tune the weights; only
+      Zammad, Jira, Confluence and PHP have met a real instance.
+- [ ] 32.7 Live-test Zimbra, Exchange, Kerio Connect and NetScaler on VMs (no container images).
+- [ ] 32.8 Finish Confluence's setup wizard in the lab, so its version is read and checked.
+- [ ] 32.9 Scan the lab through the app itself, so the results show in the UI under a
+      "Fingerprint lab" company (waits on an API token).
+- [ ] 32.10 Map NetScaler's `?v=` build hash to a version; today it is kept as evidence only.
+- [ ] 32.11 `.php` in redirects and front-page links as a PHP signal; an end-of-life PHP
+      finding (older than 8.2).
+- [ ] 32.12 **Keep full HTTP responses.** Today only status, title, one value per header,
+      cookie names, favicon and products are kept; the body is read and dropped. Store each
+      response (body capped near 1 MB, cookie and auth values blanked) in MinIO, show it as a
+      *Raw response* on the host page, and re-run new rules over what is stored without sending
+      a request.
+- [ ] 32.13 Shodan, Censys and FOFA records for in-scope addresses as a passive source: products
+      and ports seen without a packet to the target.
+- [!] 32.14 Scanning a whole country's address space for these products: declined. Nobody there
+      authorized it, the products are the most exploited edge software there is, and the tool's
+      own rule is authorized scopes only. Search-engine data (32.2, 32.13) gives the same
+      picture without scanning.
+
+### CI
+
+- [x] 32.15 **The end-to-end job had never passed on GitHub.** It died in its first second
+      pulling `minio/minio`: MinIO stopped publishing images (Docker Hub, quay.io and ghcr.io
+      all refuse), and machines that ran the stack before were using a cached copy — a fresh
+      install failed the same way. MinIO now comes from `cgr.dev/chainguard/minio` (MinIO's
+      source, rebuilt daily), run as root because existing volumes are root's. The step meant
+      to show a failed run's logs could not start either (no `E2E_ADMIN_PASSWORD`); fixed.
+      Verified on a copy of the real volume (123 objects) and by CI going green.
+
+### Remote workers for an install at home
+
+- [x] 32.16 **SSH exits.** For an install the internet cannot reach: the `connector` service
+      holds an SSH session to the VPS and asks it to listen on its own loopback, carrying those
+      connections back to the gateway and MinIO. Workers → SSH exits: a generated key, the host
+      key pinned on first contact, *Install worker* over the same session with a single-use,
+      pre-approved token, *Remove* takes the worker off the VPS. Scans leave from the VPS; only
+      tasks, results, wordlists and uploads cross the session. `deploy/e2e/ssh-exit.sh` proves
+      it with a "VPS" that has no route to the gateway and a target only it can reach.
+- [x] 32.17 **Results went to an address the worker could not reach.** The gateway told every
+      worker to post results and fetch wordlists at `ASM_PUBLIC_GATEWAY_URL`; a worker that
+      reached it any other way (a tunnel, a mesh VPN, a relay) scanned and delivered nothing.
+      Built from the address the worker itself connected to.
+- [x] 32.18 A tunnelled worker's egress address was overwritten with the tunnel's private end on
+      every connect; a remote worker's private source address is no longer recorded.
+- [x] 32.19 The VPS installer pulled `ghcr.io/benlik386/pinkglasses-worker`, which does not
+      exist; images are published under `cobbbex`.
+- [x] 32.20 **Mesh VPN as the no-code alternative**, written up with the SSH exit in
+      `wiki/Remote-Workers-From-Home.md`, including what crosses the tunnel and that the
+      `remote` pool's *Runs discovery* moves DNS brute force and the other passive stages to
+      the VPS too.
+- [ ] 32.21 Screenshot uploads through an SSH exit: wired (the store's port is forwarded and
+      `minio` points at it), not yet seen working live.
+- [ ] 32.22 Screenshots from an ordinary VPS worker fail: the presigned URL names `minio:9000`,
+      which a VPS cannot reach. Upload through the gateway, as wordlists already come from it.
+
+### Security
+
+- [x] 32.23 **The gateway believed `X-Forwarded-For` from anybody.** A worker on the internet
+      with the local bootstrap token could claim `10.0.0.1`, pass for a container on this host
+      and be approved with nobody looking. The header now counts only from a proxy in
+      `ASM_TRUSTED_PROXIES` (the compose file trusts `caddy`, resolved by name), and the last
+      address is taken — the one the proxy appended.
+
+### Device fingerprints
+
+- [x] 32.24 **MikroTik RouterOS**, named two ways. From the web: WebFig's login page
+      (6.x prints its version there), `/webfig/roteros.info` (the version on every release,
+      no login), the web proxy and the Hotspot redirect. From the port scan, a new device step
+      (`internal/fingerprint/device.go`): nmap's names for FTP (with the version), SSH, API,
+      WinBox, bandwidth-test, HotSpot and the proxy, judged over all of a host's ports at once;
+      Winbox/API port numbers alone only confirm. Each port gets the router and its role as
+      technologies (`MikroTik RouterOS Winbox`). Verified on RouterOS 6.49.10 and 7.16 CHR in
+      the lab (`--profile mikrotik`); their responses are fixtures.
+- [ ] 32.25 fpcheck reads only HTTP banners from exports, so MikroTik's FTP, SSH and Winbox
+      banners in a Shodan export are skipped; run the device rules over those too.
+- [ ] 32.26 Not yet checked: the Hotspot login page itself, and the web proxy, on a router
+      with a second interface (the lab's Hotspot intercepted its own management traffic).
+- [x] 32.27 `wiki/Web-Application-Fingerprints.md` kept out of the repository (`.gitignore`),
+      at the owner's request; its doc tests skip where the file is absent.
+
+### Roles
+
+- [x] 32.28 **Operators manage the fleet.** Enrolling VPS workers, approving, draining,
+      resuming, quarantining, revoking and removing workers, choosing which pool runs
+      discovery, and SSH exits moved from admin to operator; the Workers page shows those
+      controls to operators and hides them from viewers. VPN configurations and SSH exits
+      stay per-account (an operator manages their own, an admin anyone's); workers and pools
+      are install-wide. Admin keeps accounts, everyone's tokens, system health and deleting a
+      company. Kept out of MCP: these hand out credentials or run scripts as root on a VPS.
+      `TestFleetIsOperatorsAccountsAreAdmins` pins the boundary.
+- [ ] 32.29 Workers have no owner: any operator can approve or remove any worker, the
+      standing local ones included. If operators should only manage their own, record who
+      enrolled each worker and scope the actions the way SSH exits are.
+- [x] 32.30 **A paused run can be deleted.** Delete was offered only once a run had ended, so a
+      run that went nowhere and sat paused (the load-1 run the target's IPS blocked) had no
+      way out but Stop first. Deleting a paused run now stops it and deletes it in one step;
+      a running one still has to be stopped or paused.

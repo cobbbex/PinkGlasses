@@ -1,7 +1,8 @@
 # Fingerprint lab
 
 `internal/fingerprint` names Citrix NetScaler, Atlassian Confluence and Jira,
-Zammad, Zimbra, Microsoft Exchange and Kerio Connect. There are two ways to
+Zammad, Zimbra, Microsoft Exchange, Kerio Connect and MikroTik RouterOS
+(`device.go` names MikroTik from nmap's results too). There are two ways to
 check it, and neither sends anything to anyone else's server.
 
 ## 1. Offline, against what search engines already recorded

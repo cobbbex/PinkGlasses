@@ -33,3 +33,6 @@ credential
 /openapi
 /backups/
 /SCALING-NOTES.md
+
+# Internal fingerprint reference: kept locally, never published
+/wiki/Web-Application-Fingerprints.md

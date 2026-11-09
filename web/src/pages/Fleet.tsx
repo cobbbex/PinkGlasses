@@ -16,6 +16,8 @@ export default function Fleet({ me }: { me: User }) {
     queryKey: ["workers"], queryFn: () => api.workers(), refetchInterval: 5000,
   });
   const [vpsOpen, setVpsOpen] = useState(false);
+  // Operators bring up, approve and retire workers; a viewer sees the fleet.
+  const manage = atLeast(me.role, "operator");
 
   const local = (workers ?? []).filter((w) => w.kind === "local");
   const remote = (workers ?? []).filter((w) => w.kind !== "local");
@@ -66,18 +68,20 @@ export default function Fleet({ me }: { me: User }) {
         <Stat n={(workers ?? []).reduce((a, w) => a + w.running_tasks, 0)} label="Running tasks" />
       </div>
 
-      <div className="row">
-        <button onClick={() => setVpsOpen(true)}>+ Add VPS worker</button>
-      </div>
+      {manage && (
+        <div className="row">
+          <button onClick={() => setVpsOpen(true)}>+ Add VPS worker</button>
+        </div>
+      )}
 
       <VPSModal open={vpsOpen} onClose={() => setVpsOpen(false)} />
 
-      {atLeast(me.role, "admin") && <SSHExits />}
+      {manage && <SSHExits />}
 
       <RunFleets />
 
-      <WorkerTable title="Local workers" workers={local} act={act} onDelete={setPendingDelete} />
-      <WorkerTable title="External (VPS) workers" workers={remote} act={act} onDelete={setPendingDelete} />
+      <WorkerTable title="Local workers" workers={local} manage={manage} act={act} onDelete={setPendingDelete} />
+      <WorkerTable title="External (VPS) workers" workers={remote} manage={manage} act={act} onDelete={setPendingDelete} />
       <Pools me={me} />
 
       <Modal
@@ -436,9 +440,10 @@ function ActionsHelp() {
 }
 
 function WorkerTable({
-  title, workers, act, onDelete,
+  title, workers, manage, act, onDelete,
 }: {
   title: string; workers: Worker[];
+  manage: boolean; // operators and up change workers; a viewer only reads
   act: (w: Worker, a: string) => void;
   onDelete: (w: Worker) => void;
 }) {
@@ -456,7 +461,7 @@ function WorkerTable({
                 <th>Status<StatusHelp /></th>
                 <th>Egress IP</th><th>Capabilities</th>
                 <th>Tools</th><th>Load</th>
-                <th>Actions<ActionsHelp /></th>
+                {manage && <th>Actions<ActionsHelp /></th>}
               </tr>
             </thead>
             <tbody>
@@ -480,7 +485,7 @@ function WorkerTable({
                     {Object.keys(w.tools ?? {}).slice(0, 4).join(", ") || "—"}
                   </td>
                   <td className="muted">{w.running_tasks}/{w.max_concurrency}</td>
-                  <td>
+                  {manage && <td>
                     {w.status === "pending" && <button className="sm" onClick={() => act(w, "approve")}>approve</button>}
                     {w.status === "active" && <button className="ghost sm" onClick={() => act(w, "drain")}>drain</button>}
                     {(w.status === "draining" || w.status === "stale") &&
@@ -490,7 +495,7 @@ function WorkerTable({
                     <button className="danger sm" style={{ marginLeft: 6 }}
                       title="Remove this worker from the fleet"
                       onClick={() => onDelete(w)}>remove</button>
-                  </td>
+                  </td>}
                 </tr>
               ))}
             </tbody>
@@ -575,7 +580,7 @@ function RunFleets() {
 function Pools({ me }: { me: User }) {
   const toast = useToast();
   const { data: pools, refetch } = useQuery({ queryKey: ["pools"], queryFn: () => api.pools(), refetchInterval: 15000 });
-  const admin = atLeast(me.role, "admin");
+  const manage = atLeast(me.role, "operator");
   async function toggle(id: string, v: boolean) {
     try { await api.setPoolDiscovery(id, v); refetch(); }
     catch (e) { toast("err", String(e).replace(/^Error:\s*/, "")); }
@@ -594,11 +599,11 @@ function Pools({ me }: { me: User }) {
                 <td className="muted">{p.description ?? "—"}</td>
                 <td className={p.active_workers ? "" : "muted"}>{p.active_workers}</td>
                 <td>
-                  <label className="param-toggle" style={{ cursor: admin ? "pointer" : "default" }}
-                    title={admin
+                  <label className="param-toggle" style={{ cursor: manage ? "pointer" : "default" }}
+                    title={manage
                       ? "Discovery never touches a target; this decides which machines carry it"
-                      : "Only an administrator changes this"}>
-                    <input type="checkbox" checked={!!p.takes_discovery} disabled={!admin}
+                      : "Changing this needs the operator role"}>
+                    <input type="checkbox" checked={!!p.takes_discovery} disabled={!manage}
                       onChange={(e) => toggle(p.id, e.target.checked)} />
                     <span className="muted">{p.takes_discovery ? "yes" : "no"}</span>
                   </label>

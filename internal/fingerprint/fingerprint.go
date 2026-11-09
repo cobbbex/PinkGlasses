@@ -1,6 +1,8 @@
 // Package fingerprint names the edge products an attack surface is most often
 // breached through — Citrix NetScaler, Atlassian Confluence and Jira, Zammad,
-// Zimbra, Microsoft Exchange, Kerio Connect — from one HTTP response.
+// Zimbra, Microsoft Exchange, Kerio Connect, MikroTik RouterOS — from one
+// HTTP response, and network devices (MikroTik) from a host's open ports
+// together (device.go).
 //
 // Detection is a pure function of a response, so the same rules run inside
 // the worker's web stage, over banners exported from Shodan, Censys or FOFA

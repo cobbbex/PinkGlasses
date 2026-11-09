@@ -144,8 +144,9 @@ function RunControls({ run, onChange }: { run: Run; onChange: () => void }) {
         <button className="ghost sm" disabled={busy} title="Start a new run with the same profile, settings, wordlists and exit"
           onClick={act("Rerun", () => api.rerunRun(run.id), "Scan started again with the same settings")}>Rerun</button>
       )}
-      {!live && (
-        <button className="ghost sm" disabled={busy} title="Delete this run and everything it recorded"
+      {(!live || run.status === "paused") && (
+        <button className="ghost sm" disabled={busy}
+          title={run.status === "paused" ? "Stop this paused run and delete it with everything it recorded" : "Delete this run and everything it recorded"}
           onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}>Delete</button>
       )}
       {confirmDelete && (
@@ -162,7 +163,7 @@ function RunControls({ run, onChange }: { run: Run; onChange: () => void }) {
           >
             <p style={{ marginTop: 0 }}>
               The run from <strong>{new Date(run.created_at).toLocaleString()}</strong> ({run.profile}, {run.status})
-              is removed together with everything it recorded:
+              {run.status === "paused" ? "is stopped and removed" : "is removed"} together with everything it recorded:
             </p>
             <DeleteFootprint runID={run.id} />
             <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>

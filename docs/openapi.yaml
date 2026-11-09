@@ -466,7 +466,7 @@ paths:
   /api/v1/runs/{runID}:
     delete:
       operationId: deleteRunsByRunID
-      summary: "delete a finished run: tasks, targets, observations, fleet record and change events go with it, and its screenshots and raw output are removed from object storage — history that came from the run disappears. 409 while the run is going (stop it first) or its fleet is still being removed; answers…"
+      summary: "delete a finished, failed, stopped or paused run (a paused one is stopped first; a running one answers 409): tasks, targets, observations, fleet record and change events go with it, and its screenshots and raw output are removed from object storage — history that came from the run disappears. 4…"
       x-required-role: operator
       parameters:
         - {name: runID, in: path, required: true, schema: {type: string}}
@@ -1464,6 +1464,148 @@ paths:
         "403": {$ref: "#/components/responses/e403"}
         "404": {$ref: "#/components/responses/e404"}
         "409": {$ref: "#/components/responses/e409"}
+  /api/v1/workers/enrollment-tokens:
+    post:
+      operationId: postWorkersEnrollmentTokens
+      summary: "{kind: vps, name, pool_id, ttl_mins, max_uses} → {token, install_command, expires_in}. kind: local is refused: the standing worker enrols itself and a run's fleet is built by the scheduler"
+      x-required-role: operator
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/workers/{workerID}/{action}:
+    post:
+      operationId: postWorkersByWorkerIDByAction
+      summary: "approve, drain, resume, quarantine, revoke; any worker, not only ones you enrolled"
+      x-required-role: operator
+      parameters:
+        - {name: workerID, in: path, required: true, schema: {type: string}}
+        - {name: action, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/workers/{workerID}:
+    delete:
+      operationId: deleteWorkersByWorkerID
+      summary: "a local worker's container is removed first"
+      x-required-role: operator
+      parameters:
+        - {name: workerID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/pools/{poolID}:
+    patch:
+      operationId: patchPoolsByPoolID
+      summary: "{takes_discovery} — whether this pool runs the stages that never touch a target (passive discovery, DNS), moving that work off the control-plane host. A run's own pool cannot be changed"
+      x-required-role: operator
+      parameters:
+        - {name: poolID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/ssh-exits:
+    get:
+      operationId: getSshExits
+      summary: "{exits, secrets_ready, secrets_reason}: host, user, the public key to authorize, pinned host key, session status and last error, install status and log — never the private key"
+      x-required-role: operator
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+    post:
+      operationId: postSshExits
+      summary: "{name, host, port, username, private_key?, remote_port, pool_id?, worker_name?}; with no private_key an Ed25519 key is generated and its public_key returned for the VPS's authorized_keys; a key with a passphrase is refused; the pool defaults to remote; 409 on a duplicate name"
+      x-required-role: operator
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/ssh-exits/{exitID}/install:
+    post:
+      operationId: postSshExitsByExitIDInstall
+      summary: "202; the connector mints a single-use, pre-approved enrolment token, runs the install over the session and records install_status (pending, running, done, failed) and its output; 409 while one is running"
+      x-required-role: operator
+      parameters:
+        - {name: exitID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "201": {description: created}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
+  /api/v1/ssh-exits/{exitID}:
+    delete:
+      operationId: deleteSshExitsByExitID
+      summary: "202; the connector removes the worker from the VPS if it can reach it, closes the session, then deletes the exit"
+      x-required-role: operator
+      parameters:
+        - {name: exitID, in: path, required: true, schema: {type: string}}
+      security:
+        - session: []
+        - token: []
+        - proxy: []
+      responses:
+        "200": {description: ok}
+        "400": {$ref: "#/components/responses/e400"}
+        "401": {$ref: "#/components/responses/e401"}
+        "403": {$ref: "#/components/responses/e403"}
+        "404": {$ref: "#/components/responses/e404"}
+        "409": {$ref: "#/components/responses/e409"}
   /api/v1/users:
     get:
       operationId: getUsers
@@ -1535,148 +1677,6 @@ paths:
       x-required-role: admin
       parameters:
         - {name: userID, in: path, required: true, schema: {type: string}}
-      security:
-        - session: []
-        - token: []
-        - proxy: []
-      responses:
-        "200": {description: ok}
-        "400": {$ref: "#/components/responses/e400"}
-        "401": {$ref: "#/components/responses/e401"}
-        "403": {$ref: "#/components/responses/e403"}
-        "404": {$ref: "#/components/responses/e404"}
-        "409": {$ref: "#/components/responses/e409"}
-  /api/v1/workers/enrollment-tokens:
-    post:
-      operationId: postWorkersEnrollmentTokens
-      summary: "{kind: vps, name, pool_id, ttl_mins, max_uses} → {token, install_command, expires_in}. kind: local is refused: the standing worker enrols itself and a run's fleet is built by the scheduler"
-      x-required-role: admin
-      security:
-        - session: []
-        - token: []
-        - proxy: []
-      responses:
-        "200": {description: ok}
-        "201": {description: created}
-        "400": {$ref: "#/components/responses/e400"}
-        "401": {$ref: "#/components/responses/e401"}
-        "403": {$ref: "#/components/responses/e403"}
-        "404": {$ref: "#/components/responses/e404"}
-        "409": {$ref: "#/components/responses/e409"}
-  /api/v1/pools/{poolID}:
-    patch:
-      operationId: patchPoolsByPoolID
-      summary: "{takes_discovery} — whether this pool runs the stages that never touch a target (passive discovery, DNS), moving that work off the control-plane host. A run's own pool cannot be changed"
-      x-required-role: admin
-      parameters:
-        - {name: poolID, in: path, required: true, schema: {type: string}}
-      security:
-        - session: []
-        - token: []
-        - proxy: []
-      responses:
-        "200": {description: ok}
-        "400": {$ref: "#/components/responses/e400"}
-        "401": {$ref: "#/components/responses/e401"}
-        "403": {$ref: "#/components/responses/e403"}
-        "404": {$ref: "#/components/responses/e404"}
-        "409": {$ref: "#/components/responses/e409"}
-  /api/v1/workers/{workerID}/{action}:
-    post:
-      operationId: postWorkersByWorkerIDByAction
-      summary: "approve, drain, resume, quarantine"
-      x-required-role: admin
-      parameters:
-        - {name: workerID, in: path, required: true, schema: {type: string}}
-        - {name: action, in: path, required: true, schema: {type: string}}
-      security:
-        - session: []
-        - token: []
-        - proxy: []
-      responses:
-        "200": {description: ok}
-        "201": {description: created}
-        "400": {$ref: "#/components/responses/e400"}
-        "401": {$ref: "#/components/responses/e401"}
-        "403": {$ref: "#/components/responses/e403"}
-        "404": {$ref: "#/components/responses/e404"}
-        "409": {$ref: "#/components/responses/e409"}
-  /api/v1/workers/{workerID}:
-    delete:
-      operationId: deleteWorkersByWorkerID
-      summary: "a local worker's container is removed first"
-      x-required-role: admin
-      parameters:
-        - {name: workerID, in: path, required: true, schema: {type: string}}
-      security:
-        - session: []
-        - token: []
-        - proxy: []
-      responses:
-        "200": {description: ok}
-        "400": {$ref: "#/components/responses/e400"}
-        "401": {$ref: "#/components/responses/e401"}
-        "403": {$ref: "#/components/responses/e403"}
-        "404": {$ref: "#/components/responses/e404"}
-        "409": {$ref: "#/components/responses/e409"}
-  /api/v1/ssh-exits:
-    get:
-      operationId: getSshExits
-      summary: "{exits, secrets_ready, secrets_reason}: host, user, the public key to authorize, pinned host key, session status and last error, install status and log — never the private key"
-      x-required-role: admin
-      security:
-        - session: []
-        - token: []
-        - proxy: []
-      responses:
-        "200": {description: ok}
-        "400": {$ref: "#/components/responses/e400"}
-        "401": {$ref: "#/components/responses/e401"}
-        "403": {$ref: "#/components/responses/e403"}
-        "404": {$ref: "#/components/responses/e404"}
-        "409": {$ref: "#/components/responses/e409"}
-    post:
-      operationId: postSshExits
-      summary: "{name, host, port, username, private_key?, remote_port, pool_id?, worker_name?}; with no private_key an Ed25519 key is generated and its public_key returned for the VPS's authorized_keys; a key with a passphrase is refused; the pool defaults to remote; 409 on a duplicate name"
-      x-required-role: admin
-      security:
-        - session: []
-        - token: []
-        - proxy: []
-      responses:
-        "200": {description: ok}
-        "201": {description: created}
-        "400": {$ref: "#/components/responses/e400"}
-        "401": {$ref: "#/components/responses/e401"}
-        "403": {$ref: "#/components/responses/e403"}
-        "404": {$ref: "#/components/responses/e404"}
-        "409": {$ref: "#/components/responses/e409"}
-  /api/v1/ssh-exits/{exitID}/install:
-    post:
-      operationId: postSshExitsByExitIDInstall
-      summary: "202; the connector mints a single-use, pre-approved enrolment token, runs the install over the session and records install_status (pending, running, done, failed) and its output; 409 while one is running"
-      x-required-role: admin
-      parameters:
-        - {name: exitID, in: path, required: true, schema: {type: string}}
-      security:
-        - session: []
-        - token: []
-        - proxy: []
-      responses:
-        "200": {description: ok}
-        "201": {description: created}
-        "400": {$ref: "#/components/responses/e400"}
-        "401": {$ref: "#/components/responses/e401"}
-        "403": {$ref: "#/components/responses/e403"}
-        "404": {$ref: "#/components/responses/e404"}
-        "409": {$ref: "#/components/responses/e409"}
-  /api/v1/ssh-exits/{exitID}:
-    delete:
-      operationId: deleteSshExitsByExitID
-      summary: "202; the connector removes the worker from the VPS if it can reach it, closes the session, then deletes the exit"
-      x-required-role: admin
-      parameters:
-        - {name: exitID, in: path, required: true, schema: {type: string}}
       security:
         - session: []
         - token: []
