@@ -316,12 +316,22 @@ func (s *Server) deleteRun(w http.ResponseWriter, r *http.Request) {
 	}
 	switch run.Status {
 	case domain.RunCompleted, domain.RunFailed, domain.RunCancelled:
+	case domain.RunPaused:
+		// A paused run is doing nothing, and one that went nowhere (blocked by
+		// the target, an exit that never answered) is often paused rather than
+		// failed. Deleting it stops it first, as Stop would.
+		if err := s.st.CancelRunTasks(r.Context(), id); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		_ = s.st.SetRunStatus(r.Context(), id, domain.RunCancelled)
+		s.auditReq(r, "run.cancel", id.String(), map[string]any{"for": "delete"})
 	default:
-		writeErr(w, http.StatusConflict, "the run is still "+string(run.Status)+"; stop it before deleting it")
+		writeErr(w, http.StatusConflict, "the run is still "+string(run.Status)+"; stop or pause it before deleting it")
 		return
 	}
 	if f, ok, _ := s.st.GetRunFleet(r.Context(), id); ok && (f.Status == "requested" || f.Status == "up") {
-		writeErr(w, http.StatusConflict, "the run's own workers are still being removed; try again in a moment")
+		writeErr(w, http.StatusConflict, "the run is stopped, but its own workers are still being removed; delete it again in a moment")
 		return
 	}
 	keys, err := s.st.RunArtifactKeys(r.Context(), id)
