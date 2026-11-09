@@ -36,3 +36,6 @@ credential
 
 # Internal fingerprint reference: kept locally, never published
 /wiki/Web-Application-Fingerprints.md
+
+# Private task list: kept locally, never published
+/TODO.md
