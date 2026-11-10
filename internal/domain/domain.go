@@ -44,6 +44,7 @@ const (
 	TargetIncomplete TargetStatus = "incomplete"
 	TargetFailed     TargetStatus = "failed"
 	TargetSkipped    TargetStatus = "skipped"
+	TargetCancelled  TargetStatus = "cancelled" // the run was stopped before it finished
 )
 
 // TaskStatus is the lease lifecycle of a single task.

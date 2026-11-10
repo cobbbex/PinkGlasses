@@ -67,7 +67,23 @@ func (s *Store) SetRunStatus(ctx context.Context, id uuid.UUID, status domain.Ru
 	case domain.RunCompleted, domain.RunFailed, domain.RunCancelled:
 		ts = ", finished_at=now()"
 	}
-	_, err := s.Pool.Exec(ctx, `UPDATE scan_run SET status=$2`+ts+` WHERE id=$1`, id, status)
+	if _, err := s.Pool.Exec(ctx, `UPDATE scan_run SET status=$2`+ts+` WHERE id=$1`, id, status); err != nil {
+		return err
+	}
+	// A run that ended without finishing leaves its unfinished targets in
+	// that state too. They were left "running", so a stopped run's page went
+	// on saying its brute force was running long after it had been stopped.
+	var target domain.TargetStatus
+	switch status {
+	case domain.RunCancelled:
+		target = domain.TargetCancelled
+	case domain.RunFailed:
+		target = domain.TargetFailed
+	default:
+		return nil
+	}
+	_, err := s.Pool.Exec(ctx, `UPDATE run_target SET status=$2
+		WHERE run_id=$1 AND status IN ('pending','running')`, id, target)
 	return err
 }
 

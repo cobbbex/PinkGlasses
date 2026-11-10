@@ -358,3 +358,73 @@ func TestUninstallRemovesTheExitsKey(t *testing.T) {
 		}
 	}
 }
+
+// A late answer does not end the session; only `misses` intervals in a row
+// with no answer do, and a failed ping ends it at once.
+func TestKeepAliveToleratesLateReplies(t *testing.T) {
+	run := func(ping func() error, wait time.Duration) bool {
+		closed := make(chan struct{}, 1)
+		ctx, cancel := context.WithTimeout(context.Background(), wait)
+		defer cancel()
+		go keepAlive(ctx, ping, func() error { closed <- struct{}{}; return nil }, 20*time.Millisecond, 3)
+		select {
+		case <-closed:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	slow := func() error { time.Sleep(30 * time.Millisecond); return nil } // late by half an interval
+	if run(slow, 400*time.Millisecond) {
+		t.Error("closed a session whose pings were only late")
+	}
+	dead := func() error { time.Sleep(time.Hour); return nil }
+	if !run(dead, 400*time.Millisecond) {
+		t.Error("kept a session whose pings never came back")
+	}
+	gone := func() error { return io.EOF }
+	if !run(gone, 100*time.Millisecond) {
+		t.Error("kept a session whose ping failed")
+	}
+}
+
+// A VPS that accepts the connection and never speaks SSH is given up on,
+// not waited for.
+func TestDialGivesUpOnASilentServer(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close() // accept, then say nothing
+		}
+	}()
+	key, _, err := GenerateKey("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := handshakeTimeout
+	handshakeTimeout = 300 * time.Millisecond
+	defer func() { handshakeTimeout = old }()
+	host, port, _ := net.SplitHostPort(ln.Addr().String())
+	p, _ := strconv.Atoi(port)
+	done := make(chan error, 1)
+	go func() {
+		_, err := Dial(context.Background(), Endpoint{Host: host, Port: p, User: "root", PrivateKey: key, HostKey: "SHA256:x"}, nil)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "did not answer") {
+			t.Errorf("err %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Dial waited past the handshake deadline")
+	}
+}

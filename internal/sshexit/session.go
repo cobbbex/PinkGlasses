@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -59,11 +60,20 @@ func Dial(ctx context.Context, ep Endpoint, pin func(fingerprint string) error) 
 	if err != nil {
 		return nil, err
 	}
+	// The handshake gets a deadline of its own. cfg.Timeout covers only a
+	// dial the library makes itself, and this one is ours: a VPS that took
+	// the connection but whose sshd never answered — busy, mid-boot — held
+	// the exit in "connecting" for good, with no error and no retry.
+	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
 	c, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
 	if err != nil {
 		conn.Close()
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			return nil, fmt.Errorf("the VPS took the connection but its SSH server did not answer within %s", handshakeTimeout)
+		}
 		return nil, err
 	}
+	_ = conn.SetDeadline(time.Time{})
 	return ssh.NewClient(c, chans, reqs), nil
 }
 
@@ -118,30 +128,56 @@ func splice(remote net.Conn, local string) {
 // ping goes unanswered, which is what ends a session to a VPS that vanished
 // without a FIN. It returns when the client closes or ctx ends.
 func KeepAlive(ctx context.Context, client *ssh.Client, interval time.Duration) {
+	keepAlive(ctx, func() error {
+		_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+		return err
+	}, client.Close, interval, keepAliveMisses)
+}
+
+// keepAliveMisses is how many keepalives in a row may go unanswered before
+// the session is given up, as OpenSSH's ServerAliveCountMax. It was one: a
+// VPS busy brute-forcing answers a keepalive late now and then, and each late
+// answer closed the tunnel, the worker's channel with it, and its tasks'
+// leases after that.
+const keepAliveMisses = 3
+
+// handshakeTimeout bounds the SSH handshake after the TCP connection is up.
+// A variable so the test need not wait it out.
+var handshakeTimeout = 30 * time.Second
+
+// keepAlive pings every interval and closes the session after `misses`
+// pings in a row that got no answer within the interval; a late answer
+// still counts as an answer. A ping that fails outright (the connection is
+// gone) closes it at once.
+func keepAlive(ctx context.Context, ping func() error, closeFn func() error, interval time.Duration, misses int) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	replies := make(chan error, 1)
+	waiting := false // a ping is out and has not come back
+	missed := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
-			done := make(chan error, 1)
-			go func() {
-				_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-				done <- err
-			}()
-			select {
-			case err := <-done:
-				if err != nil {
-					client.Close()
-					return
-				}
-			case <-time.After(interval):
-				client.Close()
-				return
-			case <-ctx.Done():
+		case err := <-replies:
+			waiting = false
+			if err != nil {
+				_ = closeFn()
 				return
 			}
+			missed = 0
+		case <-t.C:
+			if waiting {
+				// The last ping is still out: one more interval without an answer.
+				missed++
+				if missed >= misses {
+					_ = closeFn()
+					return
+				}
+				continue
+			}
+			waiting = true
+			go func() { replies <- ping() }()
 		}
 	}
 }

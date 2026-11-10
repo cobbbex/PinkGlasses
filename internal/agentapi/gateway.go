@@ -243,9 +243,13 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 	// without this the dispatch loop would keep running against a corpse and
 	// unregister would never fire.
 	gone := make(chan struct{})
+	// Tasks the worker should stop, found by the reader. The loop below is
+	// this connection's only writer, so the reader hands them over rather
+	// than writing itself.
+	cancels := make(chan string, 64)
 	go func() {
 		defer close(gone)
-		g.readLoop(workerID, conn)
+		g.readLoop(workerID, conn, cancels)
 	}()
 
 	// dispatch loop: lease tasks and push them while the worker is active.
@@ -258,6 +262,11 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ctx.Done():
 			return
+		case id := <-cancels:
+			env := scanproto.Envelope{Type: "cancel", Cancel: &scanproto.CancelMessage{TaskID: id}}
+			if err := conn.WriteJSON(env); err != nil {
+				return
+			}
 		case <-ticker.C:
 			cur, state := g.reloadWorker(ctx, workerID)
 			if state == workerMissing {
@@ -542,7 +551,7 @@ func (g *Gateway) paramsForRun(ctx context.Context, runID string) map[string]str
 // and its connection is never released.
 const controlIdleTimeout = 45 * time.Second
 
-func (g *Gateway) readLoop(workerID uuid.UUID, conn *websocket.Conn) {
+func (g *Gateway) readLoop(workerID uuid.UUID, conn *websocket.Conn, cancels chan<- string) {
 	_ = conn.SetReadDeadline(time.Now().Add(controlIdleTimeout))
 	opened := time.Now()
 	lastRunning := 0
@@ -629,8 +638,20 @@ func (g *Gateway) readLoop(workerID uuid.UUID, conn *websocket.Conn) {
 					continue
 				}
 			}
+			b, _ := g.st.TaskBrief(ctx, id)
+			// Stopped, failed, or taken by another worker: whatever this one
+			// is still doing will be refused, and its tools are load on the
+			// machine for nothing — a stopped run's brute force went on for
+			// hours. Tell it to stop. Done is a heartbeat that crossed the
+			// result; pending is a re-queue an older worker could not re-adopt,
+			// and is left to finish as before.
+			if b.Status != "done" && b.Status != "pending" {
+				select {
+				case cancels <- id.String():
+				default: // the writer is behind; the next heartbeat asks again
+				}
+			}
 			if g.noteLostLease(workerID, id) {
-				b, _ := g.st.TaskBrief(ctx, id)
 				if b.Status == "done" {
 					continue // it just finished; the heartbeat was in flight
 				}

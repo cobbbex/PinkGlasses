@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -54,6 +55,10 @@ type Agent struct {
 
 	mu      sync.Mutex
 	running map[string]string // task id -> lease token
+	// stop ends one running task: the control plane says "cancel" when the
+	// run was stopped or the task is no longer this worker's.
+	stop         map[string]context.CancelFunc
+	cancelledIDs map[string]bool
 
 	// spool holds result batches the gateway could not be reached for, replayed
 	// when the control channel comes back and on a timer meanwhile.
@@ -118,8 +123,10 @@ func NewAgent(cfg AgentConfig) *Agent {
 		caps:           caps,
 		scanner:        &Scanner{Detected: caps, ProviderConfig: pcPath},
 		// Upload set below once the Agent exists (needs a.cfg/a.cred).
-		client:  &http.Client{Timeout: 30 * time.Second},
-		running: map[string]string{},
+		client:       &http.Client{Timeout: 30 * time.Second},
+		running:      map[string]string{},
+		stop:         map[string]context.CancelFunc{},
+		cancelledIDs: map[string]bool{},
 	}
 	a.scanner.Upload = a.uploadArtifact
 	a.scanner.Authorize = func(req *http.Request) {
@@ -407,8 +414,11 @@ func (a *Agent) connect(ctx context.Context, onConnected func(context.Context)) 
 		if err := conn.ReadJSON(&env); err != nil {
 			return err
 		}
-		if env.Type == "job" && env.Job != nil {
+		switch {
+		case env.Type == "job" && env.Job != nil:
 			go a.execJob(ctx, *env.Job)
+		case env.Type == "cancel" && env.Cancel != nil:
+			a.cancelTask(env.Cancel.TaskID)
 		}
 	}
 }
@@ -451,6 +461,16 @@ func (a *Agent) heartbeat(ctx context.Context, conn *websocket.Conn) {
 }
 
 func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+	a.mu.Lock()
+	a.stop[job.TaskID] = stop
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		delete(a.stop, job.TaskID)
+		a.mu.Unlock()
+	}()
 	a.mark(job.TaskID, job.LeaseToken, true)
 	defer a.mark(job.TaskID, "", false)
 
@@ -468,6 +488,14 @@ func (a *Agent) execJob(ctx context.Context, job scanproto.Job) {
 	// target. The worker used to raise tunnels itself; that path is gone
 	// (wiki/Architecture.md §7.6).
 	obs, err := a.scanner.Run(ctx, job)
+	if errors.Is(ctx.Err(), context.Canceled) && a.cancelled(job.TaskID) {
+		// The control plane said stop: the run was stopped or the task is no
+		// longer ours, so whatever came back would be refused. Nothing to post.
+		slog.Info("task cancelled by the control plane; its tools were stopped",
+			"stage", job.Stage, "target", target, "task", job.TaskID,
+			"took", time.Since(started).Round(time.Millisecond).String())
+		return
+	}
 	status := "ok"
 	var errs []string
 	perm := false
@@ -600,6 +628,31 @@ func (a *Agent) flushSpool(ctx context.Context) {
 			a.spool.replay(ctx, a.post)
 		}
 	}
+}
+
+// cancelTask stops one running task, if this worker is running it.
+func (a *Agent) cancelTask(taskID string) {
+	a.mu.Lock()
+	stop, ok := a.stop[taskID]
+	if ok {
+		a.cancelledIDs[taskID] = true
+	}
+	a.mu.Unlock()
+	if ok {
+		slog.Info("cancel received; stopping the task", "task", taskID)
+		stop()
+	}
+}
+
+// cancelled says whether the control plane cancelled this task, as opposed
+// to the worker shutting down (which hands its tasks back instead), and
+// forgets it.
+func (a *Agent) cancelled(taskID string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	c := a.cancelledIDs[taskID]
+	delete(a.cancelledIDs, taskID)
+	return c
 }
 
 func (a *Agent) mark(taskID, leaseToken string, running bool) {

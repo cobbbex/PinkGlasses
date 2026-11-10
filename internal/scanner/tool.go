@@ -102,6 +102,7 @@ func runTool(ctx context.Context, timeout time.Duration, stdin string, name stri
 
 	e := &execution{name: name, args: args, timeout: timeout}
 	cmd := exec.CommandContext(cctx, name, args...)
+	ownGroup(cmd)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
