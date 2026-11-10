@@ -31,7 +31,10 @@ func env(k, def string) string {
 
 func main() {
 	base := env("ASM_API_URL", "http://localhost:8080")
-	opts := mcpserver.Options{AllowDeleteCompany: os.Getenv("ASM_MCP_ALLOW_DELETE_COMPANY") == "true"}
+	opts := mcpserver.Options{
+		AllowDeleteCompany: os.Getenv("ASM_MCP_ALLOW_DELETE_COMPANY") == "true",
+		AllowWorkers:       os.Getenv("ASM_MCP_ALLOW_WORKERS") == "true",
+	}
 	// Logs go to stderr: stdout is the protocol channel in stdio mode.
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 

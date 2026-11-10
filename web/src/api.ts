@@ -460,7 +460,7 @@ export const api = {
   /** Admin: is every part of the install up, and is work flowing. */
   systemHealth: () => req<SystemHealth>("/system/health"),
   /** What the built-in MCP server exposes, for the MCP page. */
-  mcpSettings: () => req<{ path: string; tools: MCPTool[]; allow_delete_company: boolean }>("/mcp/settings"),
+  mcpSettings: () => req<{ path: string; tools: MCPTool[]; allow_delete_company: boolean; allow_workers: boolean }>("/mcp/settings"),
   /** The skill download; a plain link, since it is a file. */
   mcpSkillURL: "/api/v1/mcp/skill.zip",
   /** The signed-in account's VPN configurations; usable in every company. */

@@ -26,6 +26,7 @@ type Store interface {
 	StartSSHExitInstall(ctx context.Context, id uuid.UUID) (bool, error)
 	FinishSSHExitInstall(ctx context.Context, id uuid.UUID, ok bool, log string) error
 	DeleteSSHExit(ctx context.Context, id uuid.UUID) error
+	DeleteExitWorker(ctx context.Context, name string, poolID *uuid.UUID) (int64, error)
 	CreatePreapprovedEnrollmentToken(ctx context.Context, hash []byte, poolID *uuid.UUID, ttl time.Duration, egress *string) error
 }
 
@@ -347,7 +348,7 @@ func (m *Manager) teardown(ctx context.Context, e store.SSHExitSession, h *held)
 			defer h.release()
 		}
 		if client != nil {
-			if out, err := Run(ctx, client, UninstallScript(), 2*time.Minute); err != nil {
+			if out, err := Run(ctx, client, UninstallScript(e.PublicKey), 2*time.Minute); err != nil {
 				slog.Warn("could not remove the worker from the VPS", "exit", e.Name, "err", err, "output", out)
 			}
 		}
@@ -359,6 +360,15 @@ func (m *Manager) teardown(ctx context.Context, e store.SSHExitSession, h *held)
 		m.mu.Unlock()
 		if err := m.st.DeleteSSHExit(ctx, e.ID); err != nil {
 			slog.Warn("could not delete the SSH exit", "exit", e.Name, "err", err)
+		}
+		// The worker it installed goes too, reachable or not: its record
+		// would sit in the fleet as stale, and deleting it ends its
+		// credential, so a container left behind on an unreachable VPS
+		// cannot come back.
+		if n, err := m.st.DeleteExitWorker(ctx, e.WorkerName, e.PoolID); err != nil {
+			slog.Warn("could not remove the exit's worker", "exit", e.Name, "worker", e.WorkerName, "err", err)
+		} else if n > 0 {
+			slog.Info("SSH exit's worker removed from the fleet", "exit", e.Name, "worker", e.WorkerName)
 		}
 		slog.Info("SSH exit removed", "exit", e.Name, "worker_removed", client != nil)
 	}()

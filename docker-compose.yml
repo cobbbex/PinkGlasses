@@ -69,6 +69,7 @@ services:
       # The MCP server is served by this process at /mcp. "true" adds its
       # delete_company tool; off by default.
       ASM_MCP_ALLOW_DELETE_COMPANY: "${ASM_MCP_ALLOW_DELETE_COMPANY:-false}"
+      ASM_MCP_ALLOW_WORKERS: "${ASM_MCP_ALLOW_WORKERS:-false}"
       # wordlist and resolver uploads are streamed into object storage
       ASM_S3_ENDPOINT: "http://minio:9000"
       ASM_S3_BUCKET: "${ASM_S3_BUCKET:-asm-artifacts}"

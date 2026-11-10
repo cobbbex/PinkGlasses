@@ -22,6 +22,7 @@ type MCPProvider interface {
 	Tools() []MCPTool
 	SkillZip() ([]byte, error)
 	AllowsDeleteCompany() bool
+	AllowsWorkers() bool
 }
 
 // SetMCP installs the provider. Without one the routes answer 404, so an api
@@ -42,6 +43,7 @@ func (s *Server) mcpSettings(w http.ResponseWriter, r *http.Request) {
 		"path":                 "/mcp",
 		"tools":                tools,
 		"allow_delete_company": s.mcp.AllowsDeleteCompany(),
+		"allow_workers":        s.mcp.AllowsWorkers(),
 	})
 }
 

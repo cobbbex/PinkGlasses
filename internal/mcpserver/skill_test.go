@@ -11,9 +11,9 @@ import (
 // the server exposes is documented, and the archive unpacks into one folder
 // with SKILL.md at its root.
 func TestSkillCoversEveryTool(t *testing.T) {
-	files := SkillFiles(Options{AllowDeleteCompany: true})
+	files := SkillFiles(allTools)
 	ref := files["pinkglasses/reference/tools.md"]
-	for _, tl := range Tools(Options{AllowDeleteCompany: true}) {
+	for _, tl := range Tools(allTools) {
 		if !strings.Contains(ref, "## "+tl.Name+"\n") {
 			t.Errorf("tool %s is missing from the skill's reference", tl.Name)
 		}

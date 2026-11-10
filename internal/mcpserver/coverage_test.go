@@ -39,14 +39,6 @@ var notExposed = map[string]string{
 	"POST /scopes":                              "creating a company is done in the UI, where the picker follows it",
 	"GET /scopes/{scopeID}/footprint":           "covered by company_summary",
 	"GET /metrics":                              "Prometheus text for a monitoring system to scrape, not numbers to reason about",
-	"POST /workers/enrollment-tokens":           "an enrollment token is a credential for the gateway; the UI issues it to a person",
-	"POST /workers/{workerID}/{action}":         "approving a worker trusts a machine with every company's tasks in its pool: a person decides, in the UI",
-	"DELETE /workers/{workerID}":                "same",
-	"PATCH /pools/{poolID}":                     "moves every company's discovery between machines; a fleet decision for a person, in the UI",
-	"GET /ssh-exits":                            "SSH exits carry a key to somebody's VPS; managed in the UI",
-	"POST /ssh-exits":                           "same",
-	"POST /ssh-exits/{exitID}/install":          "runs a script as root on a VPS; a person starts it, in the UI",
-	"DELETE /ssh-exits/{exitID}":                "same",
 }
 
 func TestEveryRouteIsExposedOrExplained(t *testing.T) {
@@ -73,7 +65,7 @@ func TestEveryRouteIsExposedOrExplained(t *testing.T) {
 
 func TestToolNamesAreUnique(t *testing.T) {
 	seen := map[string]bool{}
-	for _, tl := range Tools(Options{AllowDeleteCompany: true}) {
+	for _, tl := range Tools(allTools) {
 		if seen[tl.Name] {
 			t.Errorf("duplicate tool %s", tl.Name)
 		}

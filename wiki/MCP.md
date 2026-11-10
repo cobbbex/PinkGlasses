@@ -30,12 +30,26 @@ refuse unless called with `confirm: true`. `delete_company` exists only when
 `ASM_MCP_ALLOW_DELETE_COMPANY=true` is set — on the api service in compose, or
 on the stdio binary — and then also demands the company's exact name.
 
+**Remote workers** can be set up and removed through a model when
+`ASM_MCP_ALLOW_WORKERS=true` is set, the same way, and the token has the
+operator role. Off by default: enrolling hands out a credential for the
+gateway, an approved worker leases every company's tasks in its pool, and
+installing an SSH exit runs a script as root on a VPS. The tools:
+`add_remote_worker` (a single-use token and the install command for a VPS
+that can reach this install), `approve_worker` (approve, drain, resume, and
+with `confirm: true` quarantine or revoke), `remove_worker` (remote workers
+only, with `confirm: true` and the worker's exact name), `set_pool_discovery`,
+and `list_ssh_exits`, `add_ssh_exit`, `install_ssh_exit`, `remove_ssh_exit` for
+an install nothing on the internet can reach. No private key passes through
+them: `add_ssh_exit` always has the server generate one and returns only the
+public half.
+
 A scan started with a local exit names a VPN configuration, and that must be
 one of the **token owner's own** (`list_vpn_configs` shows exactly those):
 configurations belong to accounts, not companies, so a token sees the same
 list in every company and never another account's.
 
-**Not exposed**: worker enrolment and removal, VPN configuration bodies, alert
+**Not exposed**: VPN configuration bodies, alert
 channel secrets, wordlist editing, API tokens and accounts. Those hand out
 credentials, and a model has no business with them; the web UI and the API
 remain for people. A test in `internal/mcpserver` walks the route table and
@@ -51,6 +65,7 @@ resource and is not on that list with a reason.
 | Targets | `list_target_groups`, `add_targets`, `edit_target_group`, `remove_target_group` |
 | Scanning | `start_scan` (now, once at a time, or on a repeat), `list_runs`, `get_run`, `wait_for_run`, `run_diff`, `pause_run`, `resume_run`, `stop_run`, `rerun`, `delete_run`, `list_schedules`, `edit_schedule`, `remove_schedule`, `scan_parameters` |
 | Infrastructure | `list_workers` (workers, pools, runs' own fleets), `list_vpn_configs` (the token owner's, names only, usable in any company), `list_wordlists`, `alerts` |
+| Remote workers (with `ASM_MCP_ALLOW_WORKERS`) | `add_remote_worker`, `approve_worker`, `remove_worker`, `set_pool_discovery`, `list_ssh_exits`, `add_ssh_exit`, `install_ssh_exit`, `remove_ssh_exit` |
 
 Resources for the read side: `pinkglasses://companies`,
 `pinkglasses://companies/{id}/summary`, `pinkglasses://hosts/{id}`,
@@ -139,6 +154,7 @@ Point `ASM_API_URL` at wherever the api answers. The same command in Cursor's
 | Variable | Where | Meaning |
 |---|---|---|
 | `ASM_MCP_ALLOW_DELETE_COMPANY` | api service, or the binary | `true` adds the `delete_company` tool |
+| `ASM_MCP_ALLOW_WORKERS` | api service, or the binary | `true` adds the remote-worker and SSH-exit tools |
 | `ASM_API_URL` | stdio binary | where the api answers (default `http://localhost:8080`) |
 | `ASM_MCP_TOKEN` | stdio binary | the API token |
 

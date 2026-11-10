@@ -206,3 +206,13 @@ func (s *Store) CreatePreapprovedEnrollmentToken(ctx context.Context, hash []byt
 		hash, poolID, ttl.String(), egress)
 	return err
 }
+
+// DeleteExitWorker removes the worker an SSH exit installed: a VPS worker of
+// the exit's worker name in the exit's pool. Its credential goes with it.
+func (s *Store) DeleteExitWorker(ctx context.Context, name string, poolID *uuid.UUID) (int64, error) {
+	ct, err := s.Pool.Exec(ctx, `
+		DELETE FROM worker WHERE kind = 'vps' AND name = $1
+		  AND pool_id IS NOT DISTINCT FROM COALESCE($2::uuid, (SELECT id FROM worker_pool WHERE name = 'remote'))`,
+		name, poolID)
+	return ct.RowsAffected(), err
+}

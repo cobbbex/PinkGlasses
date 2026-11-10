@@ -163,9 +163,29 @@ Ask, then use ` + "`add_targets`" + ` / ` + "`edit_target_group`" + ` with what 
 ## Destructive tools
 
 ` + "`remove_target_group`" + `, ` + "`delete_run`" + `, ` + "`remove_schedule`" + ` and (when enabled)
-` + "`delete_company`" + ` refuse unless called with ` + "`confirm: true`" + `. Call them only
-after the user has clearly asked for that exact thing, and say what was
-removed afterwards.
+` + "`delete_company`" + `, ` + "`remove_worker`" + `, ` + "`remove_ssh_exit`" + ` and the quarantine and
+revoke actions of ` + "`approve_worker`" + ` refuse unless called with ` + "`confirm: true`" + `.
+Call them only after the user has clearly asked for that exact thing, and say
+what was removed afterwards.
+
+## Remote workers (when enabled)
+
+A remote worker is a VPS active scans leave from. Set one up only when the user
+asks, on a VPS they named:
+
+1. The install is reachable from the VPS: ` + "`add_remote_worker`" + ` returns an install
+   command to run as root on the VPS. Hand it to the user, or run it yourself
+   only if you have a shell on that VPS and they asked you to. The worker then
+   shows in ` + "`list_workers`" + ` as pending; ` + "`approve_worker`" + ` with ` + "`approve`" + ` once
+   the user confirms it is theirs. An approved worker takes every company's
+   tasks in its pool.
+2. Nothing on the internet can reach the install: ` + "`add_ssh_exit`" + ` returns a
+   public key for the VPS's authorized_keys; once it is there,
+   ` + "`install_ssh_exit`" + ` and follow ` + "`list_ssh_exits`" + ` until install_status is done.
+
+The enrollment token in the reply is a credential: do not repeat it anywhere
+but the install command. Never ask the user for an SSH private key; the
+server generates one and only the public half is ever shown.
 
 ## Answering well
 

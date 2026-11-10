@@ -17,7 +17,17 @@ type Options struct {
 	// AllowDeleteCompany adds the delete_company tool. Off by default: it takes
 	// a company's whole inventory and history with it.
 	AllowDeleteCompany bool
+	// AllowWorkers adds the tools that set up and remove remote workers and
+	// SSH exits. Off by default: enrolling hands out a credential for the
+	// gateway, an approved worker leases every company's tasks in its pool,
+	// and installing an SSH exit runs a script as root on a VPS. The token
+	// still needs the operator role.
+	AllowWorkers bool
 }
+
+// allTools is every optional tool switched on: what the coverage test, the
+// skill test and the route list measure against.
+var allTools = Options{AllowDeleteCompany: true, AllowWorkers: true}
 
 // toolDef is one tool: its schema, the API routes it uses (for the coverage
 // test), and the handler. Handlers receive decoded arguments and return any
@@ -657,6 +667,9 @@ func Tools(o Options) []toolDef {
 			},
 		},
 	}
+	if o.AllowWorkers {
+		t = append(t, workerTools()...)
+	}
 	if o.AllowDeleteCompany {
 		t = append(t, toolDef{
 			Name: "delete_company", Destructive: true,
@@ -713,7 +726,7 @@ func trim[T any](rows []T, n int) []T {
 // CoveredRoutes is every "METHOD /path" some tool or resource uses.
 func CoveredRoutes() map[string]bool {
 	out := map[string]bool{}
-	for _, t := range Tools(Options{AllowDeleteCompany: true}) {
+	for _, t := range Tools(allTools) {
 		for _, r := range t.Routes {
 			out[r] = true
 		}
@@ -758,7 +771,7 @@ func toolError(msg string) *mcp.CallToolResult {
 // names, for the coverage test's report
 func toolNames() []string {
 	var n []string
-	for _, t := range Tools(Options{AllowDeleteCompany: true}) {
+	for _, t := range Tools(allTools) {
 		n = append(n, t.Name)
 	}
 	sort.Strings(n)

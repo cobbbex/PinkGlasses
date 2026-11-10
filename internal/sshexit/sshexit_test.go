@@ -340,3 +340,21 @@ func TestValidators(t *testing.T) {
 		t.Error("user validation")
 	}
 }
+
+// Removing an exit takes its own key out of authorized_keys, matched on the
+// key's body; anything that is not a key body is never put into the script.
+func TestUninstallRemovesTheExitsKey(t *testing.T) {
+	key := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILksWVGexb4rTUBoefcRgTXPol5qqd0VTRcIjYNxUGNI pinkglasses-vps-173"
+	s := UninstallScript(key)
+	if !strings.Contains(s, "grep -vF 'AAAAC3NzaC1lZDI1NTE5AAAAILksWVGexb4rTUBoefcRgTXPol5qqd0VTRcIjYNxUGNI' ~/.ssh/authorized_keys") {
+		t.Errorf("key not removed:\n%s", s)
+	}
+	if !strings.Contains(s, "docker rm -f "+containerName) {
+		t.Error("worker not removed")
+	}
+	for _, bad := range []string{"", "ssh-ed25519", "ssh-ed25519 AAAA'; rm -rf / #"} {
+		if strings.Contains(UninstallScript(bad), "authorized_keys") {
+			t.Errorf("%q reached the script", bad)
+		}
+	}
+}

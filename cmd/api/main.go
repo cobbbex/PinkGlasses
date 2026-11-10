@@ -54,7 +54,10 @@ func main() {
 	// bound to the caller's own API token, talking to the router in-process.
 	// A request without a token gets the API's own refusal in the tool
 	// result. Nothing extra to deploy; it is up whenever the web app is.
-	mcpOpts := mcpserver.Options{AllowDeleteCompany: os.Getenv("ASM_MCP_ALLOW_DELETE_COMPANY") == "true"}
+	mcpOpts := mcpserver.Options{
+		AllowDeleteCompany: os.Getenv("ASM_MCP_ALLOW_DELETE_COMPANY") == "true",
+		AllowWorkers:       os.Getenv("ASM_MCP_ALLOW_WORKERS") == "true",
+	}
 	api.SetMCP(mcpProvider{opts: mcpOpts})
 	// Serve the built SPA if present. The app's own MCP page lives at /mcp
 	// too: a browser asking for HTML there gets the page, an MCP client
@@ -137,6 +140,7 @@ func (p mcpProvider) Tools() []httpapi.MCPTool {
 }
 func (p mcpProvider) SkillZip() ([]byte, error) { return mcpserver.SkillZip(p.opts) }
 func (p mcpProvider) AllowsDeleteCompany() bool { return p.opts.AllowDeleteCompany }
+func (p mcpProvider) AllowsWorkers() bool       { return p.opts.AllowWorkers }
 
 // mcpHandler serves the MCP server on one path over both HTTP transports.
 //

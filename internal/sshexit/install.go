@@ -2,6 +2,7 @@ package sshexit
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -76,10 +77,28 @@ func Script(s InstallSpec) (string, error) {
 }
 
 // UninstallScript removes the worker and its credential from the VPS.
-func UninstallScript() string {
-	return preamble + fmt.Sprintf("$SUDO docker rm -f %s >/dev/null 2>&1 || true\n$SUDO rm -rf %s\necho \">> worker removed\"\n",
+func UninstallScript(publicKey string) string {
+	s := preamble + fmt.Sprintf("$SUDO docker rm -f %s >/dev/null 2>&1 || true\n$SUDO rm -rf %s\necho \">> worker removed\"\n",
 		containerName, credDir)
+	// Last, the exit's own key leaves authorized_keys: its private half is
+	// deleted with the exit, so the line could only ever be clutter. Matched
+	// on the key's base64 body, which is all [A-Za-z0-9+/=] — anything else
+	// is not a key this install generated and is left alone. The file is
+	// rewritten in place (cat >), keeping its owner and mode. The session
+	// running this stays open; only new logins with the key are refused.
+	if f := strings.Fields(publicKey); len(f) >= 2 && keyBody.MatchString(f[1]) {
+		s += fmt.Sprintf(`if [ -f ~/.ssh/authorized_keys ]; then
+  grep -vF '%[1]s' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.pg || true
+  cat ~/.ssh/authorized_keys.pg > ~/.ssh/authorized_keys
+  rm -f ~/.ssh/authorized_keys.pg
+  echo ">> this exit's key removed from authorized_keys"
+fi
+`, f[1])
+	}
+	return s
 }
+
+var keyBody = regexp.MustCompile(`^[A-Za-z0-9+/]+={0,3}$`)
 
 // FailureReason picks the PG-ERR line out of a failed script's output, or
 // the last line when there is none.

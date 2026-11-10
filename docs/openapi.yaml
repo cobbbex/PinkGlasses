@@ -1004,7 +1004,7 @@ paths:
   /api/v1/mcp/settings:
     get:
       operationId: getMcpSettings
-      summary: "what the built-in MCP server (at /mcp on the api's address) exposes: {path, tools: [{name, description, read_only, destructive}], allow_delete_company}"
+      summary: "what the built-in MCP server (at /mcp on the api's address) exposes: {path, tools: [{name, description, read_only, destructive}], allow_delete_company, allow_workers}"
       x-required-role: viewer
       security:
         - session: []

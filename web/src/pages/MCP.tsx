@@ -136,6 +136,7 @@ export default function MCP({ me }: { me: User }) {
           <span className="muted" style={{ fontWeight: 400, fontSize: 12.5, marginLeft: 8 }}>
             {data ? `${data.tools.length} tools` : ""}
             {data?.allow_delete_company ? " · delete_company is enabled on this install" : ""}
+            {data?.allow_workers ? " · worker setup and removal is enabled on this install" : ""}
           </span>
         </div>
         {!data ? <div className="muted">Loading…</div> : (
