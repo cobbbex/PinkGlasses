@@ -43,12 +43,26 @@ func TestValidate_AcceptsGoodValues(t *testing.T) {
 }
 
 func TestWithDefaults(t *testing.T) {
-	out := WithDefaults(map[string]string{"naabu_rate": "50"})
+	out := WithDefaults("standard", map[string]string{"naabu_rate": "50"})
 	if out["naabu_rate"] != "50" {
 		t.Errorf("override lost: %q", out["naabu_rate"])
 	}
-	if out["ports"] != "top-100" {
-		t.Errorf("default missing: %q", out["ports"])
+	if out["ports"] != "top-100" || out["dns_bruteforce"] != "true" {
+		t.Errorf("default missing: ports %q, dns_bruteforce %q", out["ports"], out["dns_bruteforce"])
+	}
+}
+
+// A profile's own defaults are what its runs store, so a stored value reads
+// as what the run did; a choice made by hand still wins.
+func TestWithDefaultsByProfile(t *testing.T) {
+	if v := WithDefaults("passive", nil)["dns_bruteforce"]; v != "false" {
+		t.Errorf("passive dns_bruteforce %q, want false", v)
+	}
+	if v := WithDefaults("passive", map[string]string{"dns_bruteforce": "true"})["dns_bruteforce"]; v != "true" {
+		t.Errorf("switched on by hand, stored %q", v)
+	}
+	if v := WithDefaults("deep", nil)["ports"]; v != "full" {
+		t.Errorf("deep ports %q, want full", v)
 	}
 }
 

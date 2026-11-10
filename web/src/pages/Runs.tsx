@@ -13,7 +13,7 @@ const PROFILES = [
     id: "passive",
     label: "Passive",
     desc: "Public sources only — certificate transparency, passive DNS and the API providers you have keys for — then resolution and ASN enrichment. Nothing is sent to the targets themselves, so it runs against any target, authorized or not.",
-    note: "No port scan, no web probing, no brute force, no vulnerability check.",
+    note: "No port scan, no web probing, no directory search, no vulnerability check. Subdomain bruteforce is off unless you switch it on under Customize → shuffledns.",
   },
   {
     id: "standard",
@@ -662,6 +662,7 @@ function LaunchModal({
           )}
           <ScanSettings
             scopeID={scopeID}
+            profile={profile}
             values={params}
             onChange={setParams}
             presetID={presetID}

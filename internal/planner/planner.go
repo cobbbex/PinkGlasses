@@ -70,6 +70,9 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 		return rtErr
 	}
 
+	params, _ := p.st.GetRunParams(ctx, run.ID)
+	ports := portScanWanted(params)
+
 	var specs []store.TaskSpec
 	for _, t := range targets {
 		switch t.Kind {
@@ -80,10 +83,13 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 			)
 			_ = p.st.SetRunTargetStatus(ctx, t.ID, domain.TargetRunning, nil)
 		case "ip", "cidr":
-			if passive || !authorized(auth, t.Value) {
+			if passive || !ports || !authorized(auth, t.Value) {
 				reason := "not_authorized"
-				if passive {
+				switch {
+				case passive:
 					reason = "passive_profile"
+				case !ports:
+					reason = "port_scan_off"
 				}
 				_ = p.st.SetRunTargetStatus(ctx, t.ID, domain.TargetSkipped, &reason)
 				continue
@@ -129,14 +135,12 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 // A run with no ready wordlists simply gets no brute-force tasks — the rest of
 // the pipeline is unaffected.
 func (p *Planner) dnsBruteSpecs(ctx context.Context, run domain.ScanRun, targets []domain.RunTarget) []store.TaskSpec {
-	if run.Profile == domain.ProfilePassive {
-		return nil // passive runs send no DNS traffic of their own
+	params, err := p.st.GetRunParams(ctx, run.ID)
+	if err != nil {
+		params = nil
 	}
-	// The shuffledns switch in scan settings gates the whole stage.
-	if params, err := p.st.GetRunParams(ctx, run.ID); err == nil {
-		if v, ok := params["dns_bruteforce"]; ok && v == "false" {
-			return nil
-		}
+	if !bruteForceWanted(run.Profile, params) {
+		return nil
 	}
 	// Only subdomain wordlists fan out; resolver lists are an input to every
 	// brute task, not a task of their own.
@@ -156,6 +160,23 @@ func (p *Planner) dnsBruteSpecs(ctx context.Context, run domain.ScanRun, targets
 		}
 	}
 	return out
+}
+
+// bruteForceWanted reads the shuffledns switch (dns_bruteforce). It is on by
+// default, except in a passive run, where it runs only when switched on:
+// brute force sends nothing to the targets' own servers, but its volume
+// reaches their nameservers through the resolvers, which a quick passive look
+// should not do unasked. Passive runs used to drop it whatever the setting
+// said, so a run set up for nothing but brute force did passive discovery and
+// resolution and no brute force, and said nothing about it.
+func bruteForceWanted(profile domain.RunProfile, params map[string]string) bool {
+	switch v := params["dns_bruteforce"]; {
+	case v == "false":
+		return false
+	case profile == domain.ProfilePassive:
+		return v == "true"
+	}
+	return true
 }
 
 // Advance moves a run through its stage machine. It is idempotent and safe to
@@ -258,6 +279,9 @@ func (p *Planner) routingFor(ctx context.Context, run domain.ScanRun) (routing, 
 }
 
 func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) error {
+	if params, err := p.st.GetRunParams(ctx, run.ID); err == nil && !portScanWanted(params) {
+		return nil // both port scanners switched off: discovery is the whole run
+	}
 	// Union the addresses every finished discovery task has reported.
 	ipSet := map[string][]uuid.UUID{}
 	for _, stage := range []scanproto.Stage{
@@ -511,6 +535,14 @@ func postProbeStages(params map[string]string) (dirBrute, vulnCheck bool) {
 	return !(off("gobuster_enabled") && off("katana_enabled")), !off("nuclei_enabled")
 }
 
+// portScanWanted says whether a run scans ports at all. With naabu and nmap
+// both switched off there is nothing to scan them with; the worker used to
+// fall back to its own connect scan of 27 ports, so "both off" still
+// scanned. A missing key is the shipped default, on.
+func portScanWanted(params map[string]string) bool {
+	return !(params["naabu_enabled"] == "false" && params["nmap_enabled"] == "false")
+}
+
 // maybePostProbe enqueues tech_detect, screenshot, dir_brute and vuln_check for
 // web services.
 //
@@ -536,6 +568,10 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 	// said not to do.
 	params, _ := p.st.GetRunParams(ctx, run.ID)
 	runDir, runVuln := postProbeStages(params)
+	// Screenshots are taken by httpx; with it off the task could only return
+	// nothing, and a stage on the run page for a tool switched off reads as
+	// the switch being ignored.
+	runShots := params["httpx_enabled"] != "false"
 	maxVhosts := defaultVhostsPerAddress
 	if v, ok := params["web_vhosts_per_address"]; ok {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -572,10 +608,10 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 					"run", run.ID, "address", ip, "port", port, "cap", maxVhosts, "dropped", dropped)
 			}
 			for _, tgt := range targets {
-				specs = append(specs,
-					spec(scanproto.StageTechDetect, tgt, 300, origin0(origins)),
-					spec(scanproto.StageScreenshot, tgt, 310, origin0(origins), string(scanproto.CapBrowser)),
-				)
+				specs = append(specs, spec(scanproto.StageTechDetect, tgt, 300, origin0(origins)))
+				if runShots {
+					specs = append(specs, spec(scanproto.StageScreenshot, tgt, 310, origin0(origins), string(scanproto.CapBrowser)))
+				}
 				if runDir {
 					specs = append(specs, spec(scanproto.StageDirBrute, tgt, 320, origin0(origins)))
 				}

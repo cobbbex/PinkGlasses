@@ -33,7 +33,10 @@ should leave from, and a run cannot be created without an answer:
 
 There is deliberately **no "direct from this host"**. An active scan always
 leaves from an address somebody chose. A passive-profile run has no active
-stages and needs no exit.
+stages and needs no exit. It runs subdomain brute force only when
+`dns_bruteforce` is switched on for it (a full scan runs it unless switched
+off): brute force reaches nobody's servers but their nameservers, through the
+resolvers, but at a volume a quick passive look should not send unasked.
 
 ## Why the tunnel is not in the worker
 

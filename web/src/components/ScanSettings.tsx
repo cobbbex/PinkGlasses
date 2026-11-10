@@ -18,6 +18,18 @@ const TOOL_STAGE: Record<string, string> = {
   nuclei: "Vulnerability checks",
 };
 
+// Where a profile's default differs from the shipped one. Mirrors
+// scanparams.ProfileDefaults: a run stores these, so they must match.
+const PROFILE_DEFAULTS: Record<string, Record<string, string>> = {
+  passive: { dns_bruteforce: "false" },
+  deep: { ports: "full" },
+};
+
+// Tools a passive scan never runs: each sends packets at the targets. Their
+// settings stay editable (a preset saved here may be used by a full scan) but
+// are marked, so nobody tunes them expecting a passive run to use them.
+const ACTIVE_TOOLS = new Set(["naabu", "nmap", "httpx", "katana", "gobuster", "nuclei"]);
+
 /**
  * Per-tool scan settings editor. Shows the shipped default for every parameter,
  * lets the user override any of them, and save the result as a named preset.
@@ -27,9 +39,11 @@ const TOOL_STAGE: Record<string, string> = {
  * the security boundary.
  */
 export default function ScanSettings({
-  scopeID, values, onChange, presetID, onPresetChange, wordlistIDs, onWordlistsChange,
+  scopeID, profile, values, onChange, presetID, onPresetChange, wordlistIDs, onWordlistsChange,
 }: {
   scopeID: string;
+  /** The run's profile: a passive run has DNS bruteforce off unless switched on. */
+  profile?: string;
   values: Record<string, string>;
   onChange: (v: Record<string, string>) => void;
   presetID: string;
@@ -55,9 +69,16 @@ export default function ScanSettings({
     return m;
   }, [specs]);
 
+  const passive = profile === "passive";
+  const deep = profile === "deep";
+  // What a run of this profile does when a setting is left alone; the server
+  // stores the same values (scanparams.ProfileDefaults).
+  const defaultOf = (s: ParamSpec) => PROFILE_DEFAULTS[profile ?? ""]?.[s.key] ?? s.default;
+
   const changed = useMemo(
-    () => specs.filter((s) => (values[s.key] ?? s.default) !== s.default).length,
-    [specs, values],
+    () => specs.filter((s) => (values[s.key] ?? defaultOf(s)) !== defaultOf(s)).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [specs, values, profile],
   );
 
   function set(key: string, v: string) {
@@ -126,20 +147,37 @@ export default function ScanSettings({
             <span className="tool-name">{tool}</span>
             <span className="muted" style={{ fontSize: 12 }}>{TOOL_STAGE[tool] ?? ""}</span>
           </div>
+          {passive && ACTIVE_TOOLS.has(tool) && (
+            <div className="hint muted" style={{ marginBottom: 6 }}>
+              Not run by a passive scan: it sends traffic to the targets.
+            </div>
+          )}
+          {passive && tool === "shuffledns" && (
+            <div className="hint muted" style={{ marginBottom: 6 }}>
+              Off in a passive scan unless you switch it on. It sends nothing to the targets' own
+              servers, but a large volume of lookups reaches their nameservers through the resolvers.
+            </div>
+          )}
           {[...byTool[tool]]
             .sort((a, b) => Number(isEnableKey(b)) - Number(isEnableKey(a)))
             .map((spec) => {
-            const val = values[spec.key] ?? spec.default;
-            const isChanged = val !== spec.default;
+            const val = values[spec.key] ?? defaultOf(spec);
+            const isChanged = val !== defaultOf(spec);
             const off = isEnableKey(spec) && val !== "true";
             return (
               <div key={spec.key} className={"param-row" + (off ? " tool-off" : "")}>
                 <label className="param-label">
                   {spec.label}
                   <InfoDot title={spec.key}>{spec.help}</InfoDot>
-                  {isChanged && <span className="param-changed" title={`default: ${spec.default}`}>changed</span>}
+                  {isChanged && <span className="param-changed" title={`default: ${defaultOf(spec)}`}>changed</span>}
                 </label>
-                <ParamInput spec={spec} value={val} onChange={(v) => set(spec.key, v)} />
+                {deep && spec.key === "ports" ? (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    every port — a deep scan always sweeps the full range
+                  </span>
+                ) : (
+                  <ParamInput spec={spec} value={val} onChange={(v) => set(spec.key, v)} />
+                )}
               </div>
             );
           })}

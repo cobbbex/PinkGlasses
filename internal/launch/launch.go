@@ -177,7 +177,7 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 	if err != nil {
 		return domain.ScanRun{}, refuse(http.StatusBadRequest, "invalid scan parameter: %v", err)
 	}
-	effective := scanparams.WithDefaults(cleanParams)
+	effective := scanparams.WithDefaults(string(profile), cleanParams)
 
 	// Exit: validated before any row exists. A refusal here leaves nothing
 	// behind — no failed run to explain later. For a schedule that matters

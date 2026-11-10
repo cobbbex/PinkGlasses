@@ -166,3 +166,24 @@ func TestPermanentJoinKeepsBothReasonsAndPermanence(t *testing.T) {
 		t.Errorf("one error should come back as itself, got %v", got)
 	}
 }
+
+// With naabu off, nmap scans the port set the run asked for, not the top 100.
+func TestNmapPortArgs(t *testing.T) {
+	for _, c := range []struct {
+		ports       string
+		deep        bool
+		flag, value string
+	}{
+		{"top-100", false, "--top-ports", "100"},
+		{"", false, "--top-ports", "100"},
+		{"top-1000", false, "--top-ports", "1000"},
+		{"full", false, "-p", "1-65535"},
+		{"80,443,8443", false, "-p", "80,443,8443"},
+		{"1-1024", false, "-p", "1-1024"},
+		{"top-100", true, "-p", "1-65535"},
+	} {
+		if f, v := nmapPortArgs(c.ports, c.deep); f != c.flag || v != c.value {
+			t.Errorf("%q deep=%v: %s %s, want %s %s", c.ports, c.deep, f, v, c.flag, c.value)
+		}
+	}
+}

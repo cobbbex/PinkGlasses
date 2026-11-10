@@ -65,7 +65,19 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 
 	var obs []scanproto.Observation
 
-	if wide && have("naabu") && pr.enabled("naabu") {
+	// Each tool runs only when it is installed and switched on. Switched off
+	// both, the stage does nothing: the planner does not plan it then, and a
+	// task that arrives anyway (planned before the change) must not fall
+	// through to the connect scan below, which is for workers that have
+	// neither tool, not for runs that said no.
+	naabuOn := have("naabu") && pr.enabled("naabu")
+	nmapOn := have("nmap") && pr.enabled("nmap")
+	if !pr.enabled("naabu") && !pr.enabled("nmap") {
+		slog.Info("port scan switched off", "hosts", len(hosts))
+		return nil, nil
+	}
+
+	if naabuOn && (wide || !nmapOn) {
 		// Wide sweeps are what naabu is for: it finds open ports far faster than
 		// nmap over a large range, and nmap then fingerprints only the hits.
 		open, sweepErr := s.naabuSweep(ctx, hosts, ports, deep, pr)
@@ -77,7 +89,7 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 			}
 		}
 		var versionErr error
-		if have("nmap") && pr.enabled("nmap") {
+		if nmapOn {
 			var found []scanproto.Observation
 			found, versionErr = s.nmapVersions(ctx, open, deep, pr)
 			obs = append(obs, found...)
@@ -90,14 +102,19 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 		return obs, permanentJoin(sweepErr, versionErr)
 	}
 
-	if have("nmap") && pr.enabled("nmap") {
+	if nmapOn {
 		// At top-100 width nmap alone is simpler and returns service versions in
 		// the same pass, so there is nothing for a separate discovery scan to add.
-		found, err := s.nmapScan(ctx, hosts, "--top-ports", "100", deep, pr)
+		// With naabu off it takes a wide port set too, the whole of it: this
+		// used to scan the top 100 whatever the run asked for, so switching
+		// naabu off quietly narrowed a full sweep to a hundred ports.
+		flag, value := nmapPortArgs(ports, deep)
+		found, err := s.nmapScan(ctx, hosts, flag, value, deep, pr)
 		return found, err
 	}
 
-	// No scanner installed: fall back to a Go connect scan per host.
+	// The switched-on tools are not installed on this worker: fall back to a
+	// Go connect scan per host.
 	for _, host := range hosts {
 		for _, port := range connectScan(ctx, host, topPorts) {
 			obs = append(obs, scanproto.Observation{
@@ -107,6 +124,20 @@ func (s *Scanner) portScan(ctx context.Context, job scanproto.Job) ([]scanproto.
 	}
 	slog.Info("port scan", "hosts", len(hosts), "open", len(obs), "scanner", "connect-scan")
 	return obs, nil
+}
+
+// nmapPortArgs is the port selection as nmap flags, for a scan nmap runs
+// alone. A deep scan sweeps every port, as naabu would have.
+func nmapPortArgs(ports string, deep bool) (flag, value string) {
+	switch {
+	case deep || ports == "full":
+		return "-p", "1-65535"
+	case ports == "" || ports == "top-100":
+		return "--top-ports", "100"
+	case ports == "top-1000":
+		return "--top-ports", "1000"
+	}
+	return "-p", ports // an explicit list or range, validated upstream
 }
 
 // portCount is how many ports a port selection covers, for sizing the sweep's

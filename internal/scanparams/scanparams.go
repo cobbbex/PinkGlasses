@@ -89,13 +89,13 @@ var Specs = []Spec{
 		Help:    "Off falls back to the worker's own resolver, which is slower and does no wildcard filtering or PTR lookups."},
 	{Key: "naabu_enabled", Tool: "naabu", Label: "Enabled", Kind: KindBool,
 		Default: "true",
-		Help:    "The fast port sweep, used only for wide port sets. Off sends the whole port selection to nmap instead."},
+		Help:    "The fast port sweep, used for wide port sets, and for every port set when nmap is off. Off sends the whole port selection to nmap instead; off together with nmap, no port scan is planned and the run ends after discovery."},
 	{Key: "nmap_enabled", Tool: "nmap", Label: "Enabled", Kind: KindBool,
 		Default: "true",
-		Help:    "Service and version detection. Off reports open ports with no idea what is behind them."},
+		Help:    "Service and version detection. Off reports the open ports naabu finds with no idea what is behind them; off together with naabu, no port scan is planned."},
 	{Key: "httpx_enabled", Tool: "httpx", Label: "Enabled", Kind: KindBool,
 		Default: "true",
-		Help:    "Web probing, technology detection and screenshots. Off falls back to a plain header fingerprint."},
+		Help:    "Web probing, technology detection and screenshots. Off falls back to a plain header fingerprint and takes no screenshots."},
 	{Key: "katana_enabled", Tool: "katana", Label: "Enabled", Kind: KindBool,
 		Default: "true",
 		Help:    "Crawling seeds the directory stage with real linked paths. Off leaves the brute force guessing blind; off together with the brute force, no directory stage is planned."},
@@ -362,9 +362,26 @@ func Defaults() map[string]string {
 	return out
 }
 
-// WithDefaults fills unset parameters from Tools.md defaults.
-func WithDefaults(p map[string]string) map[string]string {
+// ProfileDefaults are where a profile's own default differs from the shipped
+// one. A run stores every setting, so a default the profile does not follow
+// would be read back later as a choice somebody made: a passive run stored
+// dns_bruteforce=true and its brute force could not be told from one switched
+// on by hand. The scan form shows the same values (ScanSettings.tsx).
+var ProfileDefaults = map[string]map[string]string{
+	// Brute force reaches the targets' nameservers at volume; a passive look
+	// runs it only when asked.
+	"passive": {"dns_bruteforce": "false"},
+	// A deep scan sweeps every port whatever the port set says.
+	"deep": {"ports": "full"},
+}
+
+// WithDefaults fills unset parameters from Tools.md defaults, as the profile
+// has them.
+func WithDefaults(profile string, p map[string]string) map[string]string {
 	out := Defaults()
+	for k, v := range ProfileDefaults[profile] {
+		out[k] = v
+	}
 	for k, v := range p {
 		out[k] = v
 	}
