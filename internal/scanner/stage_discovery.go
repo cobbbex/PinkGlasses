@@ -420,7 +420,12 @@ func (s *Scanner) dnsResolve(ctx context.Context, job scanproto.Job) ([]scanprot
 	name := job.Targets[0].Domain
 	var obs []scanproto.Observation
 	res := net.Resolver{}
-	c := withTimeout(ctx, 5*time.Second)
+	// Each lookup gets its own five seconds. They used to share one
+	// deadline, started before the wildcard check: when the two random
+	// labels were slow to come back NXDOMAIN, the deadline had passed before
+	// the name itself was asked for, and the task reported a name that
+	// resolves as resolving to nothing.
+	c := func() context.Context { return withTimeout(ctx, 5*time.Second) }
 
 	// Flag a wildcard apex here too, so a run without passive enumeration
 	// still learns it.
@@ -428,7 +433,7 @@ func (s *Scanner) dnsResolve(ctx context.Context, job scanproto.Job) ([]scanprot
 		obs = append(obs, scanproto.Observation{Type: scanproto.ObsWildcard, Domain: name, Value: joinSorted(wild)})
 	}
 
-	if ips, err := res.LookupHost(c, name); err == nil {
+	if ips, err := res.LookupHost(c(), name); err == nil {
 		for _, ip := range ips {
 			rt := "A"
 			if isV6(ip) {
@@ -437,20 +442,20 @@ func (s *Scanner) dnsResolve(ctx context.Context, job scanproto.Job) ([]scanprot
 			obs = append(obs, scanproto.Observation{Type: scanproto.ObsDNSRecord, Domain: name, RType: rt, Value: ip})
 		}
 	}
-	if cname, err := res.LookupCNAME(c, name); err == nil && cname != "" && cname != name+"." {
+	if cname, err := res.LookupCNAME(c(), name); err == nil && cname != "" && cname != name+"." {
 		obs = append(obs, scanproto.Observation{Type: scanproto.ObsDNSRecord, Domain: name, RType: "CNAME", Value: cname})
 	}
-	if mxs, err := res.LookupMX(c, name); err == nil {
+	if mxs, err := res.LookupMX(c(), name); err == nil {
 		for _, mx := range mxs {
 			obs = append(obs, scanproto.Observation{Type: scanproto.ObsDNSRecord, Domain: name, RType: "MX", Value: mx.Host})
 		}
 	}
-	if nss, err := res.LookupNS(c, name); err == nil {
+	if nss, err := res.LookupNS(c(), name); err == nil {
 		for _, ns := range nss {
 			obs = append(obs, scanproto.Observation{Type: scanproto.ObsDNSRecord, Domain: name, RType: "NS", Value: ns.Host})
 		}
 	}
-	if txts, err := res.LookupTXT(c, name); err == nil {
+	if txts, err := res.LookupTXT(c(), name); err == nil {
 		for _, t := range txts {
 			obs = append(obs, scanproto.Observation{Type: scanproto.ObsDNSRecord, Domain: name, RType: "TXT", Value: t})
 		}
