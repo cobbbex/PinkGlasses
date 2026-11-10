@@ -81,13 +81,16 @@ api POST "/scopes/$SCOPE/target-groups" \
   "{\"name\":\"e2e\",\"values\":[\"$TARGET_IP\"],\"authorize\":true,\"mode\":\"active\"}" >/dev/null
 echo "company $SCOPE"
 
-say "enrolling a worker into the remote pool"
-POOL=$(api GET /pools | python3 -c "
-import json,sys
-print(next(p['id'] for p in json.load(sys.stdin) if p['name'] == 'remote'))")
-TOKEN=$(api POST /workers/enrollment-tokens "{\"kind\":\"vps\",\"pool_id\":\"$POOL\",\"ttl_mins\":30}" \
+say "enrolling a worker into this account's own remote pool"
+# A remote worker belongs to the account enrolling it: with no pool named,
+# the token is for the account's own pool called "remote", made on the spot.
+TOKEN=$(api POST /workers/enrollment-tokens '{"kind":"vps","ttl_mins":30}' \
   | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('token') or d.get('enroll_token'))")
 [ -n "$TOKEN" ] && [ "$TOKEN" != None ] || fail "no enrolment token came back"
+POOL=$(api GET /pools | python3 -c "
+import json,sys
+print(next((p['id'] for p in json.load(sys.stdin) if p['name'] == 'remote'), ''))")
+[ -n "$POOL" ] || fail "the account has no pool called remote after enrolling"
 docker run -d --name "${PROJECT}-remote-worker" --network "${PROJECT}_default" \
   --cap-add NET_RAW \
   -e ASM_GATEWAY_URL=http://gateway:8090 \
