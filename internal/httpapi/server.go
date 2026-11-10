@@ -118,6 +118,7 @@ func (s *Server) Routes() http.Handler {
 				v.Get("/runs/{runID}/activity", s.runActivity)
 				v.Get("/runs/{runID}/diff", s.runDiff)
 				v.Get("/runs/{runID}/footprint", s.runFootprint)
+				v.Get("/runs/{runID}/assets", s.runAssets)
 
 				v.Get("/scopes/{scopeID}/domains", s.listDomains)
 				v.Get("/scopes/{scopeID}/graph", s.domainGraph)

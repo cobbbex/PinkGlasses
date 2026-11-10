@@ -43,6 +43,11 @@ type StageSummary struct {
 	// "subfinder:crtsh", "shuffledns", "seed" — so a run can say not just
 	// how many names a stage found but where they came from.
 	Sources map[string]int `json:"sources,omitempty"`
+	// Names are names a stage came across without looking for them — the
+	// names on a TLS certificate. A follow-up run resolves and scans the
+	// ones below its targets (resolveNewNames); discovery reports its own
+	// names in Domains.
+	Names []string `json:"names,omitempty"`
 }
 
 // IPPort is an open service discovered by a port scan.
@@ -72,6 +77,14 @@ func (p *Planner) PlanInitial(ctx context.Context, run domain.ScanRun, targets [
 
 	params, _ := p.st.GetRunParams(ctx, run.ID)
 	ports := portScanWanted(params)
+
+	// A follow-up starts from the names and addresses it was given, not from
+	// discovery.
+	if seeds, err := p.st.RunSeeds(ctx, run.ID, ""); err != nil {
+		return err
+	} else if len(seeds) > 0 {
+		return p.planFollowUp(ctx, run, targets, seeds, rt)
+	}
 
 	var specs []store.TaskSpec
 	for _, t := range targets {
@@ -190,6 +203,9 @@ func (p *Planner) Advance(ctx context.Context, run domain.ScanRun) (bool, error)
 
 	// Barrier: once all discovery tasks are done, coalesce IPs -> port_scan.
 	if !passive {
+		if err := p.resolveNewNames(ctx, run); err != nil {
+			return false, err
+		}
 		if err := p.scanNewAddresses(ctx, run); err != nil {
 			return false, err
 		}
@@ -301,6 +317,22 @@ func (p *Planner) scanNewAddresses(ctx context.Context, run domain.ScanRun) erro
 			origins, _ := p.st.OriginsForTask(ctx, t.ID)
 			for _, ip := range sum.IPs {
 				ipSet[ip] = mergeOrigins(ipSet[ip], origins)
+			}
+		}
+	}
+	// A follow-up's chosen addresses come with it, under the target each
+	// was found below; they go through the same checks as a resolved one.
+	seeds, err := p.st.RunSeeds(ctx, run.ID, "")
+	if err != nil {
+		return err
+	}
+	for _, sd := range seeds {
+		switch sd.Kind {
+		case "ip":
+			ipSet[sd.Value] = mergeOrigins(ipSet[sd.Value], []uuid.UUID{sd.RunTargetID})
+		case "cidr":
+			for _, ip := range scopeguard.ExpandCIDRHosts(sd.Value, cidrHostCap) {
+				ipSet[ip] = mergeOrigins(ipSet[ip], []uuid.UUID{sd.RunTargetID})
 			}
 		}
 	}
@@ -551,9 +583,6 @@ func portScanWanted(params map[string]string) bool {
 // task was ever created for it. Nothing reported that, because a stage that is
 // never planned looks exactly like a stage with nothing to do.
 func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error {
-	if exists, _ := p.st.StageExists(ctx, run.ID, scanproto.StageTechDetect); exists {
-		return nil
-	}
 	out, _ := p.st.StageOutstanding(ctx, run.ID, string(scanproto.StageServiceProbe))
 	if out > 0 {
 		return nil
@@ -561,6 +590,20 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 	tasks, err := p.st.TasksByStage(ctx, run.ID, scanproto.StageServiceProbe)
 	if err != nil {
 		return err
+	}
+	// The web stages are planned per live service, once. They used to be
+	// planned once per run: the first time no probe was outstanding, every
+	// web stage was queued and the planner never looked again. A port scan
+	// that finished after that moment had its services probed and then
+	// nothing — and a follow-up run, which keeps finding names on
+	// certificates, would have had all of those left unscanned.
+	planned := map[string]bool{}
+	webTargets0, err := p.st.StageTargets(ctx, run.ID, scanproto.StageTechDetect)
+	if err != nil {
+		return err
+	}
+	for _, t := range webTargets0 {
+		planned[fmt.Sprintf("%s:%d", t.IP, t.Port)] = true
 	}
 	// The two loudest stages are switched off at planning time, so that off
 	// means no task exists — not a task that leases a worker and returns
@@ -597,6 +640,11 @@ func (p *Planner) maybePostProbe(ctx context.Context, run domain.ScanRun) error 
 			// planner already knew — and anything it gets wrong is a whole
 			// stage's results rejected at ingest.
 			ip, port := ipPortFromURL(u)
+			key := fmt.Sprintf("%s:%d", ip, port)
+			if planned[key] {
+				continue
+			}
+			planned[key] = true
 			names, seen := namesFor[ip]
 			if !seen {
 				names, _ = p.st.NamesResolvingTo(ctx, run.ScopeID, ip, maxVhosts+1)

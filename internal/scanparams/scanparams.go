@@ -385,6 +385,24 @@ var ProfileFixed = map[string]map[string]string{
 	"deep": {"ports": "full"},
 }
 
+// FollowUpFixed are the settings a follow-up run decides whatever it is
+// asked for. A follow-up scans names and addresses an earlier run already
+// found, so it plans no discovery: no passive enumeration, no brute force.
+var FollowUpFixed = map[string]string{"subfinder_enabled": "false", "dns_bruteforce": "false"}
+
+// FollowUpTools are the tools a follow-up run never uses; the scan form
+// leaves them out (ScanSettings.tsx). dnsx resolves only what discovery
+// found, so with discovery gone it has nothing to do either.
+var FollowUpTools = []string{"subfinder", "shuffledns", "dnsx"}
+
+// WithFollowUp applies FollowUpFixed to a run's settings.
+func WithFollowUp(p map[string]string) map[string]string {
+	for k, v := range FollowUpFixed {
+		p[k] = v
+	}
+	return p
+}
+
 // WithDefaults fills unset parameters from Tools.md defaults, as the profile
 // has them, then applies what the profile fixes.
 func WithDefaults(profile string, p map[string]string) map[string]string {

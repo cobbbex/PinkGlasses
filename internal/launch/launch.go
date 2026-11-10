@@ -60,6 +60,12 @@ type Options struct {
 	WordlistIDs []string
 	// Trigger is recorded on the run: "manual" or "scheduled".
 	Trigger string
+	// FromRunID makes this a follow-up: the run scans what that run found,
+	// with the active stages only, instead of the scope's targets. Assets
+	// narrows it to named values among those results; none means all of
+	// them. Targets, groups, Tag and All are ignored.
+	FromRunID string
+	Assets    []string
 }
 
 // Refusal is why a run was not started, with the HTTP status the API should
@@ -105,7 +111,7 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 
 	// Groups become their entries. A group that no longer exists contributes
 	// nothing; if that leaves no target, the refusal below says so.
-	if len(o.TargetGroupIDs) > 0 {
+	if len(o.TargetGroupIDs) > 0 && o.FromRunID == "" {
 		var ids []uuid.UUID
 		for _, raw := range o.TargetGroupIDs {
 			if id, err := uuid.Parse(raw); err == nil {
@@ -128,35 +134,23 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 	if err != nil {
 		return domain.ScanRun{}, refuse(http.StatusInternalServerError, "%v", err)
 	}
-	want := map[string]bool{}
-	for _, v := range o.Targets {
-		want[v] = true
-	}
 	var runTargets []domain.RunTarget
-	for _, t := range scopeTargets {
-		if t.Mode == domain.ModeExclude {
-			continue
-		}
-		if o.All || o.Tag != "" || want[t.Value] {
-			runTargets = append(runTargets, domain.RunTarget{Kind: t.Kind, Value: t.Value})
-		}
-	}
-	if len(runTargets) == 0 {
-		all, _ := l.st.ListTargetsMerged(ctx, scopeID, "")
-		usable := 0
-		for _, t := range all {
-			if t.Mode != domain.ModeExclude {
-				usable++
+	var follow *followUp
+	if o.FromRunID != "" {
+		if o.Tag != "" {
+			if scopeTargets, err = l.st.ListTargetsMerged(ctx, scopeID, ""); err != nil {
+				return domain.ScanRun{}, refuse(http.StatusInternalServerError, "%v", err)
 			}
 		}
-		switch {
-		case usable == 0:
-			return domain.ScanRun{}, refuse(http.StatusBadRequest,
-				"this scope has no targets yet — add a domain or CIDR on the Dashboard before scanning")
-		case o.Tag != "":
-			return domain.ScanRun{}, refuse(http.StatusBadRequest, "no targets carry the tag %q", o.Tag)
-		default:
-			return domain.ScanRun{}, refuse(http.StatusBadRequest, "none of the selected targets are in this scope")
+		var ref *Refusal
+		if follow, ref = l.planFollowUp(ctx, scopeID, profile, o, scopeTargets); ref != nil {
+			return domain.ScanRun{}, ref
+		}
+		runTargets = follow.targets
+	} else {
+		var ref *Refusal
+		if runTargets, ref = l.selectTargets(ctx, scopeID, o, scopeTargets); ref != nil {
+			return domain.ScanRun{}, ref
 		}
 	}
 
@@ -179,6 +173,9 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 		return domain.ScanRun{}, refuse(http.StatusBadRequest, "invalid scan parameter: %v", err)
 	}
 	effective := scanparams.WithDefaults(string(profile), cleanParams)
+	if follow != nil {
+		effective = scanparams.WithFollowUp(effective)
+	}
 
 	// Exit: validated before any row exists. A refusal here leaves nothing
 	// behind — no failed run to explain later. For a schedule that matters
@@ -197,6 +194,9 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 
 	run := domain.ScanRun{ScopeID: scopeID, Profile: profile, Trigger: o.Trigger, MaxConcurrency: 32,
 		StartedByUserID: o.UserID, StartedVia: o.StartedVia}
+	if follow != nil {
+		run.ParentRunID = &follow.parent.ID
+	}
 	if o.StartedBy != "" {
 		by := o.StartedBy
 		run.StartedBy = &by
@@ -204,6 +204,11 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 	run, saved, err := l.st.CreateRun(ctx, run, runTargets)
 	if err != nil {
 		return domain.ScanRun{}, refuse(http.StatusInternalServerError, "%v", err)
+	}
+	if follow != nil {
+		if err := l.saveSeeds(ctx, run.ID, saved, follow.seeds); err != nil {
+			return l.failed(ctx, run, refuse(http.StatusInternalServerError, "%v", err))
+		}
 	}
 
 	// Wordlists: named lists of any kind; every kind left unsaid falls back to
@@ -224,7 +229,13 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 		byKind[wl.Kind] = append(byKind[wl.Kind], wl)
 	}
 	var wlIDs []uuid.UUID
-	for _, kind := range []string{"dns", "resolvers", "dir"} {
+	kinds := []string{"dns", "resolvers", "dir"}
+	if follow != nil {
+		// No discovery: the subdomain and resolver lists would be recorded
+		// on a run that never used them.
+		kinds = []string{"dir"}
+	}
+	for _, kind := range kinds {
 		lists := byKind[kind]
 		if len(lists) == 0 {
 			lists, _ = l.st.DefaultWordlists(ctx, kind)
@@ -268,6 +279,45 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 		return l.failed(ctx, run, refuse(http.StatusInternalServerError, "%v", err))
 	}
 	return run, nil
+}
+
+// selectTargets picks a run's targets from the scope: the named ones, a tag's
+// or all of them, never an excluded one.
+func (l *Launcher) selectTargets(ctx context.Context, scopeID uuid.UUID, o Options, scopeTargets []domain.ScopeTarget) ([]domain.RunTarget, *Refusal) {
+	want := map[string]bool{}
+
+	for _, v := range o.Targets {
+		want[v] = true
+	}
+	var runTargets []domain.RunTarget
+	for _, t := range scopeTargets {
+		if t.Mode == domain.ModeExclude {
+			continue
+		}
+		if o.All || o.Tag != "" || want[t.Value] {
+			runTargets = append(runTargets, domain.RunTarget{Kind: t.Kind, Value: t.Value})
+		}
+	}
+	if len(runTargets) == 0 {
+		all, _ := l.st.ListTargetsMerged(ctx, scopeID, "")
+		usable := 0
+		for _, t := range all {
+			if t.Mode != domain.ModeExclude {
+				usable++
+			}
+		}
+		switch {
+		case usable == 0:
+			return nil, refuse(http.StatusBadRequest,
+				"this scope has no targets yet — add a domain or CIDR on the Dashboard before scanning")
+		case o.Tag != "":
+			return nil, refuse(http.StatusBadRequest, "no targets carry the tag %q", o.Tag)
+		default:
+			return nil, refuse(http.StatusBadRequest, "none of the selected targets are in this scope")
+		}
+	}
+
+	return runTargets, nil
 }
 
 // failed marks a run that could not be started, keeping the record and the

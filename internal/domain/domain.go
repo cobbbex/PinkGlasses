@@ -178,12 +178,16 @@ type ScanRun struct {
 	StartedBy       *string    `json:"started_by,omitempty"`
 	StartedByUserID *uuid.UUID `json:"started_by_user_id,omitempty"`
 	StartedVia      string     `json:"started_via,omitempty"`
-	Status          RunStatus  `json:"status"`
-	PoolID          *uuid.UUID `json:"pool_id,omitempty"`
-	MaxConcurrency  int        `json:"max_concurrency"`
-	StartedAt       *time.Time `json:"started_at,omitempty"`
-	FinishedAt      *time.Time `json:"finished_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
+	// ParentRunID is the run a follow-up scans the results of: its names
+	// and addresses, with the active stages only. Nil for an ordinary run,
+	// and for a follow-up whose parent has since been deleted.
+	ParentRunID    *uuid.UUID `json:"parent_run_id,omitempty"`
+	Status         RunStatus  `json:"status"`
+	PoolID         *uuid.UUID `json:"pool_id,omitempty"`
+	MaxConcurrency int        `json:"max_concurrency"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 // RunTarget is one domain/CIDR within a batch run, tracked independently.

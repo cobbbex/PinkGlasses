@@ -21,11 +21,11 @@ func (s *Store) CreateRun(ctx context.Context, run domain.ScanRun, targets []dom
 
 	err = tx.QueryRow(ctx, `
 		INSERT INTO scan_run (scope_id, profile, trigger, status, pool_id, max_concurrency,
-		                      started_by, started_by_user_id, started_via)
-		VALUES ($1,$2,$3,'queued',$4,$5,$6,$7,NULLIF($8,''))
+		                      started_by, started_by_user_id, started_via, parent_run_id)
+		VALUES ($1,$2,$3,'queued',$4,$5,$6,$7,NULLIF($8,''),$9)
 		RETURNING id, status, created_at`,
 		run.ScopeID, run.Profile, run.Trigger, run.PoolID, run.MaxConcurrency,
-		run.StartedBy, run.StartedByUserID, run.StartedVia,
+		run.StartedBy, run.StartedByUserID, run.StartedVia, run.ParentRunID,
 	).Scan(&run.ID, &run.Status, &run.CreatedAt)
 	if err != nil {
 		return run, nil, err
@@ -51,10 +51,10 @@ func (s *Store) CreateRun(ctx context.Context, run domain.ScanRun, targets []dom
 func (s *Store) GetRun(ctx context.Context, id uuid.UUID) (domain.ScanRun, error) {
 	var r domain.ScanRun
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, '')
+		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, ''), parent_run_id
 		FROM scan_run WHERE id=$1`, id,
 	).Scan(&r.ID, &r.ScopeID, &r.Profile, &r.Trigger, &r.Status, &r.PoolID,
-		&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia)
+		&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia, &r.ParentRunID)
 	return r, err
 }
 
@@ -192,6 +192,11 @@ type RerunSpec struct {
 	// Targets are the values the run covered, so a rerun covers the same
 	// set rather than whatever the company holds now.
 	Targets []string
+	// ParentRunID and Seeds are set for a follow-up run: the run whose
+	// results it scanned and the names and addresses it was started on, so
+	// a rerun scans the same results again rather than rediscovering them.
+	ParentRunID *uuid.UUID
+	Seeds       []string
 }
 
 // RerunSpec reads the launch choices back off a run.
@@ -203,10 +208,13 @@ func (s *Store) RerunSpec(ctx context.Context, id uuid.UUID) (RerunSpec, error) 
 		SELECT r.scope_id, r.profile, r.profile_id, r.params, r.pool_id,
 		       f.run_id IS NOT NULL, f.vpn_config_id, CASE WHEN COALESCE(f.workers_auto,false) THEN 0 ELSE COALESCE(f.workers, 0) END,
 		       COALESCE((SELECT array_agg(wordlist_id) FROM run_wordlist WHERE run_id=r.id), '{}'),
-		       COALESCE((SELECT array_agg(value ORDER BY value) FROM run_target WHERE run_id=r.id), '{}')
+		       COALESCE((SELECT array_agg(value ORDER BY value) FROM run_target WHERE run_id=r.id), '{}'),
+		       r.parent_run_id,
+		       COALESCE((SELECT array_agg(DISTINCT value) FROM run_seed WHERE run_id=r.id), '{}')
 		FROM scan_run r LEFT JOIN run_fleet f ON f.run_id = r.id
 		WHERE r.id=$1`, id).Scan(&sp.ScopeID, &sp.Profile, &sp.ProfileID, &raw, &sp.PoolID,
-		&hadFleet, &sp.VPNConfigID, &sp.Workers, &sp.WordlistIDs, &sp.Targets)
+		&hadFleet, &sp.VPNConfigID, &sp.Workers, &sp.WordlistIDs, &sp.Targets,
+		&sp.ParentRunID, &sp.Seeds)
 	if err != nil {
 		return sp, err
 	}
@@ -276,7 +284,7 @@ func (s *Store) ListRunSummaries(ctx context.Context, scopeID uuid.UUID, limit i
 	rows, err := s.Pool.Query(ctx, `
 		SELECT r.id, r.scope_id, r.profile, r.trigger, r.status, r.pool_id,
 		       r.max_concurrency, r.started_at, r.finished_at, r.created_at,
-		       r.started_by, r.started_by_user_id, COALESCE(r.started_via, ''),
+		       r.started_by, r.started_by_user_id, COALESCE(r.started_via, ''), r.parent_run_id,
 		       COALESCE(t.cnt, 0), COALESCE(t.names, '{}'),
 		       COALESCE(p.total, 0), COALESCE(p.done, 0),
 		       COALESCE(p.failed, 0), COALESCE(p.outstanding, 0)
@@ -303,7 +311,7 @@ func (s *Store) ListRunSummaries(ctx context.Context, scopeID uuid.UUID, limit i
 		var it RunListItem
 		r := &it.ScanRun
 		if err := rows.Scan(&r.ID, &r.ScopeID, &r.Profile, &r.Trigger, &r.Status, &r.PoolID,
-			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia,
+			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia, &r.ParentRunID,
 			&it.TargetCount, &it.Targets,
 			&it.Total, &it.Done, &it.Failed, &it.Outstanding); err != nil {
 			return nil, err
@@ -318,7 +326,7 @@ func (s *Store) ListRuns(ctx context.Context, scopeID uuid.UUID, limit int) ([]d
 		limit = 50
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, '')
+		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, ''), parent_run_id
 		FROM scan_run WHERE scope_id=$1 ORDER BY created_at DESC LIMIT $2`, scopeID, limit)
 	if err != nil {
 		return nil, err
@@ -328,7 +336,7 @@ func (s *Store) ListRuns(ctx context.Context, scopeID uuid.UUID, limit int) ([]d
 	for rows.Next() {
 		var r domain.ScanRun
 		if err := rows.Scan(&r.ID, &r.ScopeID, &r.Profile, &r.Trigger, &r.Status, &r.PoolID,
-			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia); err != nil {
+			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia, &r.ParentRunID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -339,7 +347,7 @@ func (s *Store) ListRuns(ctx context.Context, scopeID uuid.UUID, limit int) ([]d
 // QueuedRuns returns runs waiting to be planned/started (used by scheduler).
 func (s *Store) QueuedRuns(ctx context.Context) ([]domain.ScanRun, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, '')
+		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, ''), parent_run_id
 		FROM scan_run WHERE status='queued' ORDER BY created_at LIMIT 20`)
 	if err != nil {
 		return nil, err
@@ -349,7 +357,7 @@ func (s *Store) QueuedRuns(ctx context.Context) ([]domain.ScanRun, error) {
 	for rows.Next() {
 		var r domain.ScanRun
 		if err := rows.Scan(&r.ID, &r.ScopeID, &r.Profile, &r.Trigger, &r.Status, &r.PoolID,
-			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia); err != nil {
+			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia, &r.ParentRunID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -377,7 +385,7 @@ var _ = time.Now
 // advance the stage machine).
 func (s *Store) RunningRuns(ctx context.Context) ([]domain.ScanRun, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, '')
+		SELECT id, scope_id, profile, trigger, status, pool_id, max_concurrency, started_at, finished_at, created_at, started_by, started_by_user_id, COALESCE(started_via, ''), parent_run_id
 		FROM scan_run WHERE status='running' ORDER BY created_at LIMIT 100`)
 	if err != nil {
 		return nil, err
@@ -387,7 +395,7 @@ func (s *Store) RunningRuns(ctx context.Context) ([]domain.ScanRun, error) {
 	for rows.Next() {
 		var r domain.ScanRun
 		if err := rows.Scan(&r.ID, &r.ScopeID, &r.Profile, &r.Trigger, &r.Status, &r.PoolID,
-			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia); err != nil {
+			&r.MaxConcurrency, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.StartedBy, &r.StartedByUserID, &r.StartedVia, &r.ParentRunID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

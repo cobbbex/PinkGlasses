@@ -335,7 +335,7 @@ func Tools(o Options) []toolDef {
 		// ---------------- scanning ----------------
 		{
 			Name:        "start_scan",
-			Description: "Start a scan now, once at a time, or on a repeat. profile: passive (public sources only, no packets at the target, needs no exit), standard, or deep. An active profile needs an exit: local (the run builds its own workers behind a VPN; needs vpn_config_id from list_vpn_configs) or remote (an enrolled pool; needs pool_id from list_workers). Targets default to every group; narrow with target_group_ids. when: now returns the run; once needs start_at; repeat takes every_hours (1..8784, e.g. 24, 168) and optional start_at, and returns the schedule. The API refuses with a sentence naming the fix when something is missing — return it as is.",
+			Description: "Start a scan now, once at a time, or on a repeat. profile: passive (public sources only, no packets at the target, needs no exit), standard, or deep. An active profile needs an exit: local (the run builds its own workers behind a VPN; needs vpn_config_id from list_vpn_configs) or remote (an enrolled pool; needs pool_id from list_workers). Targets default to every group; narrow with target_group_ids. when: now returns the run; once needs start_at; repeat takes every_hours (1..8784, e.g. 24, 168) and optional start_at, and returns the schedule. A follow-up scans what an ended run found instead of the company's targets: give from_run_id (and optionally assets, values from run_results; omit for all of them), profile standard or deep, an exit, when now. It resolves the names again and runs the active stages only — no discovery. The API refuses with a sentence naming the fix when something is missing — return it as is.",
 			Schema: obj(map[string]any{
 				"company_id":       str("Company id"),
 				"profile":          str("Scan profile", "passive", "standard", "deep"),
@@ -348,6 +348,8 @@ func Tools(o Options) []toolDef {
 				"when":             str("now, once or repeat; default now", "now", "once", "repeat"),
 				"start_at":         str("RFC3339 time for once, or the first run of a repeat"),
 				"every_hours":      integer("Cadence for repeat"),
+				"from_run_id":      str("A follow-up: the ended run whose results to scan"),
+				"assets":           strList("Follow-up only: names and addresses from run_results to scan; omit for all"),
 			}, "company_id", "profile"),
 			Routes: []string{"POST /scopes/{scopeID}/runs", "POST /scopes/{scopeID}/schedules"},
 			Run: func(ctx context.Context, c *Client, a args) (any, error) {
@@ -375,6 +377,18 @@ func Tools(o Options) []toolDef {
 					when = "now"
 				}
 				id := a.str("company_id")
+				if from := a.str("from_run_id"); from != "" {
+					if when != "now" {
+						return nil, errors.New("a follow-up scans results that exist now; it runs with when: now and cannot be scheduled")
+					}
+					body["from_run_id"] = from
+					if as := a.strs("assets"); len(as) > 0 {
+						body["assets"] = as
+					}
+					delete(body, "target_group_ids")
+					var out map[string]any
+					return out, c.post(ctx, "/scopes/"+id+"/runs", body, &out)
+				}
 				switch when {
 				case "now":
 					if _, ok := body["target_group_ids"]; !ok {
@@ -415,6 +429,38 @@ func Tools(o Options) []toolDef {
 					return nil, err
 				}
 				return trim(out, a.integer("limit", 50)), nil
+			},
+		},
+		{
+			Name: "run_results", ReadOnly: true,
+			Description: "What an ended run found that a follow-up scan can cover: its targets, then names (kind domain) and addresses (kind ip), each with the run targets it was found under. declared on an address says whether it lies inside one of the company's own IP or CIDR targets; one that does not is scanned because a name under an authorized target points to it. Pass values to start_scan as assets with from_run_id.",
+			Schema: obj(map[string]any{
+				"run_id": str("Run id"),
+				"kind":   str("Only this kind", "domain", "ip", "cidr"),
+				"limit":  integer("Max rows, default 500"),
+			}, "run_id"),
+			Routes: []string{"GET /runs/{runID}/assets"},
+			Run: func(ctx context.Context, c *Client, a args) (any, error) {
+				var out struct {
+					RunID  string           `json:"run_id"`
+					Status string           `json:"status"`
+					Assets []map[string]any `json:"assets"`
+				}
+				if err := c.get(ctx, "/runs/"+a.str("run_id")+"/assets", &out); err != nil {
+					return nil, err
+				}
+				total := len(out.Assets)
+				if k := a.str("kind"); k != "" {
+					kept := out.Assets[:0]
+					for _, as := range out.Assets {
+						if as["kind"] == k {
+							kept = append(kept, as)
+						}
+					}
+					out.Assets = kept
+				}
+				return map[string]any{"run_id": out.RunID, "status": out.Status, "total": total,
+					"assets": trim(out.Assets, a.integer("limit", 500))}, nil
 			},
 		},
 		{

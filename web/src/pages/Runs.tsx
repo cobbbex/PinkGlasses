@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, Run, RunTarget, RunActivity, RunFleet, Schedule, TaskResult } from "../api";
+import { api, Run, RunAsset, RunTarget, RunActivity, RunFleet, Schedule, TaskResult } from "../api";
 import { useTableLayout, PlainTh, LayoutDef } from "../components/table";
 import { Badge, useToast, Modal } from "../components/ui";
 import ScanSettings from "../components/ScanSettings";
@@ -29,6 +29,13 @@ const PROFILES = [
   },
 ];
 
+// The same profiles in a follow-up, which skips discovery: what changes is
+// only what the active stages do.
+const FOLLOW_UP_PROFILES: Record<string, string> = {
+  standard: "The active stages at everyday settings over the results: the top 100 ports with service versions, web probing and technology detection, screenshots, directory search, and a nuclei check of every live web endpoint (severity low and up).",
+  deep: "The same stages with the port scan opened up: all 65,535 ports swept, and nmap running its aggressive fingerprint (-A).",
+};
+
 export default function Runs({ scopeID }: { scopeID: string }) {
   const { data: runs, refetch } = useQuery({
     queryKey: ["runs", scopeID], queryFn: () => api.runs(scopeID), refetchInterval: 5000,
@@ -36,6 +43,8 @@ export default function Runs({ scopeID }: { scopeID: string }) {
   const [open, setOpen] = useState("");
   const [launch, setLaunch] = useState(false);
   const closeLaunch = () => setLaunch(false);
+  // The run whose results a follow-up is being set up for.
+  const [followUp, setFollowUp] = useState<Run | null>(null);
   // Room for the run controls in the last column: Pause or Resume, Stop, and
   // for a finished run Rerun and Delete, plus the expand arrow.
   const lay = useTableLayout("asm.runs", RUN_COLUMNS, 230);
@@ -87,12 +96,12 @@ export default function Runs({ scopeID }: { scopeID: string }) {
                     {lay.show("progress") && <td {...lay.td("progress")}><RunProgress run={r} /></td>}
                     {lay.show("status") && <td {...lay.td("status")}><Badge status={r.status} /></td>}
                     <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                      <RunControls run={r} onChange={refetch} />
+                      <RunControls run={r} onChange={refetch} onFollowUp={setFollowUp} />
                       <span className="muted" style={{ marginLeft: 10 }}>{open === r.id ? "▾" : "▸"}</span>
                     </td>
                   </tr>
                   {open === r.id && (
-                    <tr><td colSpan={lay.visible.length + 1} className="detail-cell" style={{ background: "var(--bg)" }}><RunDetail run={r} onChange={refetch} /></td></tr>
+                    <tr><td colSpan={lay.visible.length + 1} className="detail-cell" style={{ background: "var(--bg)" }}><RunDetail run={r} onChange={refetch} onFollowUp={setFollowUp} /></td></tr>
                   )}
                 </Fragment>
               ))}
@@ -104,6 +113,10 @@ export default function Runs({ scopeID }: { scopeID: string }) {
       <Schedules scopeID={scopeID} />
 
       <LaunchModal scopeID={scopeID} open={launch} onClose={closeLaunch} onDone={refetch} />
+      {followUp && (
+        <LaunchModal key={followUp.id} scopeID={scopeID} open followUp={followUp}
+          onClose={() => setFollowUp(null)} onDone={refetch} />
+      )}
     </div>
   );
 }
@@ -114,7 +127,7 @@ export default function Runs({ scopeID }: { scopeID: string }) {
  * lets it go on. Stop ends it. Rerun starts a fresh run with the same choices,
  * through the same checks as a new one.
  */
-function RunControls({ run, onChange }: { run: Run; onChange: () => void }) {
+function RunControls({ run, onChange, onFollowUp }: { run: Run; onChange: () => void; onFollowUp?: (r: Run) => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -139,6 +152,11 @@ function RunControls({ run, onChange }: { run: Run; onChange: () => void }) {
       {live && (
         <button className="danger sm" disabled={busy} title="End this run; unfinished tasks are cancelled"
           onClick={act("Stop", () => api.cancelRun(run.id), "Run stopped")}>Stop</button>
+      )}
+      {!live && onFollowUp && (
+        <button className="ghost sm" disabled={busy}
+          title="Run the active stages — port scan, web probing, directory search, vulnerability checks — over the names and addresses this run found, with no discovery"
+          onClick={(e) => { e.stopPropagation(); onFollowUp(run); }}>Active scan…</button>
       )}
       {!live && (
         <button className="ghost sm" disabled={busy} title="Start a new run with the same profile, settings, wordlists and exit"
@@ -294,11 +312,24 @@ function localInput(d: Date) {
 }
 
 function LaunchModal({
-  scopeID, open, onClose, onDone,
-}: { scopeID: string; open: boolean; onClose: () => void; onDone: () => void }) {
+  scopeID, open, onClose, onDone, followUp,
+}: {
+  scopeID: string; open: boolean; onClose: () => void; onDone: () => void;
+  /** Set up a follow-up of this run: the active stages over what it found. */
+  followUp?: Run;
+}) {
   const toast = useToast();
   const qc = useQueryClient();
-  const [profile, setProfile] = useState("passive");
+  const [profile, setProfile] = useState(followUp ? "standard" : "passive");
+  // A follow-up's choice of results: the values unticked, so everything is
+  // scanned unless the person narrows it.
+  const { data: assets } = useQuery({
+    queryKey: ["run-assets", followUp?.id], queryFn: () => api.runAssets(followUp!.id), enabled: !!followUp,
+  });
+  const [dropped, setDropped] = useState<Set<string>>(new Set());
+  const [ackOutside, setAckOutside] = useState(false);
+  const pickedAssets = (assets ?? []).filter((a) => !dropped.has(a.value));
+  const outside = pickedAssets.filter((a) => a.kind === "ip" && a.declared === false).length;
   const [busy, setBusy] = useState(false);
   // When: now is a run; once and repeat are schedules carrying the same choices.
   const [when, setWhen] = useState<"now" | "once" | "repeat">("now");
@@ -338,19 +369,21 @@ function LaunchModal({
   const { data: defaultLists } = useQuery({
     queryKey: ["wordlists", "defaults"],
     queryFn: async () => {
-      const kinds = await Promise.all(["dns", "resolvers", "dir"].map((k) => api.wordlists(k)));
-      return kinds.flatMap((ls, i) => {
+      const kinds = ["dns", "resolvers", "dir"];
+      const lists = await Promise.all(kinds.map((k) => api.wordlists(k)));
+      return lists.flatMap((ls, i) => {
         const defs = ls.filter((l) => l.is_default && l.status === "ready")
           .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
         // Resolution and directory search use one list: the first default by
         // name, the one the server would pick (launch.go).
-        return (i === 0 ? defs : defs.slice(0, 1)).map((l) => l.id);
+        return (i === 0 ? defs : defs.slice(0, 1)).map((l) => ({ id: l.id, kind: kinds[i] }));
       });
     },
   });
   useEffect(() => {
     if (listsTouched || !defaultLists || defaultLists.length === 0) return;
-    setWordlistIDs(defaultLists);
+    // A follow-up discovers nothing, so it records only a directory list.
+    setWordlistIDs(defaultLists.filter((l) => !followUp || l.kind === "dir").map((l) => l.id));
   }, [defaultLists, listsTouched]);
   // Where the run's active stages leave from. Passive stages never touch the
   // target and always run on the standing workers, so a passive profile needs
@@ -370,7 +403,7 @@ function LaunchModal({
 
   async function start() {
     setBusy(true);
-    if (chosen.length === 0) { setBusy(false); return; }
+    if (!followUp && chosen.length === 0) { setBusy(false); return; }
     const choices = {
       profile,
       ...(allChosen ? {} : { target_group_ids: chosen.map((g) => g.id) }),
@@ -384,7 +417,15 @@ function LaunchModal({
         : {}),
     };
     try {
-      if (when === "now") {
+      if (followUp) {
+        const { target_group_ids: _groups, ...rest } = choices as typeof choices & { target_group_ids?: string[] };
+        await api.createRun(scopeID, {
+          ...rest,
+          from_run_id: followUp.id,
+          ...(dropped.size > 0 ? { assets: pickedAssets.map((a) => a.value) } : {}),
+        });
+        toast("ok", `${profile} follow-up started on ${pickedAssets.length} result${pickedAssets.length === 1 ? "" : "s"}`);
+      } else if (when === "now") {
         await api.createRun(scopeID, { ...choices, ...(allChosen ? { all: true } : {}) });
         toast("ok", `${profile} scan started`);
       } else {
@@ -441,19 +482,28 @@ function LaunchModal({
   const listChoices = wordlistIDs.length;
 
   const overrides = Object.keys(params).length;
+  const picked = followUp ? pickedAssets.length : chosen.length;
+  const label = followUp
+    ? `Start active scan (${pickedAssets.length} result${pickedAssets.length === 1 ? "" : "s"})`
+    : `${verb}${chosen.length ? ` (${chosenEntries} target${chosenEntries === 1 ? "" : "s"})` : ""}`;
 
   return (
     <Modal
-      title="Start a scan" open={open} onClose={close} wide xl={manual}
+      title={followUp ? "Active scan of these results" : "Start a scan"} open={open} onClose={close} wide xl={manual}
       footer={<>
         <button className="ghost" onClick={close}>Cancel</button>
-        <button onClick={start} disabled={busy || chosen.length === 0 || !exitReady || !startValid}>
-          {busy ? (when === "now" ? "Starting…" : "Saving…") : `${verb}${chosen.length ? ` (${chosenEntries} target${chosenEntries === 1 ? "" : "s"})` : ""}`}
+        <button onClick={start} disabled={busy || picked === 0 || !exitReady || !startValid || (outside > 0 && !ackOutside)}>
+          {busy ? (when === "now" ? "Starting…" : "Saving…") : label}
         </button>
       </>}
     >
       <div className="param-label" style={{ minWidth: 0, marginBottom: 6 }}>What to scan</div>
-      {usable.length === 0 ? (
+      {followUp ? (
+        <FollowUpPicker
+          run={followUp} assets={assets} dropped={dropped} onDropped={setDropped}
+          outside={outside} ack={ackOutside} onAck={setAckOutside}
+        />
+      ) : usable.length === 0 ? (
         <div className="empty" style={{ marginBottom: 10, borderColor: "var(--warn)", textAlign: "left" }}>
           <p style={{ marginTop: 0 }}>This company has no targets yet, so there is nothing to scan.</p>
           <p className="muted" style={{ fontSize: 13, marginBottom: 0 }}>
@@ -488,12 +538,12 @@ function LaunchModal({
           </div>
         </>
       )}
-      {PROFILES.map((p) => (
+      {PROFILES.filter((p) => !followUp || p.id !== "passive").map((p) => (
         <label key={p.id} className="check" style={{ cursor: "pointer" }}>
           <input type="radio" name="profile" checked={profile === p.id} onChange={() => setProfile(p.id)} />
           <span>
             <strong>{p.label}</strong>
-            <div className="hint" style={{ marginTop: 2 }}>{p.desc}</div>
+            <div className="hint" style={{ marginTop: 2 }}>{followUp ? FOLLOW_UP_PROFILES[p.id] : p.desc}</div>
             <div className="hint muted" style={{ marginTop: 2 }}>{p.note}</div>
           </span>
         </label>
@@ -583,7 +633,7 @@ function LaunchModal({
         </div>
       )}
 
-      <div className="when-block">
+      {!followUp && <div className="when-block">
         <div className="param-label" style={{ minWidth: 0, marginBottom: 6 }}>When</div>
         <label className="check" style={{ cursor: "pointer" }}>
           <input type="radio" name="when" checked={when === "now"} onChange={() => setWhen("now")} />
@@ -634,7 +684,7 @@ function LaunchModal({
             )}
           </span>
         </label>
-      </div>
+      </div>}
 
       <div className="manual-bar">
         <button className="ghost sm chev-btn" onClick={() => setManual((m) => !m)} aria-expanded={manual}>
@@ -675,10 +725,113 @@ function LaunchModal({
             onPresetChange={setPresetID}
             wordlistIDs={wordlistIDs}
             onWordlistsChange={(ids) => { setListsTouched(true); setWordlistIDs(ids); }}
+            followUp={!!followUp}
           />
         </div>
       )}
     </Modal>
+  );
+}
+
+/** How many result rows the picker draws; the filter narrows the rest. */
+const PICKER_ROWS = 300;
+
+/**
+ * The results of a run a follow-up can scan: its targets, the names and the
+ * addresses it found. Everything is ticked; the person unticks what to leave
+ * out. An address outside the company's own IP and CIDR targets is scanned
+ * because a name under an authorized target points to it — as in any active
+ * scan — and the dialog says so before it starts.
+ */
+function FollowUpPicker({
+  run, assets, dropped, onDropped, outside, ack, onAck,
+}: {
+  run: Run; assets?: RunAsset[]; dropped: Set<string>; onDropped: (s: Set<string>) => void;
+  outside: number; ack: boolean; onAck: (v: boolean) => void;
+}) {
+  const [kind, setKind] = useState<"" | "domain" | "ip" | "target">("");
+  const [q, setQ] = useState("");
+  if (!assets) return <div className="muted" style={{ marginBottom: 10 }}>Loading what the run found…</div>;
+  const isTarget = (a: RunAsset) => !!a.target;
+  if (assets.length === 0) {
+    return (
+      <div className="empty" style={{ marginBottom: 10, borderColor: "var(--warn)", textAlign: "left" }}>
+        <p style={{ margin: 0 }}>
+          This run found nothing a follow-up could scan — no names or addresses under targets the company still allows.
+        </p>
+      </div>
+    );
+  }
+  const shown = assets.filter((a) =>
+    (kind === "" || (kind === "target" ? isTarget(a) : a.kind === kind && !isTarget(a)))
+    && (q === "" || a.value.includes(q.toLowerCase())));
+  const count = (k: "domain" | "ip") => assets.filter((a) => a.kind === k && !isTarget(a)).length;
+  const setAll = (on: boolean) => {
+    const n = new Set(dropped);
+    for (const a of shown) on ? n.delete(a.value) : n.add(a.value);
+    onDropped(n);
+  };
+  const toggle = (v: string) => {
+    const n = new Set(dropped);
+    n.has(v) ? n.delete(v) : n.add(v);
+    onDropped(n);
+  };
+  return (
+    <>
+      <div className="hint" style={{ marginTop: 0, marginBottom: 8 }}>
+        The {run.profile} run from {new Date(run.created_at).toLocaleString()} found {count("domain")} name
+        {count("domain") === 1 ? "" : "s"} and {count("ip")} address{count("ip") === 1 ? "" : "es"}. Every
+        name is resolved again before anything is sent to it; names on certificates found along the way
+        are scanned too.
+      </div>
+      <div className="row" style={{ gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+        <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
+          <option value="">Everything ({assets.length})</option>
+          <option value="target">Run targets</option>
+          <option value="domain">Names ({count("domain")})</option>
+          <option value="ip">Addresses ({count("ip")})</option>
+        </select>
+        <input className="grow" placeholder="Filter…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="ghost sm" onClick={() => setAll(true)}>Tick shown</button>
+        <button className="ghost sm" onClick={() => setAll(false)}>Untick shown</button>
+      </div>
+      <div className="target-pick" style={{ maxHeight: 260, overflowY: "auto" }}>
+        {shown.slice(0, PICKER_ROWS).map((a) => (
+          <label key={a.kind + a.value} className="target-row" title={`found under ${a.under.join(", ")}`}>
+            <input type="checkbox" checked={!dropped.has(a.value)} onChange={() => toggle(a.value)} />
+            <span className="mono">{a.value}</span>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {isTarget(a) ? "run target" : a.kind === "ip" ? "address" : "name"}
+              {!isTarget(a) && ` · under ${a.under.slice(0, 2).join(", ")}${a.under.length > 2 ? ", …" : ""}`}
+            </span>
+            {a.kind === "ip" && a.declared === false && (
+              <span className="pill" title="Not inside any of the company's IP or CIDR targets">outside your ranges</span>
+            )}
+          </label>
+        ))}
+        {shown.length > PICKER_ROWS && (
+          <div className="muted" style={{ fontSize: 12, padding: 6 }}>
+            {shown.length - PICKER_ROWS} more — narrow the filter to see them. Ticking and unticking shown applies to all {shown.length}.
+          </div>
+        )}
+      </div>
+      <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+        {dropped.size === 0 ? `All ${assets.length} chosen.` : `${assets.length - dropped.size} of ${assets.length} chosen.`}
+      </div>
+      {outside > 0 && (
+        <label className="check" style={{ marginTop: 8, borderColor: "var(--warn)", cursor: "pointer" }}>
+          <input type="checkbox" checked={ack} onChange={(e) => onAck(e.target.checked)} />
+          <span>
+            <strong>{outside} chosen address{outside === 1 ? " is" : "es are"} outside your IP and CIDR targets.</strong>
+            <div className="hint" style={{ marginTop: 2 }}>
+              They are scanned because names under your authorized targets point to them, as in any
+              active scan — but shared hosting or a SaaS provider may answer there for other companies
+              too. Untick the ones that are not yours, then tick this to go on.
+            </div>
+          </span>
+        </label>
+      )}
+    </>
   );
 }
 
@@ -797,7 +950,7 @@ function FleetBanner({ runID }: { runID: string }) {
   );
 }
 
-function RunDetail({ run, onChange }: { run: Run; onChange: () => void }) {
+function RunDetail({ run, onChange, onFollowUp }: { run: Run; onChange: () => void; onFollowUp?: (r: Run) => void }) {
   const runID = run.id;
   const qc = useQueryClient();
   const [targets, setTargets] = useState<RunTarget[]>([]);
@@ -821,7 +974,12 @@ function RunDetail({ run, onChange }: { run: Run; onChange: () => void }) {
   const controls = (
     <div className="run-detail-actions">
       <span className="muted" style={{ fontSize: 12 }}>This run:</span>
-      <RunControls run={run} onChange={onChange} />
+      <RunControls run={run} onChange={onChange} onFollowUp={onFollowUp} />
+      {run.parent_run_id && (
+        <span className="muted" style={{ fontSize: 12, marginLeft: 10 }}>
+          Follow-up of the run {run.parent_run_id.slice(0, 8)}: active stages over its results.
+        </span>
+      )}
     </div>
   );
 

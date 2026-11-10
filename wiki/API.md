@@ -114,12 +114,13 @@ asset route is under a scope.
 | `GET /runs/{runID}/activity` | viewer | `{tasks, stages, workers}` — what is running where, right now. Each stage carries `found` and `found_kind` (names, addresses, open ports, web endpoints) and, for discovery stages, `sources` (names per source: `subfinder:crtsh`, `shuffledns`, `seed`); each task carries `result` with the same counts |
 | `GET /runs/{runID}/diff` | viewer | change events this run produced: `{kind, asset_kind, asset_id, before, after, created_at}` |
 | `GET /runs/{runID}/footprint` | viewer | what the run owns, as counts: `{tasks, targets, service_observations, screenshots, resolution_records, finding_observations, change_events, has_fleet}` — what deleting it removes |
+| `GET /runs/{runID}/assets` | viewer | what the run found that a follow-up can scan: `{run_id, status, assets: [{kind, value, under, target?, declared?}]}` — the run's own targets first, then names (`domain`) and addresses (`ip`); `target` marks the run's own targets; `under` is the run targets each was found below; `declared` (addresses only) says whether it lies inside one of the company's IP or CIDR targets. Targets now excluded, and names at or below an excluded domain, are left out |
 | `GET /runs/{runID}/events` | viewer | server-sent events stream; see the note under *Known gaps* |
 | `POST /runs/{runID}/cancel` | operator | stop: unfinished tasks are cancelled, the run ends as `cancelled`; works on a paused run too |
 | `POST /runs/{runID}/pause` | operator | hold a running run: nothing more is leased, tasks in flight finish, its own fleet stays up; 409 unless `running` |
 | `POST /runs/{runID}/resume` | operator | continue a paused run; 409 unless `paused` |
 | `DELETE /runs/{runID}` | operator | delete a finished, failed, stopped or paused run (a paused one is stopped first; a running one answers 409): tasks, targets, observations, fleet record and change events go with it, and its screenshots and raw output are removed from object storage — history that came from the run disappears. 409 while the run is going (stop it first) or its fleet is still being removed; answers `{deleted, artifacts_removed, artifacts_failed}` |
-| `POST /runs/{runID}/rerun` | operator | start a new run with this one's targets, profile, parameters, wordlists and exit, through the same checks as a fresh start; 201 with the new run |
+| `POST /runs/{runID}/rerun` | operator | start a new run with this one's targets, profile, parameters, wordlists and exit, through the same checks as a fresh start; a follow-up is rerun as a follow-up of the same run, on the same names and addresses (409 if that run has been deleted); 201 with the new run |
 
 **Starting a run:**
 
@@ -133,9 +134,25 @@ asset route is under a scope.
   "worker_count": 0,              // local only: 0 or absent is Auto (sized from the targets, at most 4); 1–8 overrides
   "profile_id": "…",              // a saved preset
   "params": {"httpx_user_agent": "…"},   // ad-hoc overrides
-  "wordlist_ids": ["…"]           // explicit lists; empty means the registry defaults
+  "wordlist_ids": ["…"],          // explicit lists; empty means the registry defaults
+  "from_run_id": "…",             // a follow-up: scan what that run found (see below)
+  "assets": ["a.example.com"]     // follow-up only: some of its results; empty is all of them
 }
 ```
+
+**A follow-up** (`from_run_id`) scans the results of a run that has ended —
+completed, failed or stopped — instead of the company's targets: typically a
+passive run, then the active stages over what it found. It takes every other
+field a run does, except that the profile is `standard` or `deep` and
+`targets`, `target_group_ids`, `tag` and `all` are ignored. Nothing is
+discovered: `subfinder_enabled` and `dns_bruteforce` are forced off, and only a
+directory wordlist is recorded. Every chosen name is resolved again first, then
+its addresses go through the usual checks (authorization by the target it was
+found under, exclusions, private ranges, `cdn_ports`); chosen addresses are
+port scanned directly. Names found on TLS certificates during the run that lie
+below one of its domain targets are resolved and scanned too. The run records
+`parent_run_id`. `assets` values that are not among the run's results are
+refused by name (400); a run still going is 409.
 
 Active stages send traffic at the target, so a run with any needs an **exit**:
 `local` — an ephemeral fleet behind a VPN gateway, needs `vpn_config_id` and a

@@ -100,6 +100,19 @@ export interface Run {
   targets?: string[] | null; target_count?: number;
   tasks_total?: number; tasks_done?: number;
   tasks_failed?: number; tasks_outstanding?: number;
+  /** Set on a follow-up: the run whose results it scans. */
+  parent_run_id?: string | null;
+}
+/** Something a run found that a follow-up can scan (GET /runs/{id}/assets). */
+export interface RunAsset {
+  kind: "domain" | "ip" | "cidr";
+  value: string;
+  /** The run targets it was found below. */
+  under: string[];
+  /** One of the run's own targets. */
+  target?: boolean;
+  /** Addresses only: inside one of the company's own IP or CIDR targets. */
+  declared?: boolean;
 }
 export interface RunTarget {
   id: string; run_id: string; kind: string; value: string; status: string;
@@ -520,6 +533,9 @@ export const api = {
   pauseRun: (id: string) => req(`/runs/${id}/pause`, { method: "POST" }),
   resumeRun: (id: string) => req(`/runs/${id}/resume`, { method: "POST" }),
   rerunRun: (id: string) => req<Run>(`/runs/${id}/rerun`, { method: "POST" }),
+  runAssets: (id: string) =>
+    req<{ run_id: string; status: string; assets: RunAsset[] | null }>(`/runs/${id}/assets`)
+      .then((x) => x.assets ?? []),
   runFootprint: (id: string) =>
     req<{ tasks: number; targets: number; service_observations: number; screenshots: number;
           resolution_records: number; finding_observations: number; change_events: number; has_fleet: boolean }>(`/runs/${id}/footprint`),

@@ -181,6 +181,23 @@ holds its company against schedules. **Rerun** reads the launch choices back off
 the run row and its fleet record (`RerunSpec`) and goes through `launch.Start`,
 so it is refused for the same reasons a fresh start would be.
 
+A **follow-up** (`from_run_id`) is a run over an ended run's results. Its run
+targets are the parent's, so authorization is unchanged: a name or address may
+be scanned because the target it was found under is authorized. What it was
+started on is stored as `run_seed` rows (name, address or CIDR, under a run
+target; 00050), and the run records `parent_run_id`. The results offered are
+read from the parent's own task summaries (`store.RunAssets`), not from the
+company's inventory, minus anything excluded since. The launcher forces
+`subfinder_enabled` and `dns_bruteforce` off (`scanparams.FollowUpFixed`) and
+records only a directory wordlist. The planner (`planFollowUp`) queues a
+`dns_resolve` per chosen name and feeds chosen addresses into
+`scanNewAddresses` beside resolved ones, so they meet the same scope guard,
+exclusions and `cdn_ports`. While it runs, `resolveNewNames` reads the names
+ingest saw on certificates (`StageSummary.Names`) and resolves those below a
+domain target. The web stages are planned per live `ip:port` as probes finish,
+not once per run, so services found late — in any run — still get them. A rerun
+of a follow-up is a follow-up of the same parent on the same seeds.
+
 ### 3.4 `differ`
 
 Compares a completed run against the previous baseline **per target**, emitting

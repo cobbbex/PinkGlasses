@@ -63,7 +63,7 @@ resource and is not on that list with a reason.
 | Orientation | `list_companies`, `company_summary`, `rename_company` |
 | Inventory | `search` (the query language, with facets), `list_hosts`, `get_host`, `list_findings`, `update_finding` |
 | Targets | `list_target_groups`, `add_targets`, `edit_target_group`, `remove_target_group` |
-| Scanning | `start_scan` (now, once at a time, or on a repeat), `list_runs`, `get_run`, `wait_for_run`, `run_diff`, `pause_run`, `resume_run`, `stop_run`, `rerun`, `delete_run`, `list_schedules`, `edit_schedule`, `remove_schedule`, `scan_parameters` |
+| Scanning | `start_scan` (now, once at a time, or on a repeat), `list_runs`, `get_run`, `wait_for_run`, `run_diff`, `pause_run`, `resume_run`, `stop_run`, `rerun`, `delete_run`, `run_results` (what an ended run found, for a follow-up: `start_scan` with `from_run_id`), `list_schedules`, `edit_schedule`, `remove_schedule`, `scan_parameters` |
 | Infrastructure | `list_workers` (workers, pools, runs' own fleets), `list_vpn_configs` (the token owner's, names only, usable in any company), `list_wordlists`, `alerts` |
 | Remote workers (with `ASM_MCP_ALLOW_WORKERS`) | `add_remote_worker`, `approve_worker`, `remove_worker`, `set_pool_discovery`, `list_ssh_exits`, `add_ssh_exit`, `install_ssh_exit`, `remove_ssh_exit` |
 

@@ -210,3 +210,14 @@ func TestRetiredSkipCDNAddressesIsTranslated(t *testing.T) {
 		t.Error("a key that never existed is still refused")
 	}
 }
+
+// A follow-up never discovers, whatever its settings ask for.
+func TestFollowUpForcesDiscoveryOff(t *testing.T) {
+	p := WithFollowUp(WithDefaults("standard", map[string]string{"dns_bruteforce": "true", "subfinder_enabled": "true", "nmap_enabled": "false"}))
+	if p["dns_bruteforce"] != "false" || p["subfinder_enabled"] != "false" {
+		t.Errorf("discovery left on: %v %v", p["dns_bruteforce"], p["subfinder_enabled"])
+	}
+	if p["nmap_enabled"] != "false" || p["naabu_enabled"] != "true" {
+		t.Error("a follow-up changed a setting it does not decide")
+	}
+}

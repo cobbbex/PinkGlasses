@@ -84,6 +84,20 @@ with the same choices; a finished run can be deleted with everything it recorded
 its screenshots included. See the README's *Scheduled scans* and *Watching a scan*,
 and [Architecture](Architecture) §3.3.
 
+## Passive first, then active on the results
+
+A run that has ended has an **Active scan…** button: the active stages — port
+scan, service detection, web probing, screenshots, directory search, nuclei —
+over the names and addresses that run found, with no discovery. The dialog is
+the ordinary scan dialog (standard or deep, exit, every tool setting, presets,
+wordlists) without the discovery tools, plus a list of the run's results to
+narrow it to some of them. Every name is resolved again before anything is sent
+to it, so a name that has moved since a passive look does not lead to someone
+else's address; names found on TLS certificates along the way that lie below the
+run's targets are scanned too. Addresses outside the company's own IP and CIDR
+targets are listed as such and have to be acknowledged. A follow-up can be made
+from any ended run, and a rerun of one scans the same results again.
+
 ## Who can do what
 
 Every endpoint needs a signed-in session or an API token; three ordered roles

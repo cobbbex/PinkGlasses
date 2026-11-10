@@ -31,6 +31,10 @@ const PROFILE_DEFAULTS: Record<string, Record<string, string>> = {
 // set are kept, so a preset saved from here still carries them for a full scan.
 const ACTIVE_TOOLS = new Set(["naabu", "nmap", "httpx", "katana", "gobuster", "nuclei"]);
 
+// Tools a follow-up scan never runs: it starts from what an earlier run found,
+// so there is nothing to discover. Mirrors scanparams.FollowUpTools.
+const FOLLOW_UP_TOOLS = new Set(["subfinder", "shuffledns", "dnsx"]);
+
 /**
  * Per-tool scan settings editor. Shows the shipped default for every parameter,
  * lets the user override any of them, and save the result as a named preset.
@@ -40,7 +44,7 @@ const ACTIVE_TOOLS = new Set(["naabu", "nmap", "httpx", "katana", "gobuster", "n
  * the security boundary.
  */
 export default function ScanSettings({
-  scopeID, profile, values, onChange, presetID, onPresetChange, wordlistIDs, onWordlistsChange,
+  scopeID, profile, values, onChange, presetID, onPresetChange, wordlistIDs, onWordlistsChange, followUp,
 }: {
   scopeID: string;
   /** The run's profile: a passive run has DNS bruteforce off unless switched on. */
@@ -52,6 +56,8 @@ export default function ScanSettings({
   /** Explicitly chosen lists. A kind with nothing chosen uses its defaults. */
   wordlistIDs: string[];
   onWordlistsChange: (ids: string[]) => void;
+  /** A follow-up scan: discovery tools are left out, and so are their lists. */
+  followUp?: boolean;
 }) {
   const toast = useToast();
   const [specs, setSpecs] = useState<ParamSpec[]>([]);
@@ -127,7 +133,11 @@ export default function ScanSettings({
 
   if (specs.length === 0) return <div className="muted">Loading settings…</div>;
 
-  const tools = TOOL_ORDER.filter((t) => byTool[t]?.length);
+  const tools = TOOL_ORDER.filter((t) => byTool[t]?.length && !(followUp && FOLLOW_UP_TOOLS.has(t)));
+  // Settings a loaded preset carries for tools a follow-up does not run.
+  const unused = followUp
+    ? specs.filter((s) => FOLLOW_UP_TOOLS.has(s.tool) && values[s.key] !== undefined && values[s.key] !== defaultOf(s)).length
+    : 0;
 
   return (
     <div>
@@ -147,6 +157,14 @@ export default function ScanSettings({
           Reset to defaults
         </button>
       </div>
+
+      {followUp && (
+        <div className="hint muted" style={{ margin: "8px 0" }}>
+          Discovery is left out — subfinder, shuffledns and dnsx have nothing to do in a scan of names
+          and addresses that are already known.
+          {unused > 0 && ` ${unused} setting${unused === 1 ? "" : "s"} in this preset belong to them and do not apply.`}
+        </div>
+      )}
 
       {tools.map((tool) => passive && ACTIVE_TOOLS.has(tool) ? (
         // A passive run plans none of these, and stores them as off

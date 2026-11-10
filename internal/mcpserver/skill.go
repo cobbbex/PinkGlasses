@@ -265,6 +265,16 @@ ends and returns the diff. ` + "`pause_run`" + `, ` + "`resume_run`" + `, ` + "`
 ` + "`rerun`" + ` do what they say; a rerun goes through the same checks as a fresh
 start.
 
+## Passive first, then active on what it found
+
+A passive run touches no target. To go further on its results, list them
+with ` + "`run_results`" + ` and start a follow-up: ` + "`start_scan`" + ` with ` + "`from_run_id`" + `,
+profile ` + "`standard`" + ` or ` + "`deep`" + `, an exit, and optionally ` + "`assets`" + ` (some of the
+values; omit for all). It resolves the names again and runs the active
+stages only, with the same settings a normal scan takes; names found on TLS
+certificates below its targets are scanned too. Ask before starting one —
+it sends traffic to every address the passive run turned up.
+
 A run that fails carries the reason in its record: the VPN not coming up, a
 lease expiring, workers that stopped reporting. Show it to the user.
 `

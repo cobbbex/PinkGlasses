@@ -3,12 +3,14 @@ package httpapi
 import (
 	"log/slog"
 	"net/http"
+	"net/netip"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/benlik386/pinkglasses/internal/domain"
 	"github.com/benlik386/pinkglasses/internal/launch"
+	"github.com/benlik386/pinkglasses/internal/store"
 )
 
 func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +36,11 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		VPNConfigID string `json:"vpn_config_id"`
 		PoolID      string `json:"pool_id"`
 		WorkerCount int    `json:"worker_count"`
+		// FromRunID starts a follow-up: the active stages over what that
+		// run found. Assets narrows it to some of those names and
+		// addresses (GET /runs/{runID}/assets); empty is all of them.
+		FromRunID string   `json:"from_run_id"`
+		Assets    []string `json:"assets"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
@@ -47,12 +54,18 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		Exit: in.Exit, VPNConfigID: in.VPNConfigID, PoolID: in.PoolID, WorkerCount: in.WorkerCount,
 		Trigger: "manual", UserID: userIDOf(r),
 		StartedBy: actor(r), StartedVia: currentUser(r).Via,
+		FromRunID: in.FromRunID, Assets: in.Assets,
 	})
 	if ref != nil {
 		writeErr(w, ref.Status, ref.Msg)
 		return
 	}
-	s.auditReq(r, "run.create", run.ID.String(), map[string]any{"profile": run.Profile})
+	meta := map[string]any{"profile": run.Profile}
+	if run.ParentRunID != nil {
+		meta["follow_up_of"] = run.ParentRunID.String()
+		meta["assets"] = len(in.Assets)
+	}
+	s.auditReq(r, "run.create", run.ID.String(), meta)
 	writeJSON(w, http.StatusCreated, run)
 }
 
@@ -249,6 +262,14 @@ func (s *Server) rerunRun(w http.ResponseWriter, r *http.Request) {
 	o := launch.Options{Profile: sp.Profile, All: len(sp.Targets) == 0, Targets: sp.Targets,
 		Params: sp.Params, Exit: sp.Exit, WorkerCount: sp.Workers, Trigger: "manual",
 		StartedBy: actor(r), StartedVia: currentUser(r).Via, UserID: userIDOf(r)}
+	// A follow-up is rerun as one: the same results of the same run again.
+	if len(sp.Seeds) > 0 {
+		if sp.ParentRunID == nil {
+			writeErr(w, http.StatusConflict, "the run this one followed up has been deleted, so its results cannot be scanned again; start a new scan")
+			return
+		}
+		o.FromRunID, o.Assets, o.All, o.Targets = sp.ParentRunID.String(), sp.Seeds, false, nil
+	}
 	if sp.ProfileID != nil {
 		o.ProfileID = sp.ProfileID.String()
 	}
@@ -377,4 +398,67 @@ func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
 	_ = s.st.SetRunStatus(r.Context(), id, domain.RunCancelled)
 	s.auditReq(r, "run.cancel", id.String(), nil)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+// runAssets lists what a run found that a follow-up can be started on: its
+// own targets, then the names and addresses below them. Each address says
+// whether it lies inside one of the company's IP or CIDR targets; one that
+// does not is scanned because a name under an authorized target points to
+// it, as in any run, and the scan form says so before it starts.
+func (s *Server) runAssets(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "runID"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad run id")
+		return
+	}
+	run, err := s.st.GetRun(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
+	assets, err := launch.FollowUpAssets(r.Context(), s.st, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	scopeTargets, err := s.st.ListTargetsMerged(r.Context(), run.ScopeID, "")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var declared []netip.Prefix
+	for _, t := range scopeTargets {
+		if t.Mode == domain.ModeExclude || (t.Kind != "ip" && t.Kind != "cidr") {
+			continue
+		}
+		if p, err := netip.ParsePrefix(t.Value); err == nil {
+			declared = append(declared, p)
+		} else if a, err := netip.ParseAddr(t.Value); err == nil {
+			declared = append(declared, netip.PrefixFrom(a, a.BitLen()))
+		}
+	}
+	type item struct {
+		store.RunAsset
+		// Declared is set on an address inside one of the company's own IP
+		// or CIDR targets.
+		Declared *bool `json:"declared,omitempty"`
+	}
+	out := make([]item, 0, len(assets))
+	for _, a := range assets {
+		it := item{RunAsset: a}
+		if a.Kind == "ip" {
+			in := false
+			if addr, err := netip.ParseAddr(a.Value); err == nil {
+				for _, p := range declared {
+					if p.Contains(addr) {
+						in = true
+						break
+					}
+				}
+			}
+			it.Declared = &in
+		}
+		out = append(out, it)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"run_id": id, "status": run.Status, "assets": out})
 }

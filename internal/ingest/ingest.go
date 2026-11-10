@@ -100,6 +100,7 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 	ipSeen := map[string]bool{}
 	svcSeen := map[string]bool{}
 	urlSeen := map[string]bool{}
+	nameSeen := map[string]bool{}
 
 	skipped := 0
 	for _, o := range obs {
@@ -255,6 +256,14 @@ func (in *Ingestor) Process(ctx context.Context, runID uuid.UUID, workerID *uuid
 			so.TLS = map[string]any{"cert_sha256": o.CertSHA256, "subject_cn": o.SubjectCN, "issuer": o.Issuer, "sans": o.SANs, "not_after": o.NotAfter}
 			if err := in.st.UpsertServiceObservation(ctx, svcID, runID, workerID, so); err != nil {
 				return sum, err
+			}
+			// The names a certificate is for, for the planner to resolve in
+			// a follow-up run (planner.resolveNewNames).
+			for _, n := range append([]string{o.SubjectCN}, o.SANs...) {
+				if n = norm(n); n != "" && !nameSeen[n] {
+					nameSeen[n] = true
+					sum.Names = append(sum.Names, n)
+				}
 			}
 			// A date the certificate stops working on is the one thing a scan
 			// learns with a deadline attached; raise it where findings live

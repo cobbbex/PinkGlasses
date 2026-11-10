@@ -992,6 +992,7 @@ func (g *Gateway) mergeTaskSummary(ctx context.Context, taskID uuid.UUID, add pl
 	}
 	cur.IPs = mergeStrings(cur.IPs, add.IPs)
 	cur.WebURLs = mergeStrings(cur.WebURLs, add.WebURLs)
+	cur.Names = mergeStrings(cur.Names, add.Names)
 
 	seen := make(map[string]bool, len(cur.Services))
 	for _, s := range cur.Services {
