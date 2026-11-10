@@ -190,6 +190,9 @@ func (g *Gateway) enroll(w http.ResponseWriter, r *http.Request) {
 		// small machine — or one deliberately given one slot — was handed
 		// eight tasks and ran all eight.
 		MaxConcurrency: workerSlots(req.MaxConcurrency),
+		// The token's pool decides whose worker this is; the worker has no
+		// say. Only that account sees it and only its runs are sent here.
+		OwnerID: tok.OwnerID,
 	}
 	if tok.EgressHint != nil {
 		// Through a tunnel the source is the tunnel's private end; the
@@ -201,7 +204,7 @@ func (g *Gateway) enroll(w http.ResponseWriter, r *http.Request) {
 	// A restarted container re-enrols under the same hostname; drop the row it
 	// left behind so the fleet shows one entry per worker rather than a growing
 	// column of duplicates.
-	if n, _ := g.st.PruneReplacedWorker(r.Context(), worker.Name, worker.Kind); n > 0 {
+	if n, _ := g.st.PruneReplacedWorker(r.Context(), worker.Name, worker.Kind, worker.OwnerID); n > 0 {
 		slog.Info("replaced a disconnected worker of the same name",
 			"name", worker.Name, "removed", n)
 	}

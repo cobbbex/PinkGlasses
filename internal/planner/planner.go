@@ -249,7 +249,8 @@ const scanBatchSize = 64
 // routeTasks assigns every spec the one pool whose workers may run it.
 //
 // Passive stages — the ones that never send a packet at the target — go to the
-// standing local pool whatever exit the run chose, so discovery starts before
+// standing local pool (or a pool of the run's own account marked to take
+// discovery) whatever exit the run chose, so discovery starts before
 // the run's fleet is even up. Active stages go to the run's exit pool: an
 // ephemeral fleet behind a VPN gateway, or a pool of enrolled remote workers.
 //
@@ -287,7 +288,7 @@ type routing struct {
 // stages to plan (the API refuses to create one otherwise), so nil is fine
 // there — but the passive pool must exist, or discovery has nowhere to run.
 func (p *Planner) routingFor(ctx context.Context, run domain.ScanRun) (routing, error) {
-	passive, err := p.st.PassivePool(ctx)
+	passive, err := p.st.PassivePool(ctx, run.StartedByUserID)
 	if err != nil {
 		return routing{}, fmt.Errorf("no pool for passive stages: %w", err)
 	}

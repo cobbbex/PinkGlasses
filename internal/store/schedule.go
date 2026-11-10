@@ -40,20 +40,23 @@ type Schedule struct {
 	LastError *string `json:"last_error,omitempty"`
 	// CreatedBy is the account that saved the schedule; its runs are
 	// recorded as started by it.
-	CreatedBy string    `json:"created_by"`
-	CreatedAt time.Time `json:"created_at"`
+	CreatedBy string `json:"created_by"`
+	// CreatedByID is that account: a scheduled run uses its remote
+	// workers, and no one else's.
+	CreatedByID *uuid.UUID `json:"created_by_id,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 const scheduleCols = `id, scope_id, profile, exit, vpn_config_id, pool_id, worker_count, every_hours,
 	enabled, next_run_at, last_run_id, last_run_at, last_error, created_at, profile_id, params, wordlist_ids, targets, target_group_ids,
-	COALESCE(created_by, '')`
+	COALESCE((SELECT u.username FROM app_user u WHERE u.id = scan_schedule.created_by), ''), created_by`
 
 func scanSchedule(row interface{ Scan(...any) error }) (Schedule, error) {
 	var sc Schedule
 	var raw []byte
 	err := row.Scan(&sc.ID, &sc.ScopeID, &sc.Profile, &sc.Exit, &sc.VPNConfigID, &sc.PoolID,
 		&sc.WorkerCount, &sc.EveryHours, &sc.Enabled, &sc.NextRunAt, &sc.LastRunID,
-		&sc.LastRunAt, &sc.LastError, &sc.CreatedAt, &sc.ProfileID, &raw, &sc.WordlistIDs, &sc.Targets, &sc.TargetGroupIDs, &sc.CreatedBy)
+		&sc.LastRunAt, &sc.LastError, &sc.CreatedAt, &sc.ProfileID, &raw, &sc.WordlistIDs, &sc.Targets, &sc.TargetGroupIDs, &sc.CreatedBy, &sc.CreatedByID)
 	if err != nil {
 		return sc, err
 	}

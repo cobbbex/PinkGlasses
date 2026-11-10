@@ -130,7 +130,7 @@ asset route is under a scope.
   "all": true,                    // or "target_group_ids": ["…"], "targets": ["example.com"], or "tag": "prod"
   "exit": "local",                // required unless profile is passive
   "vpn_config_id": "…",           // local: the tunnel this run leaves through
-  "pool_id": "…",                 // remote: the pool of enrolled workers instead
+  "pool_id": "…",                 // remote: one of your own pools of enrolled workers instead
   "worker_count": 0,              // local only: 0 or absent is Auto (sized from the targets, at most 4); 1–8 overrides
   "profile_id": "…",              // a saved preset
   "params": {"httpx_user_agent": "…"},   // ad-hoc overrides
@@ -237,13 +237,13 @@ Event kinds: `new_finding`, `finding_gone`, `finding_returned`, `new_port`,
 
 | Route | Role | Purpose |
 |---|---|---|
-| `GET /workers` | viewer | every worker: status, egress, load, tools, `run_scoped` for a run's own containers |
+| `GET /workers` | viewer | the shared local workers and your own remote ones (an administrator: every account's, with `owner`): status, egress, load, tools, `run_scoped` for a run's own containers |
 | `GET /fleets` | viewer | runs' own fleets — the VPN gateway (tunnel state, exit address, VPN config) and the workers beside it, with the run and company — every fleet up or being built plus those ended in the last day |
-| `GET /pools` | viewer | pools a run may choose as its remote exit, with `active_workers` — remote workers only; the standing local workers run passive stages and are never an exit |
-| `PATCH /pools/{poolID}` | operator | `{takes_discovery}` — whether this pool runs the stages that never touch a target (passive discovery, DNS), moving that work off the control-plane host. A run's own pool cannot be changed |
-| `POST /workers/enrollment-tokens` | operator | `{kind: vps, name, pool_id, ttl_mins, max_uses}` → `{token, install_command, expires_in}`. `kind: local` is refused: the standing worker enrols itself and a run's fleet is built by the scheduler |
-| `POST /workers/{workerID}/{action}` | operator | `approve`, `drain`, `resume`, `quarantine`, `revoke`; any worker, not only ones you enrolled |
-| `DELETE /workers/{workerID}` | operator | a local worker's container is removed first |
+| `GET /pools` | viewer | your own pools — the ones a run of yours may choose as its remote exit — with `active_workers`, remote workers only; the standing local workers run passive stages and are never an exit. Another account's pools are never listed, an administrator's request included |
+| `PATCH /pools/{poolID}` | operator | `{takes_discovery}` — whether one of your pools runs your scans' stages that never touch a target (passive discovery, DNS), moving that work off the control-plane host. Another account's pool, a shared one and a run's own are 404 |
+| `POST /workers/enrollment-tokens` | operator | `{kind: vps, name, pool_id, ttl_mins, max_uses}` → `{token, install_command, expires_in}`. The worker is yours: `pool_id` must be one of your pools, and without one it goes into your own pool called `remote`. `kind: local` is refused: the standing worker enrols itself and a run's fleet is built by the scheduler |
+| `POST /workers/{workerID}/{action}` | operator | `approve`, `drain`, `resume`, `quarantine`, `revoke`; a shared local worker, or one of your remote ones (an administrator: any). Another account's is 404 |
+| `DELETE /workers/{workerID}` | operator | same rule; a local worker's container is removed first |
 
 ## SSH exits
 
@@ -255,7 +255,7 @@ leave from the VPS. Administrators see every exit, anyone else their own.
 | Route | Role | Purpose |
 |---|---|---|
 | `GET /ssh-exits` | operator | `{exits, secrets_ready, secrets_reason}`: host, user, the public key to authorize, pinned host key, session status and last error, install status and log — **never the private key** |
-| `POST /ssh-exits` | operator | `{name, host, port, username, private_key?, remote_port, pool_id?, worker_name?}`; with no `private_key` an Ed25519 key is generated and its `public_key` returned for the VPS's authorized_keys; a key with a passphrase is refused; the pool defaults to `remote`; 409 on a duplicate name |
+| `POST /ssh-exits` | operator | `{name, host, port, username, private_key?, remote_port, pool_id?, worker_name?}`; with no `private_key` an Ed25519 key is generated and its `public_key` returned for the VPS's authorized_keys; a key with a passphrase is refused; the pool must be one of yours and defaults to your own `remote`; 409 on a duplicate name |
 | `POST /ssh-exits/{exitID}/install` | operator | 202; the connector mints a single-use, pre-approved enrolment token, runs the install over the session and records `install_status` (`pending`, `running`, `done`, `failed`) and its output; 409 while one is running |
 | `DELETE /ssh-exits/{exitID}` | operator | 202; the connector removes the worker from the VPS if it can reach it, closes the session, then deletes the exit |
 

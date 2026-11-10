@@ -935,9 +935,12 @@ Every task is routed to exactly one pool, chosen by what kind of task it is.
 An active run chooses one of two exits when it is created, and cannot be
 created without one:
 
-- **remote** — an existing pool of enrolled workers (a VPS, say). The run's
-  active tasks are bound to that pool; the scan leaves from those workers'
-  addresses.
+- **remote** — an existing pool of enrolled workers (a VPS, say), one of the
+  run's own account's: a person's, or for a scheduled run the schedule
+  creator's. The run's active tasks are bound to that pool; the scan leaves
+  from those workers' addresses. Another account's pool is refused as not
+  found, and its discovery follows the same rule: an account's pool marked to
+  take discovery carries that account's runs' discovery and no one else's.
 - **local** — an ephemeral fleet the run brings up for itself: a **gateway
   container** holding a VPN tunnel, and workers sharing its network namespace.
   Requires a VPN configuration; a scope with none cannot start a local active
@@ -1254,8 +1257,10 @@ on their next request.
 Starting a run is the boundary between reading and acting, because it sends
 packets at somebody else's infrastructure. The fleet sits with operators
 because they start the scans it runs; enrolling still hands out a credential
-for the gateway, and an approved worker leases every company's tasks in its
-pool, so the role is one to give only to people trusted with that. VPN
+for the gateway, so the role is one to give only to people trusted with that.
+A remote worker and its pool belong to the account that enrolled it: only that
+account sees them and only its runs are routed there (an administrator sees
+them all, to stop one, but scans only from their own). VPN
 configurations and SSH exits stay per-account: an operator manages their own,
 an administrator anyone's.
 

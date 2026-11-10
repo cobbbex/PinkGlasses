@@ -42,8 +42,17 @@ const maxEveryHours = 366 * 24
 // applyFor is apply with the requester's ownership of the VPN configuration
 // checked: a schedule scans through the tunnel of the person who saved it.
 func (in scheduleInput) applyFor(s *Server, r *http.Request, sc *store.Schedule) *exitErr {
+	prevPool := sc.PoolID
 	if e := in.apply(sc); e != nil {
 		return e
+	}
+	// A pool newly chosen must be the requester's own: a schedule runs on
+	// its creator's remote workers, and a pool kept from before is checked
+	// against them when each run starts.
+	if sc.PoolID != nil && (prevPool == nil || *prevPool != *sc.PoolID) {
+		if e := s.ownsPool(r, *sc.PoolID); e != nil {
+			return e
+		}
 	}
 	if sc.VPNConfigID != nil && in.VPNConfigID != nil && *in.VPNConfigID != "" {
 		return s.ownsVPN(r, *sc.VPNConfigID)
@@ -363,6 +372,10 @@ func (s *Server) patchScope(w http.ResponseWriter, r *http.Request) {
 		id, err := uuid.Parse(*in.DefaultPoolID)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "bad pool id")
+			return
+		}
+		if e := s.ownsPool(r, id); e != nil {
+			writeErr(w, e.status, e.msg)
 			return
 		}
 		poolID = &id

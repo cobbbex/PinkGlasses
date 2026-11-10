@@ -44,6 +44,10 @@ type Options struct {
 	// which VPN configurations may be named. A scheduled run has none; its
 	// config was checked against its creator when the schedule was saved.
 	UserID *uuid.UUID
+	// Owner is the account whose remote workers the run may use, when it is
+	// not UserID: a scheduled run's is the schedule's creator. Nil with a
+	// nil UserID means no account at all, and no remote workers.
+	Owner *uuid.UUID
 	// StartedBy and StartedVia record who started the run and how, for the
 	// run's record; see domain.ScanRun.
 	StartedBy  string
@@ -192,8 +196,10 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 		}
 	}
 
+	// The run is its account's: the planner sends its discovery to that
+	// account's pool when one takes it, and nobody else's.
 	run := domain.ScanRun{ScopeID: scopeID, Profile: profile, Trigger: o.Trigger, MaxConcurrency: 32,
-		StartedByUserID: o.UserID, StartedVia: o.StartedVia}
+		StartedByUserID: o.owner(), StartedVia: o.StartedVia}
 	if follow != nil {
 		run.ParentRunID = &follow.parent.ID
 	}
@@ -339,6 +345,15 @@ type exitPlan struct {
 	auto bool
 }
 
+// owner is the account the run belongs to: the person starting it, or the
+// schedule's creator.
+func (o Options) owner() *uuid.UUID {
+	if o.UserID != nil {
+		return o.UserID
+	}
+	return o.Owner
+}
+
 // checkExit validates where a run's active stages will run from, and refuses
 // if that cannot be satisfied. No side effects: nothing is written until a run
 // exists to bind it to. Two exits exist; there is deliberately no "direct from
@@ -353,12 +368,19 @@ func (l *Launcher) checkExit(ctx context.Context, scopeID uuid.UUID, o Options) 
 		if err != nil {
 			return nil, refuse(http.StatusBadRequest, "bad pool id")
 		}
-		pool, ok, err := l.st.GetExitPool(ctx, id)
+		// Only the account's own remote workers: another account's pool is
+		// "not found", so whether it exists is not given away either.
+		owner := o.owner()
+		if owner == nil {
+			return nil, refuse(http.StatusForbidden, "remote workers belong to an account, and this scan is started by none")
+		}
+		pool, ok, err := l.st.GetExitPool(ctx, id, *owner)
 		if err != nil {
 			return nil, refuse(http.StatusInternalServerError, "%v", err)
 		}
 		if !ok {
-			return nil, refuse(http.StatusBadRequest, "that pool does not exist, or belongs to another run")
+			return nil, refuse(http.StatusBadRequest,
+				"that pool is not one of yours: a scan runs only on its own account's remote workers. Pick one of your pools under Workers")
 		}
 		if pool.ActiveWorkers == 0 {
 			return nil, refuse(http.StatusConflict,
@@ -529,7 +551,7 @@ func (l *Launcher) Due(ctx context.Context) {
 			Profile: sc.Profile, All: len(sc.Targets) == 0 && len(sc.TargetGroupIDs) == 0, Targets: sc.Targets,
 			Exit: sc.Exit, WorkerCount: sc.WorkerCount,
 			Params: sc.Params, Trigger: "scheduled",
-			StartedBy: sc.CreatedBy, StartedVia: "schedule",
+			StartedBy: sc.CreatedBy, StartedVia: "schedule", Owner: sc.CreatedByID,
 		}
 		for _, g := range sc.TargetGroupIDs {
 			o.TargetGroupIDs = append(o.TargetGroupIDs, g.String())

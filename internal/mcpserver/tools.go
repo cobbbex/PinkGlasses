@@ -19,7 +19,7 @@ type Options struct {
 	AllowDeleteCompany bool
 	// AllowWorkers adds the tools that set up and remove remote workers and
 	// SSH exits. Off by default: enrolling hands out a credential for the
-	// gateway, an approved worker leases every company's tasks in its pool,
+	// gateway, an approved worker runs the token owner's scans in every company,
 	// and installing an SSH exit runs a script as root on a VPS. The token
 	// still needs the operator role.
 	AllowWorkers bool

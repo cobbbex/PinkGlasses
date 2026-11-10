@@ -133,6 +133,10 @@ export interface Worker {
   last_seen_at?: string | null;
   /** Brought up by one scan for itself, and destroyed when that scan ends. */
   run_scoped?: boolean;
+  /** The account a remote worker belongs to; only its scans run there. */
+  owner_id?: string | null;
+  /** That account's name, shown to an administrator. */
+  owner?: string | null;
 }
 /**
  * The containers a run brought up for itself: its own workers, and a VPN
@@ -371,8 +375,10 @@ export interface WorkerPool {
   id: string; name: string; description?: string | null; is_default: boolean;
   /** How many of its workers can take work right now. Zero means "cannot run a scan". */
   active_workers: number; created_at: string;
-  /** This pool runs the stages that never touch a target, off the control-plane host. */
+  /** This pool runs your scans' stages that never touch a target, off the control-plane host. */
   takes_discovery?: boolean;
+  /** The account whose pool this is: always the requester's own. */
+  owner_id?: string | null;
 }
 
 /** Role ranking, mirroring internal/auth.Role.AtLeast. */

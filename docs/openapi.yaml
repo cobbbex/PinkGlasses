@@ -942,7 +942,7 @@ paths:
   /api/v1/workers:
     get:
       operationId: getWorkers
-      summary: "every worker: status, egress, load, tools, run_scoped for a run's own containers"
+      summary: "the shared local workers and your own remote ones (an administrator: every account's, with owner): status, egress, load, tools, run_scoped for a run's own containers"
       x-required-role: viewer
       security:
         - session: []
@@ -974,7 +974,7 @@ paths:
   /api/v1/pools:
     get:
       operationId: getPools
-      summary: "pools a run may choose as its remote exit, with active_workers — remote workers only; the standing local workers run passive stages and are never an exit"
+      summary: "your own pools — the ones a run of yours may choose as its remote exit — with active_workers, remote workers only; the standing local workers run passive stages and are never an exit. Another account's pools are never listed, an administrator's request included"
       x-required-role: viewer
       security:
         - session: []
@@ -1485,7 +1485,7 @@ paths:
   /api/v1/workers/enrollment-tokens:
     post:
       operationId: postWorkersEnrollmentTokens
-      summary: "{kind: vps, name, pool_id, ttl_mins, max_uses} → {token, install_command, expires_in}. kind: local is refused: the standing worker enrols itself and a run's fleet is built by the scheduler"
+      summary: "{kind: vps, name, pool_id, ttl_mins, max_uses} → {token, install_command, expires_in}. The worker is yours: pool_id must be one of your pools, and without one it goes into your own pool called remote. kind: local is refused: the standing worker enrols itself and a run's fleet is built by the sc…"
       x-required-role: operator
       security:
         - session: []
@@ -1502,7 +1502,7 @@ paths:
   /api/v1/workers/{workerID}/{action}:
     post:
       operationId: postWorkersByWorkerIDByAction
-      summary: "approve, drain, resume, quarantine, revoke; any worker, not only ones you enrolled"
+      summary: "approve, drain, resume, quarantine, revoke; a shared local worker, or one of your remote ones (an administrator: any). Another account's is 404"
       x-required-role: operator
       parameters:
         - {name: workerID, in: path, required: true, schema: {type: string}}
@@ -1522,7 +1522,7 @@ paths:
   /api/v1/workers/{workerID}:
     delete:
       operationId: deleteWorkersByWorkerID
-      summary: "a local worker's container is removed first"
+      summary: "same rule; a local worker's container is removed first"
       x-required-role: operator
       parameters:
         - {name: workerID, in: path, required: true, schema: {type: string}}
@@ -1540,7 +1540,7 @@ paths:
   /api/v1/pools/{poolID}:
     patch:
       operationId: patchPoolsByPoolID
-      summary: "{takes_discovery} — whether this pool runs the stages that never touch a target (passive discovery, DNS), moving that work off the control-plane host. A run's own pool cannot be changed"
+      summary: "{takes_discovery} — whether one of your pools runs your scans' stages that never touch a target (passive discovery, DNS), moving that work off the control-plane host. Another account's pool, a shared one and a run's own are 404"
       x-required-role: operator
       parameters:
         - {name: poolID, in: path, required: true, schema: {type: string}}
@@ -1573,7 +1573,7 @@ paths:
         "409": {$ref: "#/components/responses/e409"}
     post:
       operationId: postSshExits
-      summary: "{name, host, port, username, private_key?, remote_port, pool_id?, worker_name?}; with no private_key an Ed25519 key is generated and its public_key returned for the VPS's authorized_keys; a key with a passphrase is refused; the pool defaults to remote; 409 on a duplicate name"
+      summary: "{name, host, port, username, private_key?, remote_port, pool_id?, worker_name?}; with no private_key an Ed25519 key is generated and its public_key returned for the VPS's authorized_keys; a key with a passphrase is refused; the pool must be one of yours and defaults to your own remote; 409 on a d…"
       x-required-role: operator
       security:
         - session: []

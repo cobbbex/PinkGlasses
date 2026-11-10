@@ -113,6 +113,9 @@ func (s *Server) createSSHExit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The exit's worker is the requester's: it goes into one of their
+	// pools — the one named, or their own "remote" pool, where their runs
+	// with exit "remote" find it without being told.
 	var poolID *uuid.UUID
 	if in.PoolID != "" {
 		id, err := uuid.Parse(in.PoolID)
@@ -120,10 +123,17 @@ func (s *Server) createSSHExit(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "bad pool_id")
 			return
 		}
+		if e := s.ownsPool(r, id); e != nil {
+			writeErr(w, e.status, e.msg)
+			return
+		}
 		poolID = &id
-	} else if id, err := s.st.PoolByName(r.Context(), "remote"); err == nil {
-		// Where remote workers go by default, so a run with exit "remote"
-		// finds this one without being told about it.
+	} else {
+		id, err := s.st.OwnPool(r.Context(), *uid)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		poolID = &id
 	}
 

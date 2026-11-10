@@ -11,12 +11,61 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/benlik386/pinkglasses/internal/auth"
 	"github.com/benlik386/pinkglasses/internal/domain"
 	"github.com/benlik386/pinkglasses/internal/scanproto"
 )
 
+// Remote workers belong to the account that brought them up: only it sees
+// them, and only its runs are sent to them. An administrator sees all of them,
+// with the owner named, so a compromised machine can be drained or revoked —
+// but scans only from its own, like anyone else.
+
+// workerViewer is whose remote workers the requester sees: nil for every
+// account's (an administrator).
+func workerViewer(r *http.Request) *uuid.UUID {
+	if currentUser(r).Role == auth.RoleAdmin {
+		return nil
+	}
+	if id := userIDOf(r); id != nil {
+		return id
+	}
+	none := uuid.Nil
+	return &none
+}
+
+// mayManageWorker says whether the requester may act on a worker: a shared
+// local worker, any operator; a remote one, its owner or an administrator.
+func mayManageWorker(r *http.Request, wk domain.Worker) bool {
+	if currentUser(r).Role == auth.RoleAdmin {
+		return true
+	}
+	if wk.OwnerID == nil {
+		return wk.Kind == string(scanproto.KindLocal)
+	}
+	uid := userIDOf(r)
+	return uid != nil && *uid == *wk.OwnerID
+}
+
+// ownsPool checks that a pool named in a request is the requester's own.
+// Another account's pool is reported as not found.
+func (s *Server) ownsPool(r *http.Request, id uuid.UUID) *exitErr {
+	uid := userIDOf(r)
+	if uid == nil {
+		return &exitErr{http.StatusUnauthorized, "sign in to continue"}
+	}
+	_, ok, err := s.st.GetExitPool(r.Context(), id, *uid)
+	if err != nil {
+		return &exitErr{http.StatusInternalServerError, err.Error()}
+	}
+	if !ok {
+		return &exitErr{http.StatusNotFound, "that pool is not one of yours (or no longer exists): remote workers and their pools belong to the account that added them"}
+	}
+	return nil
+}
+
 func (s *Server) listWorkers(w http.ResponseWriter, r *http.Request) {
-	list, err := s.st.ListWorkers(r.Context())
+	list, err := s.st.ListWorkers(r.Context(), workerViewer(r))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -68,22 +117,36 @@ func (s *Server) createEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 	raw := "WRKENROLL_" + randToken(24)
 	sum := sha256.Sum256([]byte(raw))
 
-	var poolID *uuid.UUID
-	if in.PoolID != "" {
-		if id, err := uuid.Parse(in.PoolID); err == nil {
-			poolID = &id
-		}
+	// The worker is the requester's: it enrols into one of their pools —
+	// the one named, or their own "remote" pool — and nobody else sees it or
+	// sends it work.
+	uid := userIDOf(r)
+	if uid == nil {
+		writeErr(w, http.StatusUnauthorized, "sign in to continue: a remote worker belongs to the account that adds it")
+		return
 	}
-	if poolID == nil {
-		// Remote workers default to the 'remote' pool, falling back to default.
-		if id, err := s.st.PoolByName(r.Context(), "remote"); err == nil {
-			poolID = &id
-		} else if id, err := s.st.DefaultPool(r.Context()); err == nil {
-			poolID = &id
+	var poolID uuid.UUID
+	if in.PoolID != "" {
+		id, err := uuid.Parse(in.PoolID)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "bad pool_id")
+			return
 		}
+		if e := s.ownsPool(r, id); e != nil {
+			writeErr(w, e.status, e.msg)
+			return
+		}
+		poolID = id
+	} else {
+		id, err := s.st.OwnPool(r.Context(), *uid)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		poolID = id
 	}
 
-	if _, err := s.st.CreateEnrollmentToken(r.Context(), sum[:], poolID, nil, ttl, maxUses, kind); err != nil {
+	if _, err := s.st.CreateEnrollmentToken(r.Context(), sum[:], &poolID, uid, ttl, maxUses, kind); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -105,7 +168,7 @@ func (s *Server) createEnrollmentToken(w http.ResponseWriter, r *http.Request) {
 		"token":           raw, // shown once
 		"expires_in":      ttl.String(),
 		"install_command": install,
-		"note":            "Run this on the VPS, then approve the worker in the fleet list.",
+		"note":            "Run this on the VPS, then approve the worker in the fleet list. It is yours: only you see it, and only your scans run on it.",
 	})
 }
 
@@ -157,6 +220,11 @@ func (s *Server) workerAction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "unknown action")
 		return
 	}
+	wk, _, err := s.st.WorkerForAuth(r.Context(), id)
+	if err != nil || !mayManageWorker(r, wk) {
+		writeErr(w, http.StatusNotFound, "worker not found")
+		return
+	}
 	if err := s.st.SetWorkerStatus(r.Context(), id, status); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -175,7 +243,7 @@ func (s *Server) deleteWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	worker, _, err := s.st.WorkerForAuth(r.Context(), id)
-	if err != nil {
+	if err != nil || !mayManageWorker(r, worker) {
 		writeErr(w, http.StatusNotFound, "worker not found")
 		return
 	}

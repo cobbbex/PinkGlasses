@@ -82,11 +82,16 @@ already been collected; the first thing an operator can do is cause traffic.
 
 **Workers are the operator's** because operators are the ones starting the scans
 that need them. It is a real grant: an enrollment token is a credential for the
-gateway, and a worker an operator approves leases every company's tasks in its
-pool — targets of private companies they cannot open included. Give the operator
-role to people you would trust with that; every enrollment, approval and removal
-is in the audit log with who did it. Workers are install-wide: any operator can
-change any worker, not only the ones they enrolled. **An SSH exit is the
+gateway. Give the operator role to people you would trust with that; every
+enrollment, approval and removal is in the audit log with who did it. **A remote
+worker is the account's own**: it enrols into a pool of the account that made
+the token (its own pool called `remote` unless it names another of its pools),
+nobody else sees it, and only that account's scans run on it — their active
+stages, and their discovery when that pool is marked to take it. A scheduled
+scan runs as the account that saved the schedule. An administrator sees every
+account's remote workers, with the owner named, and can drain, quarantine or
+revoke one; their own scans still run only on their own. The standing local
+workers are shared, and so is a run's own fleet. **An SSH exit is the
 account's own**, like a VPN configuration: an operator sees and removes their own,
 an administrator everyone's. **A VPN configuration is the account's own**: it belongs to whoever
 added it, is usable in every company they scan, and is offered to nobody else — so

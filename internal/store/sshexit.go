@@ -198,21 +198,27 @@ func (s *Store) DeleteSSHExit(ctx context.Context, id uuid.UUID) error {
 
 // CreatePreapprovedEnrollmentToken mints a single-use token whose worker is
 // active on arrival and whose egress is recorded as the given address — for
-// a token delivered over an SSH session the app itself authenticated.
-func (s *Store) CreatePreapprovedEnrollmentToken(ctx context.Context, hash []byte, poolID *uuid.UUID, ttl time.Duration, egress *string) error {
-	_, err := s.Pool.Exec(ctx, `
-		INSERT INTO enrollment_token (token_hash, pool_id, expires_at, max_uses, kind, preapproved, egress_hint)
-		VALUES ($1,$2, now()+$3::interval, 1, 'vps', true, $4::inet)`,
-		hash, poolID, ttl.String(), egress)
+// a token delivered over an SSH session the app itself authenticated. The
+// pool must be the exit owner's own: the worker it enrols is that account's.
+func (s *Store) CreatePreapprovedEnrollmentToken(ctx context.Context, hash []byte, poolID *uuid.UUID, owner uuid.UUID, ttl time.Duration, egress *string) error {
+	ct, err := s.Pool.Exec(ctx, `
+		INSERT INTO enrollment_token (token_hash, pool_id, created_by, expires_at, max_uses, kind, preapproved, egress_hint)
+		SELECT $1, $2, $5, now()+$3::interval, 1, 'vps', true, $4::inet
+		WHERE EXISTS (SELECT 1 FROM worker_pool p WHERE p.id = $2 AND p.owner_id = $5)`,
+		hash, poolID, ttl.String(), egress, owner)
+	if err == nil && ct.RowsAffected() == 0 {
+		return errors.New("the exit's pool is not its owner's: delete the exit and add it again")
+	}
 	return err
 }
 
-// DeleteExitWorker removes the worker an SSH exit installed: a VPS worker of
-// the exit's worker name in the exit's pool. Its credential goes with it.
-func (s *Store) DeleteExitWorker(ctx context.Context, name string, poolID *uuid.UUID) (int64, error) {
+// DeleteExitWorker removes the worker an SSH exit installed: the exit
+// owner's VPS worker of the exit's worker name in the exit's pool. Its
+// credential goes with it.
+func (s *Store) DeleteExitWorker(ctx context.Context, name string, poolID *uuid.UUID, owner uuid.UUID) (int64, error) {
 	ct, err := s.Pool.Exec(ctx, `
-		DELETE FROM worker WHERE kind = 'vps' AND name = $1
-		  AND pool_id IS NOT DISTINCT FROM COALESCE($2::uuid, (SELECT id FROM worker_pool WHERE name = 'remote'))`,
-		name, poolID)
+		DELETE FROM worker WHERE kind = 'vps' AND name = $1 AND owner_id = $3
+		  AND pool_id IS NOT DISTINCT FROM $2::uuid`,
+		name, poolID, owner)
 	return ct.RowsAffected(), err
 }

@@ -104,8 +104,9 @@ func workerTools() []toolDef {
 		},
 		{
 			Name: "set_pool_discovery",
-			Description: "Whether a pool runs discovery (passive sources, DNS resolution, DNS bruteforce) for every company, moving that " +
-				"load off this host onto the pool's workers. If the pool has no active worker the local workers take it back. Operator role.",
+			Description: "Whether one of the token owner's pools runs that account's discovery (passive sources, DNS resolution, DNS bruteforce), " +
+				"moving that load off this host onto its own workers; other accounts' scans are unaffected. If the pool has no active " +
+				"worker the local workers take it back. Operator role.",
 			Schema: obj(map[string]any{
 				"pool_id":         str("Pool id from list_workers → pools"),
 				"takes_discovery": boolean("true to move discovery onto this pool, false to stop"),

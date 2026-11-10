@@ -177,8 +177,9 @@ asks, on a VPS they named:
    command to run as root on the VPS. Hand it to the user, or run it yourself
    only if you have a shell on that VPS and they asked you to. The worker then
    shows in ` + "`list_workers`" + ` as pending; ` + "`approve_worker`" + ` with ` + "`approve`" + ` once
-   the user confirms it is theirs. An approved worker takes every company's
-   tasks in its pool.
+   the user confirms it is theirs. A remote worker belongs to the token owner's
+   account: only that account sees it, and only that account's scans run on
+   it — in any company it scans.
 2. Nothing on the internet can reach the install: ` + "`add_ssh_exit`" + ` returns a
    public key for the VPS's authorized_keys; once it is there,
    ` + "`install_ssh_exit`" + ` and follow ` + "`list_ssh_exits`" + ` until install_status is done.
@@ -240,8 +241,9 @@ const scanningReference = `# How scanning works
   stages, wider port scan).
 - Passive stages run on the standing workers. Active stages run from an
   **exit**: ` + "`local`" + ` builds the run its own workers behind a VPN gateway
-  (needs one of the token owner's ` + "`vpn_config_id`" + `s), ` + "`remote`" + ` uses a pool
-  of enrolled workers (` + "`pool_id`" + `). There is no "from this host".
+  (needs one of the token owner's ` + "`vpn_config_id`" + `s), ` + "`remote`" + ` uses one of
+  the token owner's own pools of enrolled workers (` + "`pool_id`" + `); another
+  account's workers are never listed and never used. There is no "from this host".
 - **Scan settings** (` + "`scan_parameters`" + `) switch tools on and off — subfinder,
   DNS brute force, katana crawling, gobuster brute force, nuclei — and tune
   them. Turning gobuster and katana both off plans no directory stage;

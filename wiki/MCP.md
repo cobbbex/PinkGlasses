@@ -33,7 +33,7 @@ on the stdio binary — and then also demands the company's exact name.
 **Remote workers** can be set up and removed through a model when
 `ASM_MCP_ALLOW_WORKERS=true` is set, the same way, and the token has the
 operator role. Off by default: enrolling hands out a credential for the
-gateway, an approved worker leases every company's tasks in its pool, and
+gateway, an approved worker runs the token owner's scans in every company, and
 installing an SSH exit runs a script as root on a VPS. The tools:
 `add_remote_worker` (a single-use token and the install command for a VPS
 that can reach this install), `approve_worker` (approve, drain, resume, and

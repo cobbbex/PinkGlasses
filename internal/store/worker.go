@@ -51,10 +51,11 @@ func (s *Store) EnsureBootstrapToken(ctx context.Context, hash []byte, poolID *u
 	return err
 }
 
-// PoolByName returns a worker pool id by name.
+// PoolByName returns a shared worker pool's id by name — `local`, the
+// standing workers' pool. An account's own pools are not found by name.
 func (s *Store) PoolByName(ctx context.Context, name string) (uuid.UUID, error) {
 	var id uuid.UUID
-	err := s.Pool.QueryRow(ctx, `SELECT id FROM worker_pool WHERE name=$1`, name).Scan(&id)
+	err := s.Pool.QueryRow(ctx, `SELECT id FROM worker_pool WHERE name=$1 AND owner_id IS NULL`, name).Scan(&id)
 	return id, err
 }
 
@@ -70,6 +71,9 @@ type Enrollment struct {
 	// EgressHint is the worker's real address when its connection arrives
 	// through a tunnel and the source address would be the tunnel's end.
 	EgressHint *string
+	// OwnerID is the account owning the token's pool: the worker is that
+	// account's, and nobody else's runs are sent to it.
+	OwnerID *uuid.UUID
 }
 
 // RedeemEnrollment uses one redemption of a token and says what it grants.
@@ -78,7 +82,12 @@ func (s *Store) RedeemEnrollment(ctx context.Context, hash []byte) (Enrollment, 
 	err := s.Pool.QueryRow(ctx, `
 		UPDATE enrollment_token SET uses = uses + 1
 		WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > now() AND uses < max_uses
-		RETURNING pool_id, kind, preapproved, host(egress_hint)`, hash).Scan(&t.PoolID, &t.Kind, &t.Preapproved, &t.EgressHint)
+		  -- Every token is minted for a pool. One whose pool is gone — its
+		  -- account was removed — would enrol a worker nobody owns.
+		  AND pool_id IS NOT NULL
+		RETURNING pool_id, kind, preapproved, host(egress_hint),
+		          (SELECT p.owner_id FROM worker_pool p WHERE p.id = enrollment_token.pool_id)`, hash).
+		Scan(&t.PoolID, &t.Kind, &t.Preapproved, &t.EgressHint, &t.OwnerID)
 	if err != nil {
 		return Enrollment{}, false, nil //nolint:nilerr // invalid/expired token
 	}
@@ -92,10 +101,10 @@ func (s *Store) CreateWorker(ctx context.Context, w domain.Worker, credHash []by
 	tools, _ := json.Marshal(w.Tools)
 	var id uuid.UUID
 	err := s.Pool.QueryRow(ctx, `
-		INSERT INTO worker (pool_id, name, kind, status, capabilities, tools, agent_version, egress_ip, country, max_concurrency, cred_hash, enrolled_at, last_seen_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), now())
+		INSERT INTO worker (pool_id, name, kind, status, capabilities, tools, agent_version, egress_ip, country, max_concurrency, cred_hash, owner_id, enrolled_at, last_seen_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(), now())
 		RETURNING id`,
-		w.PoolID, w.Name, w.Kind, status, w.Capabilities, tools, w.AgentVersion, w.EgressIP, w.Country, w.MaxConcurrency, credHash,
+		w.PoolID, w.Name, w.Kind, status, w.Capabilities, tools, w.AgentVersion, w.EgressIP, w.Country, w.MaxConcurrency, credHash, w.OwnerID,
 	).Scan(&id)
 	return id, err
 }
@@ -127,10 +136,10 @@ func (s *Store) WorkerForAuth(ctx context.Context, id uuid.UUID) (domain.Worker,
 	var credHash []byte
 	var toolsRaw []byte
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id, pool_id, name, kind, status, capabilities, tools, agent_version, host(egress_ip), country, max_concurrency, running_tasks, cred_hash, last_seen_at, enrolled_at
+		SELECT id, pool_id, name, kind, status, capabilities, tools, agent_version, host(egress_ip), country, max_concurrency, running_tasks, cred_hash, last_seen_at, enrolled_at, owner_id
 		FROM worker WHERE id=$1`, id,
 	).Scan(&w.ID, &w.PoolID, &w.Name, &w.Kind, &w.Status, &w.Capabilities, &toolsRaw,
-		&w.AgentVersion, &w.EgressIP, &w.Country, &w.MaxConcurrency, &w.RunningTasks, &credHash, &w.LastSeenAt, &w.EnrolledAt)
+		&w.AgentVersion, &w.EgressIP, &w.Country, &w.MaxConcurrency, &w.RunningTasks, &credHash, &w.LastSeenAt, &w.EnrolledAt, &w.OwnerID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return w, nil, ErrNoWorker
 	}
@@ -168,14 +177,18 @@ func (s *Store) SetWorkerConcurrency(ctx context.Context, id uuid.UUID, n int) (
 	return ct.RowsAffected() > 0, nil
 }
 
-// ListWorkers returns all workers for the fleet page.
-func (s *Store) ListWorkers(ctx context.Context) ([]domain.Worker, error) {
+// ListWorkers returns the workers for the fleet page. With a viewer, the
+// shared workers and that account's own remote ones; nil is every worker,
+// for an administrator or the install's own health view.
+func (s *Store) ListWorkers(ctx context.Context, viewer *uuid.UUID) ([]domain.Worker, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT w.id, w.pool_id, w.name, w.kind, w.status, w.capabilities, w.tools, w.agent_version,
 		       host(w.egress_ip), w.country, w.max_concurrency, w.running_tasks, w.last_seen_at, w.enrolled_at,
-		       coalesce(p.run_scoped, false)
+		       coalesce(p.run_scoped, false), w.owner_id, u.username
 		FROM worker w LEFT JOIN worker_pool p ON p.id = w.pool_id
-		ORDER BY w.enrolled_at DESC`)
+		LEFT JOIN app_user u ON u.id = w.owner_id
+		WHERE $1::uuid IS NULL OR w.owner_id = $1 OR (w.owner_id IS NULL AND w.kind = 'local')
+		ORDER BY w.enrolled_at DESC`, viewer)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +199,7 @@ func (s *Store) ListWorkers(ctx context.Context) ([]domain.Worker, error) {
 		var toolsRaw []byte
 		if err := rows.Scan(&w.ID, &w.PoolID, &w.Name, &w.Kind, &w.Status, &w.Capabilities, &toolsRaw,
 			&w.AgentVersion, &w.EgressIP, &w.Country, &w.MaxConcurrency, &w.RunningTasks,
-			&w.LastSeenAt, &w.EnrolledAt, &w.RunScoped); err != nil {
+			&w.LastSeenAt, &w.EnrolledAt, &w.RunScoped, &w.OwnerID, &w.Owner); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(toolsRaw, &w.Tools)
@@ -275,9 +288,10 @@ func (s *Store) ReleaseWorkerLeases(ctx context.Context, id uuid.UUID) (int64, e
 // afresh rather than resuming its old identity. Without this the fleet list
 // grows a duplicate row per restart — same name, one stale, one active — which
 // is confusing precisely when you are trying to tell whether a worker came back.
-// Only stale rows of the same name and kind are removed: an active worker with
-// that name is a different, live machine and must not be touched.
-func (s *Store) PruneReplacedWorker(ctx context.Context, name, kind string) (int64, error) {
+// Only stale rows of the same name, kind and account are removed: an active
+// worker with that name is a different, live machine and must not be touched,
+// and another account's worker of the same name is not this one.
+func (s *Store) PruneReplacedWorker(ctx context.Context, name, kind string, owner *uuid.UUID) (int64, error) {
 	if name == "" {
 		return 0, nil
 	}
@@ -289,10 +303,10 @@ func (s *Store) PruneReplacedWorker(ctx context.Context, name, kind string) (int
 	// may share a name.
 	ct, err := s.Pool.Exec(ctx, `
 		DELETE FROM worker
-		WHERE name = $1 AND kind = $2
+		WHERE name = $1 AND kind = $2 AND owner_id IS NOT DISTINCT FROM $4::uuid
 		  AND (status IN ('stale', 'pending')
 		       OR (status = 'active' AND last_seen_at < now() - $3::interval))`,
-		name, kind, WorkerStaleAfter.String())
+		name, kind, WorkerStaleAfter.String(), owner)
 	if err != nil {
 		return 0, err
 	}

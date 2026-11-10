@@ -26,8 +26,8 @@ type Store interface {
 	StartSSHExitInstall(ctx context.Context, id uuid.UUID) (bool, error)
 	FinishSSHExitInstall(ctx context.Context, id uuid.UUID, ok bool, log string) error
 	DeleteSSHExit(ctx context.Context, id uuid.UUID) error
-	DeleteExitWorker(ctx context.Context, name string, poolID *uuid.UUID) (int64, error)
-	CreatePreapprovedEnrollmentToken(ctx context.Context, hash []byte, poolID *uuid.UUID, ttl time.Duration, egress *string) error
+	DeleteExitWorker(ctx context.Context, name string, poolID *uuid.UUID, owner uuid.UUID) (int64, error)
+	CreatePreapprovedEnrollmentToken(ctx context.Context, hash []byte, poolID *uuid.UUID, owner uuid.UUID, ttl time.Duration, egress *string) error
 }
 
 // Config for the connector.
@@ -318,7 +318,7 @@ func (m *Manager) runInstall(ctx context.Context, client *ssh.Client, e store.SS
 	}
 	// Single use, short-lived, and never stored: it exists in the database
 	// only as a hash, and in the clear only inside this session.
-	if err := m.st.CreatePreapprovedEnrollmentToken(ctx, sum[:], e.PoolID, 30*time.Minute, egress); err != nil {
+	if err := m.st.CreatePreapprovedEnrollmentToken(ctx, sum[:], e.PoolID, e.OwnerID, 30*time.Minute, egress); err != nil {
 		return "", fmt.Errorf("could not mint an enrolment token: %v", err)
 	}
 	script, err := Script(InstallSpec{
@@ -365,7 +365,7 @@ func (m *Manager) teardown(ctx context.Context, e store.SSHExitSession, h *held)
 		// would sit in the fleet as stale, and deleting it ends its
 		// credential, so a container left behind on an unreachable VPS
 		// cannot come back.
-		if n, err := m.st.DeleteExitWorker(ctx, e.WorkerName, e.PoolID); err != nil {
+		if n, err := m.st.DeleteExitWorker(ctx, e.WorkerName, e.PoolID, e.OwnerID); err != nil {
 			slog.Warn("could not remove the exit's worker", "exit", e.Name, "worker", e.WorkerName, "err", err)
 		} else if n > 0 {
 			slog.Info("SSH exit's worker removed from the fleet", "exit", e.Name, "worker", e.WorkerName)

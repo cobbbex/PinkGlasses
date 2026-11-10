@@ -222,6 +222,11 @@ type Worker struct {
 	// when it finishes (wiki/Architecture.md §7.6). Worth showing: these appear and
 	// vanish on their own, and they will not take anyone else's work.
 	RunScoped bool `json:"run_scoped"`
+	// OwnerID is the account a remote worker belongs to: only that account
+	// sees it and only its runs are sent to it. Nil for shared workers.
+	OwnerID *uuid.UUID `json:"owner_id,omitempty"`
+	// Owner is that account's name, for an administrator's view.
+	Owner *string `json:"owner,omitempty"`
 }
 
 // Domain is a discovered (sub)domain.

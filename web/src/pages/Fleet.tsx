@@ -63,7 +63,8 @@ export default function Fleet({ me }: { me: User }) {
 
       <div className="cards">
         <Stat n={local.length} label="Local workers" hint="Standing worker for passive stages, plus any run's own fleet while it runs" />
-        <Stat n={remote.length} label="External (VPS)" hint="Enrolled boxes · an exit for active scans" />
+        <Stat n={remote.length} label="External (VPS)"
+          hint={me.role === "admin" ? "Every account's enrolled boxes · each one runs only its owner's scans" : "Your enrolled boxes · only your scans run on them"} />
         <Stat n={(workers ?? []).filter((w) => w.status === "active").length} label="Active" hint="Currently leasing work" />
         <Stat n={(workers ?? []).reduce((a, w) => a + w.running_tasks, 0)} label="Running tasks" />
       </div>
@@ -76,12 +77,16 @@ export default function Fleet({ me }: { me: User }) {
 
       <VPSModal open={vpsOpen} onClose={() => setVpsOpen(false)} />
 
-      {manage && <SSHExits />}
+      {manage && <SSHExits me={me} />}
 
       <RunFleets />
 
       <WorkerTable title="Local workers" workers={local} manage={manage} act={act} onDelete={setPendingDelete} />
-      <WorkerTable title="External (VPS) workers" workers={remote} manage={manage} act={act} onDelete={setPendingDelete} />
+      <WorkerTable title="External (VPS) workers" workers={remote} manage={manage} act={act} onDelete={setPendingDelete}
+        me={me}
+        note={me.role === "admin"
+          ? "Each account's own: only its owner's scans run on one. You see every account's so you can drain or revoke one; your scans still run only on yours."
+          : "Yours: nobody else sees them, and only your scans run on them. Other accounts' workers are not shown."} />
       <Pools me={me} />
 
       <Modal
@@ -170,7 +175,7 @@ function VPSModal({ open, onClose }: { open: boolean; onClose: () => void }) {
  * loopback leads back to the gateway through it. Installing runs over the
  * same session, so nothing is typed on the VPS but the key.
  */
-function SSHExits() {
+function SSHExits({ me }: { me: User }) {
   const toast = useToast();
   const { data, refetch } = useQuery({ queryKey: ["ssh-exits"], queryFn: () => api.sshExits(), refetchInterval: 3000 });
   const [addOpen, setAddOpen] = useState(false);
@@ -246,7 +251,14 @@ function SSHExits() {
             <tbody>
               {exits.map((e) => (
                 <tr key={e.id}>
-                  <td>{e.name}<div className="muted mono" style={{ fontSize: 11.5 }}>worker {e.worker_name}</div></td>
+                  <td>
+                    {e.name}
+                    {e.owner_id !== me.id && (
+                      <span className="pill" style={{ marginLeft: 6, fontSize: 10.5 }}
+                        title="Another account's exit: only that account's scans run on its worker">owner {e.created_by}</span>
+                    )}
+                    <div className="muted mono" style={{ fontSize: 11.5 }}>worker {e.worker_name}</div>
+                  </td>
                   <td>
                     <span className="mono">{e.username}@{e.host}{e.port !== 22 ? `:${e.port}` : ""}</span>
                     <div className="muted mono" style={{ fontSize: 11 }} title="The VPS's host key, pinned on first contact">
@@ -440,9 +452,10 @@ function ActionsHelp() {
 }
 
 function WorkerTable({
-  title, workers, manage, act, onDelete,
+  title, workers, manage, act, onDelete, me, note,
 }: {
   title: string; workers: Worker[];
+  me?: User; note?: string;
   manage: boolean; // operators and up change workers; a viewer only reads
   act: (w: Worker, a: string) => void;
   onDelete: (w: Worker) => void;
@@ -450,6 +463,7 @@ function WorkerTable({
   return (
     <>
       <div className="section-title">{title}</div>
+      {note && <div className="sub" style={{ marginBottom: 8 }}>{note}</div>}
       {workers.length === 0 ? (
         <div className="empty">None enrolled.</div>
       ) : (
@@ -475,6 +489,12 @@ function WorkerTable({
                         style={{ marginLeft: 6, fontSize: 10.5 }}
                         title="This worker belongs to one scan. It takes that scan's tasks only, and is destroyed when the scan ends."
                       >one scan</span>
+                    )}
+                    {me && w.kind !== "local" && w.owner_id !== me.id && (
+                      <span className="pill" style={{ marginLeft: 6, fontSize: 10.5 }}
+                        title="Another account's worker: only that account's scans run on it">
+                        {w.owner ? `owner ${w.owner}` : "no owner"}
+                      </span>
                     )}
                     <div className="muted" style={{ fontSize: 11.5 }}>{w.kind} · {w.agent_version || "—"}</div>
                   </td>
@@ -569,12 +589,12 @@ function RunFleets() {
 }
 
 /**
- * The pools, and which of them runs discovery.
+ * The requester's own pools, and which of them runs their discovery.
  *
  * Discovery — public sources, DNS, enrichment — never touches a target, so it
- * is not an exit choice: it is about where the load sits. On a busy install
- * every company's discovery queues behind the standing workers on this host;
- * marking a pool of enrolled workers moves it onto them. If that pool has no
+ * is not an exit choice: it is about where the load sits. By default it runs
+ * on the standing workers on this host; marking one of your pools moves your
+ * scans' discovery onto your workers (nobody else's). If that pool has no
  * active worker the standing ones take it back, so discovery never stalls.
  */
 function Pools({ me }: { me: User }) {
@@ -588,7 +608,10 @@ function Pools({ me }: { me: User }) {
   if (!pools || pools.length === 0) return null;
   return (
     <>
-      <div className="section-title">Pools</div>
+      <div className="section-title">Your pools</div>
+      <div className="sub" style={{ marginBottom: 8 }}>
+        Your remote workers are in these. A scan of yours runs on one of them; another account's scans never do.
+      </div>
       <div className="table-wrap">
         <table>
           <thead><tr><th>Name</th><th>Description</th><th>Workers that can scan</th><th>Runs discovery</th></tr></thead>
@@ -601,7 +624,7 @@ function Pools({ me }: { me: User }) {
                 <td>
                   <label className="param-toggle" style={{ cursor: manage ? "pointer" : "default" }}
                     title={manage
-                      ? "Discovery never touches a target; this decides which machines carry it"
+                      ? "Discovery never touches a target; this decides which machines carry your scans' discovery"
                       : "Changing this needs the operator role"}>
                     <input type="checkbox" checked={!!p.takes_discovery} disabled={!manage}
                       onChange={(e) => toggle(p.id, e.target.checked)} />

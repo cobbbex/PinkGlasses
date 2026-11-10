@@ -164,7 +164,7 @@ func (s *Server) systemHealth(w http.ResponseWriter, r *http.Request) {
 
 	counts, _ := s.st.HealthCounts(ctx)
 	queue, _ := s.st.HealthQueue(ctx)
-	workers, _ := s.st.ListWorkers(ctx)
+	workers, _ := s.st.ListWorkers(ctx, nil) // administrators only: every worker
 	type workerRow struct {
 		Name         string  `json:"name"`
 		Kind         string  `json:"kind"`
