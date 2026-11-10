@@ -19,15 +19,16 @@ const TOOL_STAGE: Record<string, string> = {
 };
 
 // Where a profile's default differs from the shipped one. Mirrors
-// scanparams.ProfileDefaults: a run stores these, so they must match.
+// scanparams.ProfileDefaults and ProfileFixed: a run stores these, so they
+// must match.
 const PROFILE_DEFAULTS: Record<string, Record<string, string>> = {
   passive: { dns_bruteforce: "false" },
   deep: { ports: "full" },
 };
 
-// Tools a passive scan never runs: each sends packets at the targets. Their
-// settings stay editable (a preset saved here may be used by a full scan) but
-// are marked, so nobody tunes them expecting a passive run to use them.
+// Tools a passive scan never runs: each sends packets at the targets. In a
+// passive scan they show as off without their settings; any values already
+// set are kept, so a preset saved from here still carries them for a full scan.
 const ACTIVE_TOOLS = new Set(["naabu", "nmap", "httpx", "katana", "gobuster", "nuclei"]);
 
 /**
@@ -71,6 +72,12 @@ export default function ScanSettings({
 
   const passive = profile === "passive";
   const deep = profile === "deep";
+  // A registry directory list replaces the image's built-in ones, so the
+  // dir_wordlist setting only matters on an install without one.
+  const { data: dirLists } = useQuery({
+    queryKey: ["wordlists", "dir", scopeID], queryFn: () => api.wordlists("dir"),
+  });
+  const registryDir = (dirLists ?? []).some((l) => l.status === "ready");
   // What a run of this profile does when a setting is left alone; the server
   // stores the same values (scanparams.ProfileDefaults).
   const defaultOf = (s: ParamSpec) => PROFILE_DEFAULTS[profile ?? ""]?.[s.key] ?? s.default;
@@ -141,17 +148,28 @@ export default function ScanSettings({
         </button>
       </div>
 
-      {tools.map((tool) => (
+      {tools.map((tool) => passive && ACTIVE_TOOLS.has(tool) ? (
+        // A passive run plans none of these, and stores them as off
+        // (scanparams.ProfileFixed): show the tool as off, not its knobs.
+        <div key={tool} className="tool-group tool-off">
+          <div className="tool-head">
+            <span className="tool-name">{tool}</span>
+            <span className="muted" style={{ fontSize: 12 }}>{TOOL_STAGE[tool] ?? ""}</span>
+          </div>
+          <div className="param-row">
+            <label className="param-label">Enabled</label>
+            <label className="param-toggle">
+              <input type="checkbox" checked={false} disabled />
+              <span className="muted">off — not run by a passive scan: it sends traffic to the targets</span>
+            </label>
+          </div>
+        </div>
+      ) : (
         <div key={tool} className="tool-group">
           <div className="tool-head">
             <span className="tool-name">{tool}</span>
             <span className="muted" style={{ fontSize: 12 }}>{TOOL_STAGE[tool] ?? ""}</span>
           </div>
-          {passive && ACTIVE_TOOLS.has(tool) && (
-            <div className="hint muted" style={{ marginBottom: 6 }}>
-              Not run by a passive scan: it sends traffic to the targets.
-            </div>
-          )}
           {passive && tool === "shuffledns" && (
             <div className="hint muted" style={{ marginBottom: 6 }}>
               Off in a passive scan unless you switch it on. It sends nothing to the targets' own
@@ -175,6 +193,10 @@ export default function ScanSettings({
                   <span className="muted" style={{ fontSize: 12 }}>
                     every port — a deep scan always sweeps the full range
                   </span>
+                ) : registryDir && spec.key === "dir_wordlist" ? (
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    not used — the directory wordlist chosen below is
+                  </span>
                 ) : (
                   <ParamInput spec={spec} value={val} onChange={(v) => set(spec.key, v)} />
                 )}
@@ -190,16 +212,16 @@ export default function ScanSettings({
           )}
           {tool === "dnsx" && (
             <WordlistPicker
-              kind="resolvers" label="Resolver lists" scopeID={scopeID}
+              kind="resolvers" label="Resolver list" scopeID={scopeID} single
               selected={wordlistIDs} onChange={onWordlistsChange}
-              hint="The nameservers brute-forcing queries through. One list is used; ticking none uses the registry default."
+              hint="The nameservers brute-forcing queries through. A run uses one list; choosing none uses the registry default."
             />
           )}
           {tool === "gobuster" && (
             <WordlistPicker
-              kind="dir" label="Directory wordlists" scopeID={scopeID}
+              kind="dir" label="Directory wordlist" scopeID={scopeID} single
               selected={wordlistIDs} onChange={onWordlistsChange}
-              hint="One list is used for directory search. Its size is the main thing deciding how loud a scan is."
+              hint="Directory search uses one list. Its size is the main thing deciding how loud a scan is."
             />
           )}
         </div>
@@ -238,10 +260,12 @@ function isEnableKey(spec: ParamSpec) {
  * hint says rather than the UI pretending otherwise.
  */
 function WordlistPicker({
-  kind, label, scopeID, selected, onChange, hint,
+  kind, label, scopeID, selected, onChange, hint, single,
 }: {
   kind: string; label: string; scopeID: string;
   selected: string[]; onChange: (ids: string[]) => void; hint: string;
+  /** The stage uses one list of this kind: choosing one replaces the other. */
+  single?: boolean;
 }) {
   const { data: lists } = useQuery({
     queryKey: ["wordlists", kind, scopeID], queryFn: () => api.wordlists(kind),
@@ -251,9 +275,14 @@ function WordlistPicker({
   const mine = selected.filter((id) => ready.some((l) => l.id === id));
 
   function toggle(id: string) {
-    onChange(mine.includes(id)
-      ? selected.filter((x) => x !== id)
-      : [...selected, id]);
+    if (mine.includes(id)) {
+      onChange(selected.filter((x) => x !== id));
+    } else if (single) {
+      // Other kinds' choices stay; this kind's previous choice goes.
+      onChange([...selected.filter((x) => !ready.some((l) => l.id === x)), id]);
+    } else {
+      onChange([...selected, id]);
+    }
   }
 
   if (all.length === 0) return null;
@@ -268,7 +297,9 @@ function WordlistPicker({
       <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 260 }}>
         {ready.map((l) => (
           <label key={l.id} className="param-toggle" style={{ cursor: "pointer" }}>
-            <input type="checkbox" checked={mine.includes(l.id)} onChange={() => toggle(l.id)} />
+            <input type={single ? "radio" : "checkbox"} name={single ? `wl-${kind}` : undefined}
+              checked={mine.includes(l.id)} onChange={() => toggle(l.id)}
+              onClick={() => { if (single && mine.includes(l.id)) toggle(l.id); }} />
             <span>
               {l.name}
               <span className="muted" style={{ fontSize: 11 }}>

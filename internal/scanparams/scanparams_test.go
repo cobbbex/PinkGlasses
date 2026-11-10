@@ -61,8 +61,19 @@ func TestWithDefaultsByProfile(t *testing.T) {
 	if v := WithDefaults("passive", map[string]string{"dns_bruteforce": "true"})["dns_bruteforce"]; v != "true" {
 		t.Errorf("switched on by hand, stored %q", v)
 	}
-	if v := WithDefaults("deep", nil)["ports"]; v != "full" {
-		t.Errorf("deep ports %q, want full", v)
+	if v := WithDefaults("deep", map[string]string{"ports": "top-100"})["ports"]; v != "full" {
+		t.Errorf("deep ports %q, want full: a deep scan sweeps every port", v)
+	}
+	// A passive run sends nothing to the targets, so its active tools are
+	// stored off even when the request said on.
+	p := WithDefaults("passive", map[string]string{"nmap_enabled": "true"})
+	for _, k := range []string{"naabu_enabled", "nmap_enabled", "httpx_enabled", "katana_enabled", "gobuster_enabled", "nuclei_enabled"} {
+		if p[k] != "false" {
+			t.Errorf("passive %s = %q, want false", k, p[k])
+		}
+	}
+	if p["subfinder_enabled"] != "true" || p["dnsx_enabled"] != "true" {
+		t.Errorf("passive tools switched off: subfinder %q dnsx %q", p["subfinder_enabled"], p["dnsx_enabled"])
 	}
 }
 

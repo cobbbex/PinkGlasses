@@ -371,18 +371,31 @@ var ProfileDefaults = map[string]map[string]string{
 	// Brute force reaches the targets' nameservers at volume; a passive look
 	// runs it only when asked.
 	"passive": {"dns_bruteforce": "false"},
-	// A deep scan sweeps every port whatever the port set says.
+}
+
+// ProfileFixed are settings a profile decides whatever the run asks for, so
+// the run stores what it did rather than a value nothing acted on. A passive
+// run plans no stage that sends traffic to a target, so those tools are off;
+// a deep scan sweeps every port.
+var ProfileFixed = map[string]map[string]string{
+	"passive": {
+		"naabu_enabled": "false", "nmap_enabled": "false", "httpx_enabled": "false",
+		"katana_enabled": "false", "gobuster_enabled": "false", "nuclei_enabled": "false",
+	},
 	"deep": {"ports": "full"},
 }
 
 // WithDefaults fills unset parameters from Tools.md defaults, as the profile
-// has them.
+// has them, then applies what the profile fixes.
 func WithDefaults(profile string, p map[string]string) map[string]string {
 	out := Defaults()
 	for k, v := range ProfileDefaults[profile] {
 		out[k] = v
 	}
 	for k, v := range p {
+		out[k] = v
+	}
+	for k, v := range ProfileFixed[profile] {
 		out[k] = v
 	}
 	return out

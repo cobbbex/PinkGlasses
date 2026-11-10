@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -207,8 +208,7 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 
 	// Wordlists: named lists of any kind; every kind left unsaid falls back to
 	// the registry defaults, so a plain scan needs no wordlist knowledge.
-	chosen := map[string]bool{}
-	var wlIDs []uuid.UUID
+	byKind := map[string][]store.Wordlist{}
 	for _, raw := range o.WordlistIDs {
 		id, err := uuid.Parse(raw)
 		if err != nil {
@@ -221,17 +221,25 @@ func (l *Launcher) Start(ctx context.Context, scopeID uuid.UUID, o Options) (dom
 		if wl.Status != "ready" {
 			return l.failed(ctx, run, refuse(http.StatusBadRequest, "wordlist %q is not ready (%s)", wl.Name, wl.Status))
 		}
-		chosen[wl.Kind] = true
-		wlIDs = append(wlIDs, id)
+		byKind[wl.Kind] = append(byKind[wl.Kind], wl)
 	}
+	var wlIDs []uuid.UUID
 	for _, kind := range []string{"dns", "resolvers", "dir"} {
-		if chosen[kind] {
-			continue
+		lists := byKind[kind]
+		if len(lists) == 0 {
+			lists, _ = l.st.DefaultWordlists(ctx, kind)
 		}
-		if defs, err := l.st.DefaultWordlists(ctx, kind); err == nil {
-			for _, d := range defs {
-				wlIDs = append(wlIDs, d.ID)
-			}
+		// Subdomain brute force runs one task per list. Resolution and
+		// directory search take one list, the first by name (the gateway
+		// hands out the same one); the run records only that one, so what it
+		// says it used is what it used. A rerun of a run that recorded
+		// several is narrowed the same way.
+		if kind != "dns" && len(lists) > 1 {
+			sort.Slice(lists, func(i, j int) bool { return lists[i].Name < lists[j].Name })
+			lists = lists[:1]
+		}
+		for _, w := range lists {
+			wlIDs = append(wlIDs, w.ID)
 		}
 	}
 	if err := l.st.SetRunWordlists(ctx, run.ID, wlIDs); err != nil {

@@ -339,7 +339,13 @@ function LaunchModal({
     queryKey: ["wordlists", "defaults"],
     queryFn: async () => {
       const kinds = await Promise.all(["dns", "resolvers", "dir"].map((k) => api.wordlists(k)));
-      return kinds.flat().filter((l) => l.is_default && l.status === "ready").map((l) => l.id);
+      return kinds.flatMap((ls, i) => {
+        const defs = ls.filter((l) => l.is_default && l.status === "ready")
+          .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+        // Resolution and directory search use one list: the first default by
+        // name, the one the server would pick (launch.go).
+        return (i === 0 ? defs : defs.slice(0, 1)).map((l) => l.id);
+      });
     },
   });
   useEffect(() => {
