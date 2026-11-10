@@ -47,7 +47,7 @@ export default function Runs({ scopeID }: { scopeID: string }) {
   const [followUp, setFollowUp] = useState<Run | null>(null);
   // Room for the run controls in the last column: Pause or Resume, Stop, and
   // for a finished run Rerun and Delete, plus the expand arrow.
-  const lay = useTableLayout("asm.runs", RUN_COLUMNS, 230);
+  const lay = useTableLayout("asm.runs", RUN_COLUMNS, 300);
 
   return (
     <div>
@@ -95,7 +95,7 @@ export default function Runs({ scopeID }: { scopeID: string }) {
                     </td>}
                     {lay.show("progress") && <td {...lay.td("progress")}><RunProgress run={r} /></td>}
                     {lay.show("status") && <td {...lay.td("status")}><Badge status={r.status} /></td>}
-                    <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    <td className="actions-cell" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                       <RunControls run={r} onChange={refetch} onFollowUp={setFollowUp} />
                       <span className="muted" style={{ marginLeft: 10 }}>{open === r.id ? "▾" : "▸"}</span>
                     </td>
@@ -275,7 +275,7 @@ function Schedules({ scopeID }: { scopeID: string }) {
                       : sc.enabled ? <span className="badge b-open">on</span> : <span className="muted">paused</span>}
                     {sc.last_error && <div className="muted wrap" style={{ fontSize: 11.5, marginTop: 3, maxWidth: 420 }}>{sc.last_error}</div>}
                   </td>
-                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                  <td className="actions-cell" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     {!spent && <button className="ghost sm" onClick={() => toggle(sc)}>{sc.enabled ? "Pause" : "Resume"}</button>}
                     <button className="ghost sm" onClick={() => remove(sc)}>Remove</button>
                   </td>

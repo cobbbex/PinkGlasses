@@ -396,3 +396,7 @@ td.clip { overflow: hidden; text-overflow: ellipsis; }
    share that width (see the colgroup); a cell clips what does not fit. */
 table.fit { table-layout: fixed; width: 100%; }
 table.fit td, table.fit th { overflow: hidden; text-overflow: ellipsis; }
+
+/* A row's buttons are never clipped, whatever width the table gives them. */
+table.fit td.actions-cell { overflow: visible; text-overflow: clip; }
+.run-controls button { white-space: nowrap; flex-shrink: 0; }
