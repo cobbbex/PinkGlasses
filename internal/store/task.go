@@ -540,7 +540,30 @@ type Activity struct {
 	Error      *string    `json:"error,omitempty"`
 	// Result is what the task found, when it has reported anything.
 	Result *TaskResult `json:"result,omitempty"`
+	// Wordlist is the list a brute-force task works through: its name, and
+	// how many entries it holds when it is one from the registry. A DNS
+	// brute force planned with a list names it before it is handed out;
+	// otherwise it is known once a worker has the task.
+	Wordlist      *string `json:"wordlist,omitempty"`
+	WordlistLines *int64  `json:"wordlist_lines,omitempty"`
+	// Resolvers is the resolver list a DNS brute force queries through.
+	Resolvers *string `json:"resolvers,omitempty"`
 }
+
+// SetTaskLists records the lists a task was handed when it was leased.
+func (s *Store) SetTaskLists(ctx context.Context, taskID uuid.UUID, wordlistID *uuid.UUID, wordlist, resolvers string) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE scan_task SET wordlist_id=$2, wordlist_name=NULLIF($3,''), resolvers_name=NULLIF($4,'')
+		WHERE id=$1`, taskID, wordlistID, wordlist, resolvers)
+	return err
+}
+
+// taskWordlistJoin finds the registry entry a task's list is: the one
+// recorded at dispatch, else the one a dns_brute task was planned with.
+const taskWordlistJoin = `
+		LEFT JOIN wordlist wl ON wl.id = COALESCE(t.wordlist_id,
+		    CASE WHEN t.target->>'wordlist_id' ~ '^[0-9a-fA-F-]{36}$'
+		         THEN (t.target->>'wordlist_id')::uuid END)`
 
 // RunActivity returns in-flight tasks first, then the most recently finished,
 // so the view leads with what is happening right now.
@@ -555,9 +578,10 @@ func (s *Store) RunActivity(ctx context.Context, runID uuid.UUID, limit int) ([]
 		       t.status, t.attempts,
 		       t.worker_id,
 		       COALESCE(w.name, t.worker_name), COALESCE(w.kind, t.worker_kind),
-		       t.started_at, t.finished_at, t.error, t.result
+		       t.started_at, t.finished_at, t.error, t.result,
+		       COALESCE(t.wordlist_name, wl.name), wl.line_count, t.resolvers_name
 		FROM scan_task t
-		LEFT JOIN worker w ON w.id = t.worker_id
+		LEFT JOIN worker w ON w.id = t.worker_id`+taskWordlistJoin+`
 		WHERE t.run_id = $1
 		ORDER BY
 		  CASE t.status WHEN 'running' THEN 0 WHEN 'leased' THEN 1
@@ -574,10 +598,14 @@ func (s *Store) RunActivity(ctx context.Context, runID uuid.UUID, limit int) ([]
 		var result []byte
 		if err := rows.Scan(&a.TaskID, &a.Stage, &a.Target, &a.Status, &a.Attempts,
 			&a.WorkerID, &a.WorkerName, &a.WorkerKind,
-			&a.StartedAt, &a.FinishedAt, &a.Error, &result); err != nil {
+			&a.StartedAt, &a.FinishedAt, &a.Error, &result,
+			&a.Wordlist, &a.WordlistLines, &a.Resolvers); err != nil {
 			return nil, err
 		}
 		a.Result = taskResultCounts(result)
+		if a.WordlistLines != nil && (*a.WordlistLines <= 0 || a.Wordlist == nil) {
+			a.WordlistLines = nil
+		}
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -600,6 +628,18 @@ type StageCount struct {
 	// Sources is Found broken down by discovery source, for the stages
 	// that have one: "subfinder:crtsh" 120, "shuffledns" 37, "seed" 1.
 	Sources map[string]int `json:"sources,omitempty"`
+	// Wordlists are the lists this stage's tasks work through, in use first.
+	Wordlists []StageWordlist `json:"wordlists,omitempty"`
+}
+
+// StageWordlist is one list a stage's tasks use, and how many of those tasks
+// are working through it right now, finished with it, or waiting for it.
+type StageWordlist struct {
+	Name    string `json:"name"`
+	Lines   int64  `json:"lines,omitempty"`
+	Active  int    `json:"active"`
+	Done    int    `json:"done"`
+	Pending int    `json:"pending"`
 }
 
 // stageFoundKind is the unit each stage's result is counted in.
@@ -656,7 +696,42 @@ func (s *Store) RunStages(ctx context.Context, runID uuid.UUID) ([]StageCount, e
 		}
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, s.stageWordlists(ctx, runID, out)
+}
+
+// stageWordlists fills in which lists each stage's tasks use.
+func (s *Store) stageWordlists(ctx context.Context, runID uuid.UUID, stages []StageCount) error {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT t.stage, COALESCE(t.wordlist_name, wl.name), COALESCE(max(wl.line_count), 0),
+		       count(*) FILTER (WHERE t.status IN ('leased','running')),
+		       count(*) FILTER (WHERE t.status = 'done'),
+		       count(*) FILTER (WHERE t.status = 'pending')
+		FROM scan_task t`+taskWordlistJoin+`
+		WHERE t.run_id = $1 AND COALESCE(t.wordlist_name, wl.name) IS NOT NULL
+		GROUP BY 1, 2
+		ORDER BY 1, 4 DESC, 2`, runID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	at := map[string]int{}
+	for i := range stages {
+		at[stages[i].Stage] = i
+	}
+	for rows.Next() {
+		var stage string
+		var w StageWordlist
+		if err := rows.Scan(&stage, &w.Name, &w.Lines, &w.Active, &w.Done, &w.Pending); err != nil {
+			return err
+		}
+		if i, ok := at[stage]; ok {
+			stages[i].Wordlists = append(stages[i].Wordlists, w)
+		}
+	}
+	return rows.Err()
 }
 
 // ScannedAddresses returns every address that already has a port-scan task in

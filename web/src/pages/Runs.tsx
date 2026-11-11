@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, Run, RunAsset, RunTarget, RunActivity, RunFleet, Schedule, TaskResult } from "../api";
+import { api, Run, RunAsset, RunTarget, RunActivity, RunFleet, Schedule, StageWordlist, TaskResult } from "../api";
 import { useTableLayout, PlainTh, LayoutDef } from "../components/table";
 import { Badge, useToast, Modal } from "../components/ui";
 import ScanSettings from "../components/ScanSettings";
@@ -1056,7 +1056,8 @@ function RunWorkers({ runID }: { runID: string }) {
           <span key={st.stage} className="pill" title={
             `${st.done} done · ${st.active} running · ${st.pending} queued · ${st.failed} failed` +
             (st.found_kind ? `\n${st.found ?? 0} ${st.found_kind} found` : "") +
-            (st.sources && Object.keys(st.sources).length ? "\nby source: " + sourcesText(st.sources) : "")}>
+            (st.sources && Object.keys(st.sources).length ? "\nby source: " + sourcesText(st.sources) : "") +
+            (st.wordlists?.length ? "\nwordlists:\n" + st.wordlists.map(stageListText).join("\n") : "")}>
             {st.stage}
             <span className="muted"> {st.done}/{st.done + st.active + st.pending + st.failed}</span>
             {st.found_kind && (st.found ?? 0) > 0 && (
@@ -1067,6 +1068,22 @@ function RunWorkers({ runID }: { runID: string }) {
           </span>
         ))}
       </div>
+      {act.stages.some((st) => st.wordlists?.some((w) => w.active > 0)) && (
+        <div className="muted" style={{ fontSize: 12.5, marginTop: 6 }}>
+          {act.stages.filter((st) => st.wordlists?.some((w) => w.active > 0)).map((st) => (
+            <div key={st.stage}>
+              {st.stage} working through{" "}
+              {st.wordlists!.filter((w) => w.active > 0).map((w, i) => (
+                <span key={w.name}>
+                  {i > 0 && ", "}
+                  <span className="mono" style={{ color: "var(--accent)" }}>{w.name}</span>
+                  {w.lines ? ` (${w.lines.toLocaleString()} entries)` : ""}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="section-title">Workers on this scan</div>
       {act.workers.length === 0 ? (
@@ -1096,7 +1113,17 @@ function RunWorkers({ runID }: { runID: string }) {
               {[...active, ...recent].map((t) => (
                 <tr key={t.task_id}>
                   <td>{t.stage}</td>
-                  <td className="mono">{t.target || "—"}</td>
+                  <td className="mono">
+                    {t.target || "—"}
+                    {t.wordlist && (
+                      <div className="muted wrap" style={{ fontSize: 11.5, marginTop: 3 }}
+                           title={t.resolvers ? `resolvers: ${t.resolvers}` : undefined}>
+                        wordlist {t.wordlist}
+                        {t.wordlist_lines ? ` · ${t.wordlist_lines.toLocaleString()} entries` : ""}
+                        {t.resolvers && <> · resolvers {t.resolvers}</>}
+                      </div>
+                    )}
+                  </td>
                   <td className="mono">{t.worker_name ?? <span className="muted">unassigned</span>}</td>
                   <td style={{ minWidth: 160, maxWidth: 460 }}>
                     <Badge status={t.status} />
@@ -1124,6 +1151,12 @@ function RunWorkers({ runID }: { runID: string }) {
       )}
     </div>
   );
+}
+
+// stageListText is one line of a stage's wordlist breakdown.
+function stageListText(w: StageWordlist): string {
+  const parts = [w.active && `${w.active} running`, w.done && `${w.done} done`, w.pending && `${w.pending} queued`].filter(Boolean);
+  return `  ${w.name}${w.lines ? ` (${w.lines.toLocaleString()} entries)` : ""}: ${parts.join(", ") || "—"}`;
 }
 
 // resultText says what a task found, in the unit its stage produces, and

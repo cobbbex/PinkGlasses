@@ -307,7 +307,7 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 				job := &jobs[i]
 				job.Ingest = scanproto.IngestInfo{URL: base + "/agent/v1/results"}
 				job.Params.Tool = g.paramsForRun(ctx, job.RunID)
-				g.attachWordlist(ctx, job, base)
+				g.recordLists(ctx, job, g.attachWordlist(ctx, job, base))
 				env := scanproto.Envelope{Type: "job", Job: job}
 				if err := conn.WriteJSON(env); err != nil {
 					return
@@ -324,7 +324,10 @@ func (g *Gateway) connect(w http.ResponseWriter, r *http.Request) {
 // search runs one task per URL and uses a single list: the run's default. A run
 // without one is not an error — the worker falls back to the list baked into
 // its image.
-func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job, base string) {
+func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job, base string) (used taskLists) {
+	// Until a registry list is attached, the worker takes one from its
+	// image, chosen by the dir_wordlist setting.
+	used.name = imageDirList(job.Params.Tool)
 	runID, err := uuid.Parse(job.RunID)
 	if err != nil {
 		return
@@ -354,6 +357,53 @@ func (g *Gateway) attachDirWordlist(ctx context.Context, job *scanproto.Job, bas
 	job.Params.WordlistName = wl.Name
 	if wl.SHA256 != nil {
 		job.Params.WordlistSHA = *wl.SHA256
+	}
+	id := wl.ID
+	used.id, used.name = &id, wl.Name
+	return
+}
+
+// taskLists is what a brute-force task was handed: its wordlist, and for a
+// DNS brute force the resolvers it queries through. An empty name means the
+// task uses no list.
+type taskLists struct {
+	id        *uuid.UUID
+	name      string
+	resolvers string
+}
+
+// The lists baked into the worker image, named as the run view shows them
+// when a task falls back to one.
+const (
+	imageDNSList       = "built into the worker image (subdomains)"
+	imageResolversList = "built into the worker image"
+)
+
+// imageDirList names the image list a directory search falls back to: the
+// dir_wordlist setting picks between the two shipped. A run with gobuster
+// switched off brute-forces nothing, so it has none.
+func imageDirList(params map[string]string) string {
+	if params["gobuster_enabled"] == "false" {
+		return ""
+	}
+	if params["dir_wordlist"] == "dns" {
+		return "built into the worker image (dns)"
+	}
+	return "built into the worker image (common)"
+}
+
+// recordLists notes on the task which lists it was handed, so the run view
+// can say what each brute force is working through.
+func (g *Gateway) recordLists(ctx context.Context, job *scanproto.Job, used taskLists) {
+	if used.name == "" && used.resolvers == "" {
+		return
+	}
+	id, err := uuid.Parse(job.TaskID)
+	if err != nil {
+		return
+	}
+	if err := g.st.SetTaskLists(ctx, id, used.id, used.name, used.resolvers); err != nil {
+		slog.Warn("could not record a task's wordlist", "task", job.TaskID, "err", err)
 	}
 }
 
@@ -471,36 +521,16 @@ var wordlistClient = &http.Client{Timeout: 30 * time.Minute}
 // attachWordlist gives a dns_brute job a short-lived download URL for the list
 // it must use. The URL is minted at dispatch rather than at planning time so it
 // is still valid when the task is actually leased, which may be much later.
-func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job, base string) {
+func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job, base string) (used taskLists) {
 	if job.Stage == scanproto.StageDirBrute {
-		g.attachDirWordlist(ctx, job, base)
-		return
+		return g.attachDirWordlist(ctx, job, base)
 	}
 	if job.Stage != scanproto.StageDNSBrute || len(job.Targets) == 0 {
 		return
 	}
-	rawID := job.Targets[0].WordlistID
-	if rawID == "" {
-		return
-	}
-	id, err := uuid.Parse(rawID)
-	if err != nil {
-		return
-	}
-	wl, err := g.st.GetWordlist(ctx, id)
-	if err != nil || wl.Status != "ready" {
-		return
-	}
-	url, err := g.listURL(wl, base)
-	if err != nil {
-		slog.Warn("could not build a download url for the wordlist", "wordlist", wl.Name, "err", err)
-		return
-	}
-	job.Params.WordlistURL = url
-	job.Params.WordlistName = wl.Name
-	if wl.SHA256 != nil {
-		job.Params.WordlistSHA = *wl.SHA256
-	}
+	// Whatever is not attached below, the worker takes from its image.
+	used.name, used.resolvers = imageDNSList, imageResolversList
+	g.attachDNSList(ctx, job, base, &used)
 
 	// Every brute task also needs resolvers. Take the run's selection; the
 	// worker falls back to the list baked into its image if none is attached.
@@ -523,6 +553,32 @@ func (g *Gateway) attachWordlist(ctx context.Context, job *scanproto.Job, base s
 	if rl.SHA256 != nil {
 		job.Params.ResolversSHA = *rl.SHA256
 	}
+	used.resolvers = rl.Name
+	return
+}
+
+// attachDNSList attaches the subdomain list a dns_brute task was planned
+// with, and notes it in used.
+func (g *Gateway) attachDNSList(ctx context.Context, job *scanproto.Job, base string, used *taskLists) {
+	id, err := uuid.Parse(job.Targets[0].WordlistID)
+	if err != nil {
+		return
+	}
+	wl, err := g.st.GetWordlist(ctx, id)
+	if err != nil || wl.Status != "ready" {
+		return
+	}
+	url, err := g.listURL(wl, base)
+	if err != nil {
+		slog.Warn("could not build a download url for the wordlist", "wordlist", wl.Name, "err", err)
+		return
+	}
+	job.Params.WordlistURL = url
+	job.Params.WordlistName = wl.Name
+	if wl.SHA256 != nil {
+		job.Params.WordlistSHA = *wl.SHA256
+	}
+	used.id, used.name = &id, wl.Name
 }
 
 // per lease. Params were whitelisted server-side before storage.

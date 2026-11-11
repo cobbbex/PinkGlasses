@@ -182,6 +182,13 @@ export interface TaskActivity {
   worker_name?: string | null; worker_kind?: string | null;
   started_at?: string | null; finished_at?: string | null; error?: string | null;
   result?: TaskResult | null;
+  /** The list a brute-force task works through, and how many entries it has when it is a registry list. */
+  wordlist?: string | null; wordlist_lines?: number | null;
+  /** The resolver list a DNS brute force queries through. */
+  resolvers?: string | null;
+}
+export interface StageWordlist {
+  name: string; lines?: number; active: number; done: number; pending: number;
 }
 export interface StageCount {
   stage: string; pending: number; active: number; done: number; failed: number;
@@ -189,6 +196,8 @@ export interface StageCount {
   found?: number; found_kind?: string;
   /** For discovery stages: found broken down by source. */
   sources?: Record<string, number> | null;
+  /** The lists this stage's tasks use, in use first. */
+  wordlists?: StageWordlist[] | null;
 }
 export interface WorkerBusy {
   name: string; kind: string; running: number; done: number; stages: string[];

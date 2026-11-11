@@ -537,7 +537,7 @@ paths:
   /api/v1/runs/{runID}/activity:
     get:
       operationId: getRunsByRunIDActivity
-      summary: "{tasks, stages, workers} — what is running where, right now. Each stage carries found and found_kind (names, addresses, open ports, web endpoints) and, for discovery stages, sources (names per source: subfinder:crtsh, shuffledns, seed); each task carries result with the same counts"
+      summary: "{tasks, stages, workers} — what is running where, right now. Each stage carries found and found_kind (names, addresses, open ports, web endpoints) and, for discovery stages, sources (names per source: subfinder:crtsh, shuffledns, seed); each task carries result with the same counts. A brute-for…"
       x-required-role: viewer
       parameters:
         - {name: runID, in: path, required: true, schema: {type: string}}
