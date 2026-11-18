@@ -1,0 +1,32 @@
+{
+  "source": "lab WildFly 42.0.0.Final management API, port 9990 (deploy/fplab)",
+  "expect": [
+    "WildFly"
+  ],
+  "response": {
+    "path": "/management",
+    "status": 401,
+    "headers": {
+      "Connection": [
+        "close"
+      ],
+      "Www-Authenticate": [
+        "Digest realm=\"ManagementRealm\", nonce=\"redacted\", opaque=\"00000000000000000000000000000000\", algorithm=MD5, qop=auth"
+      ],
+      "X-Content-Type-Options": [
+        "nosniff"
+      ],
+      "X-Frame-Options": [
+        "SAMEORIGIN"
+      ],
+      "Content-Length": [
+        "77"
+      ],
+      "Content-Type": [
+        "text/html"
+      ]
+    },
+    "title": "Error",
+    "body": "<html><head><title>Error</title></head><body>401 - Unauthorized</body></html>"
+  }
+}

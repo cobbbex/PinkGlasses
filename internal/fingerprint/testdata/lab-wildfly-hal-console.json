@@ -1,0 +1,35 @@
+{
+  "source": "lab WildFly 42.0.0.Final management console, port 9990 (deploy/fplab)",
+  "expect": [
+    "WildFly"
+  ],
+  "response": {
+    "path": "/console/index.html",
+    "status": 200,
+    "headers": {
+      "Connection": [
+        "close"
+      ],
+      "Last-Modified": [
+        "Wed, 21 Oct 2026 17:35:56 GMT"
+      ],
+      "X-Content-Type-Options": [
+        "nosniff"
+      ],
+      "X-Frame-Options": [
+        "SAMEORIGIN"
+      ],
+      "Content-Length": [
+        "519"
+      ],
+      "Content-Type": [
+        "text/html"
+      ],
+      "Accept-Ranges": [
+        "bytes"
+      ]
+    },
+    "title": "HAL Management Console",
+    "body": "<!DOCTYPE html><html class=\"layout-pf layout-pf-fixed\" lang=en><title>HAL Management Console</title><meta charset=utf-8><meta http-equiv=x-ua-compatible content=\"ie=edge\"><meta name=viewport content=\"width=device-width, initial-scale=1\"><link rel=\"icon shortcut\" type=image/x-icon href=favicon.db74b3b0.ico><link rel=apple-touch-icon href=apple-touch-icon.f7d82772.png><link rel=stylesheet href=dev.a73207e2.css media=screen><script type=module src=dev.efbbfe47.js></script><script src=hal.nocache.js></script><body>\n\n\n"
+  }
+}

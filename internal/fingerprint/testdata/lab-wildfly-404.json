@@ -1,0 +1,21 @@
+{
+  "source": "lab WildFly 42.0.0.Final: Undertow's bare 404, which names nothing on its own (deploy/fplab)",
+  "expect": [],
+  "response": {
+    "path": "/nonexistent-page.jsp",
+    "status": 404,
+    "headers": {
+      "Connection": [
+        "close"
+      ],
+      "Content-Length": [
+        "74"
+      ],
+      "Content-Type": [
+        "text/html"
+      ]
+    },
+    "title": "Error",
+    "body": "<html><head><title>Error</title></head><body>404 - Not Found</body></html>"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "source": "lab WildFly 42.0.0.Final welcome page (deploy/fplab)",
+  "expect": [
+    "WildFly"
+  ],
+  "response": {
+    "path": "/",
+    "status": 200,
+    "headers": {
+      "Connection": [
+        "close"
+      ],
+      "Last-Modified": [
+        "Wed, 21 Oct 2026 17:35:56 GMT"
+      ],
+      "Content-Length": [
+        "1391"
+      ],
+      "Content-Type": [
+        "text/html"
+      ],
+      "Accept-Ranges": [
+        "bytes"
+      ]
+    },
+    "title": "Welcome to WildFly",
+    "body": "<!--\n  ~ Copyright The WildFly Authors\n  ~ SPDX-License-Identifier: Apache-2.0\n  -->\n\n<!DOCTYPE html>\n\n<html>\n<head>\n    <!-- proper charset -->\n    <meta http-equiv=\"content-type\" content=\"text/html;charset=utf-8\" />\n    <meta http-equiv=\"X-UA-Compatible\" content=\"IE=EmulateIE8\" />\n\n    <title>Welcome to WildFly</title>\n    <link rel=\"shortcut icon\" href=\"favicon.ico\" type=\"image/x-icon\">\n    <link rel=\"StyleSheet\" href=\"wildfly.css\" type=\"text/css\">\n</head>\n\n<body>\n<div class=\"wrapper\">\n    <div class=\"content\">\n        <div class=\"logo\">\n                <img src=\"wildfly_logo.png\" alt=\"WildFly\" border=\"0\" />\n        </div>\n        <h1>Welcome to WildFly</h1>\n\n        <h3>Your WildFly instance is running.</h3>\n\n        <p><a href=\"https://docs.wildfly.org\">Documentation</a> | <a href=\"https://github.com/wildfly/quickstart\">Quickstarts</a> | <a href=\"/console\">Administration\n            Console</a> </p>\n\n        <p><a href=\"https://wildfly.org\">WildFly Project</a> |\n            <a href=\"https://groups.google.com/g/wildfly\">User Forum</a> |\n            <a href=\"https://issues.jboss.org/browse/WFLY\">Report an issue</a></p>\n\n        <p class=\"note\">To replace this page simply deploy your own war with / as its context path.<br />\n            To disable it, remove the \"welcome-content\" handler for location / in the undertow subsystem.</p>\n    </div>\n</div>\n</body>\n</html>\n"
+  }
+}
