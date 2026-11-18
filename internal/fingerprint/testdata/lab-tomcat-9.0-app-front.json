@@ -1,0 +1,26 @@
+{
+  "source": "lab tomcat:9.0 with a JSP front page (deploy/fplab)",
+  "expect": [
+    "Java"
+  ],
+  "response": {
+    "path": "/",
+    "status": 200,
+    "headers": {
+      "Content-Type": [
+        "text/html;charset=ISO-8859-1"
+      ],
+      "Content-Length": [
+        "75"
+      ],
+      "Connection": [
+        "close"
+      ]
+    },
+    "title": "Acme portal",
+    "body": "<html><head><title>Acme portal</title></head><body>Welcome 32</body></html>",
+    "cookies": [
+      "JSESSIONID"
+    ]
+  }
+}

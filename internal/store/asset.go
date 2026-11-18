@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -245,20 +246,40 @@ func jsonOrNil(v map[string]any) []byte {
 // version only refreshes the versioned row; a versioned sighting retires the
 // versionless row it supersedes.
 func (s *Store) UpsertTechnology(ctx context.Context, serviceID uuid.UUID, name, version, cpe string, confidence int, at time.Time) error {
-	if version == "" {
+	// A version may be only a minimum ("11+": the oldest Java a server
+	// runs on). It ranks between none and one stated outright: it replaces
+	// an unversioned row, and gives way to a stated version.
+	floor := strings.HasSuffix(version, "+")
+	switch {
+	case version == "" || floor:
+		// An unversioned sighting refreshes a versioned row; a minimum
+		// refreshes a stated version.
+		cond := `version <> ''`
+		if floor {
+			cond = `version <> '' AND version NOT LIKE '%+'`
+		}
 		ct, err := s.Pool.Exec(ctx, `
 			UPDATE technology SET last_seen = GREATEST(last_seen, $3)
-			WHERE service_id=$1 AND name=$2 AND version <> ''`, serviceID, name, at)
+			WHERE service_id=$1 AND name=$2 AND `+cond, serviceID, name, at)
 		if err != nil {
 			return err
 		}
 		if ct.RowsAffected() > 0 {
 			return nil
 		}
-	} else if _, err := s.Pool.Exec(ctx, `
-			DELETE FROM technology WHERE service_id=$1 AND name=$2 AND version = ''`,
-		serviceID, name); err != nil {
-		return err
+		if floor {
+			if _, err := s.Pool.Exec(ctx, `
+				DELETE FROM technology WHERE service_id=$1 AND name=$2 AND (version = '' OR (version LIKE '%+' AND version <> $3))`,
+				serviceID, name, version); err != nil {
+				return err
+			}
+		}
+	default:
+		if _, err := s.Pool.Exec(ctx, `
+			DELETE FROM technology WHERE service_id=$1 AND name=$2 AND (version = '' OR version LIKE '%+')`,
+			serviceID, name); err != nil {
+			return err
+		}
 	}
 	_, err := s.Pool.Exec(ctx, `
 		INSERT INTO technology (service_id, name, version, cpe, confidence, first_seen, last_seen)

@@ -20,6 +20,16 @@ var rules = []product{
 	exchangeRule,
 	kerioRule,
 	mikrotikRule,
+	tomcatRule,
+	jettyRule,
+	wildflyRule,
+	jbossRule,
+	weblogicRule,
+	glassfishRule,
+	payaraRule,
+	websphereRule,
+	springRule,
+	javaRule,
 }
 
 // --- Citrix NetScaler (ADC / Gateway / AAA) ---

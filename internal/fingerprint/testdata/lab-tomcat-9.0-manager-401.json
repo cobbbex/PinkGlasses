@@ -1,0 +1,29 @@
+{
+  "source": "lab tomcat:9.0 manager reachable from anywhere (deploy/fplab)",
+  "expect": [
+    "Apache Tomcat"
+  ],
+  "response": {
+    "path": "/manager/html",
+    "status": 401,
+    "headers": {
+      "Cache-Control": [
+        "private"
+      ],
+      "Www-Authenticate": [
+        "Basic realm=\"Tomcat Manager Application\""
+      ],
+      "Content-Type": [
+        "text/html;charset=ISO-8859-1"
+      ],
+      "Content-Length": [
+        "2576"
+      ],
+      "Connection": [
+        "close"
+      ]
+    },
+    "title": "401 Unauthorized",
+    "body": "<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 4.01//EN\" \"http://www.w3.org/TR/html4/strict.dtd\">\n<html>\n <head>\n  <title>401 Unauthorized</title>\n  <style type=\"text/css\">\n    <!--\n    BODY {font-family:Tahoma,Arial,sans-serif;color:black;background-color:white;font-size:12px;}\n    H1 {font-family:Tahoma,Arial,sans-serif;color:white;background-color:#525D76;font-size:22px;}\n    PRE, TT {border: 1px dotted #525D76}\n    A {color : black;}A.name {color : black;}\n    -->\n  </style>\n  <link href=\"/manager/images/favicon.ico\" rel=\"icon\" type=\"image/x-icon\" />\n </head>\n <body>\n   <h1>401 Unauthorized</h1>\n   <p>\n    You are not authorized to view this page. If you have not changed\n    any configuration files, please examine the file\n    <tt>conf/tomcat-users.xml</tt> in your installation. That\n    file must contain the credentials to let you use this webapp.\n   </p>\n   <p>\n    For example, to add the <tt>manager-gui</tt> role to a user named\n    <tt>tomcat</tt> with a password of <tt>s3cret</tt>, add the following to the\n    config file listed above.\n   </p>\n<pre>\n&lt;role rolename=\"manager-gui\"/&gt;\n&lt;user username=\"tomcat\" password=\"s3cret\" roles=\"manager-gui\"/&gt;\n</pre>\n   <p>\n    Note that for Tomcat 7 onwards, the roles required to use the manager\n    application were changed from the single <tt>manager</tt> role to the\n    following four roles. You will need to assign the role(s) required for\n    the functionality you wish to access.\n   </p>\n    <ul>\n      <li><tt>manager-gui</tt> - allows access to the HTML GUI and the status\n          pages</li>\n      <li><tt>manager-script</tt> - allows access to the text interface and the\n          status pages</li>\n      <li><tt>manager-jmx</tt> - allows access to the JMX proxy and the status\n          pages</li>\n      <li><tt>manager-status</tt> - allows access to the status pages only</li>\n    </ul>\n   <p>\n    The HTML interface is protected against CSRF but the text and JMX interfaces\n    are not. To maintain the CSRF protection:\n   </p>\n   <ul>\n    <li>Users with the <tt>manager-gui</tt> role should not be granted either\n        the <tt>manager-script</tt> or <tt>manager-jmx</tt> roles.</li>\n    <li>If the text or jmx interfaces are accessed through a browser (e.g. for\n        testing since these interfaces are intended for tools not humans) then\n        the browser must be closed afterwards to terminate the session.</li>\n   </ul>\n   <p>\n    For more information - please see the\n    <a href=\"/docs/manager-howto.html\" rel=\"noopener noreferrer\">Manager App How-To</a>.\n   </p>\n </body>\n\n</html>\n"
+  }
+}

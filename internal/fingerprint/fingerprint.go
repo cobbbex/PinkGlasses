@@ -1,8 +1,10 @@
 // Package fingerprint names the edge products an attack surface is most often
 // breached through — Citrix NetScaler, Atlassian Confluence and Jira, Zammad,
-// Zimbra, Microsoft Exchange, Kerio Connect, MikroTik RouterOS — from one
-// HTTP response, and network devices (MikroTik) from a host's open ports
-// together (device.go).
+// Zimbra, Microsoft Exchange, Kerio Connect, MikroTik RouterOS — and the
+// Java application servers and frameworks (java.go: Tomcat, Jetty, WildFly,
+// JBoss, WebLogic, GlassFish, Payara, WebSphere, Spring Boot) with the Java
+// under them, from one HTTP response; and network devices (MikroTik) from a
+// host's open ports together (device.go).
 //
 // Detection is a pure function of a response, so the same rules run inside
 // the worker's web stage, over banners exported from Shodan, Censys or FOFA
@@ -166,8 +168,11 @@ func Merge(sets ...[]Match) []Match {
 			}
 			o := &out[i]
 			o.Confidence = min(99, max(o.Confidence, m.Confidence)+5)
-			if o.Version == "" {
-				o.Version, o.Release = m.Version, m.Release
+			if betterVersion(o.Version, m.Version) {
+				o.Version = m.Version
+			}
+			if o.Release == "" {
+				o.Release = m.Release
 			}
 			o.Features = union(o.Features, m.Features)
 			o.Evidence = union(o.Evidence, m.Evidence)
@@ -175,6 +180,22 @@ func Merge(sets ...[]Match) []Match {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Confidence > out[j].Confidence })
 	return out
+}
+
+// betterVersion: the first version found is kept, except that one stated
+// outright replaces a mere minimum ("11+"), and a higher minimum a lower.
+func betterVersion(have, got string) bool {
+	switch {
+	case got == "":
+		return false
+	case have == "":
+		return true
+	case IsFloor(have) && !IsFloor(got):
+		return true
+	case IsFloor(have) && IsFloor(got):
+		return floorOf(got) > floorOf(have)
+	}
+	return false
 }
 
 // Settled keeps the matches confident enough to report.
@@ -212,7 +233,7 @@ func Probes(first string, ms []Match, done map[string]bool) []string {
 	}
 	add(first)
 	for _, m := range ms {
-		if m.Confidence >= 90 && m.Version != "" {
+		if m.Confidence >= 90 && m.Version != "" && !IsFloor(m.Version) {
 			continue
 		}
 		for _, p := range rules {

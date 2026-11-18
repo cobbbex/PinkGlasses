@@ -60,3 +60,30 @@ func TestFreeTextTerms(t *testing.T) {
 		t.Errorf("a quoted phrase should be one term: %s", one.Where)
 	}
 }
+
+// tech:Name@version narrows to the technology's own version on the same row.
+func TestTechVersion(t *testing.T) {
+	cases := []struct {
+		q    string
+		args []string
+	}{
+		{`tech:Java@8*`, []string{"%Java%", "8%"}},
+		{`tech:Java@11+`, []string{"%Java%", "11+"}},
+		{`tech:"Apache Tomcat@9.0*"`, []string{"%Apache Tomcat%", "9.0%"}},
+		{`tech:Java`, []string{"%Java%"}},
+	}
+	for _, c := range cases {
+		got, err := Compile(c.q)
+		if err != nil {
+			t.Fatalf("%s: %v", c.q, err)
+		}
+		if len(got.Args) != len(c.args) {
+			t.Fatalf("%s: args %v, want %v (%s)", c.q, got.Args, c.args, got.Where)
+		}
+		for i, a := range c.args {
+			if got.Args[i] != a {
+				t.Errorf("%s: arg %d = %v, want %q", c.q, i, got.Args[i], a)
+			}
+		}
+	}
+}

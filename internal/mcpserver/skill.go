@@ -209,7 +209,7 @@ work. A value with spaces is quoted: ` + "`title:\"403 Forbidden\"`" + `.
 | ` + "`port:443`" + `, ` + "`port>1024`" + ` | service port |
 | ` + "`product:nginx`" + `, ` + "`product:*`" + ` | product name from banners / headers; ` + "`*`" + ` means any product known |
 | ` + "`version:1.24*`" + ` | product version |
-| ` + "`tech:WordPress`" + `, ` + "`tech:*`" + ` | detected technology (also from response headers) |
+| ` + "`tech:WordPress`" + `, ` + "`tech:*`" + `, ` + "`tech:Java@8*`" + ` | detected technology (also from response headers); ` + "`@`" + ` narrows to its own version, ` + "`11+`" + ` meaning 11 or later |
 | ` + "`title:*login*`" + ` | HTTP title, substring unless wildcards are given |
 | ` + "`status:403`" + `, ` + "`status>=500`" + ` | HTTP status |
 | ` + "`cookie:webvpn*`" + ` | cookie **names** (Cisco ASA WebVPN, BIGipServer* for F5, NSC_* for Citrix) |

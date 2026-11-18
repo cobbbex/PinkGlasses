@@ -286,11 +286,24 @@ func compileField(c *compiler, f field, op, val string) string {
 		if val == "*" {
 			return "EXISTS (SELECT 1 FROM technology t WHERE t.service_id=sv.id)"
 		}
-		pat := "%" + val + "%"
-		if strings.ContainsAny(val, "*") {
-			pat = strings.ReplaceAll(val, "*", "%")
+		// tech:Name@version narrows to the technology's own version, on the
+		// same row: tech:Java@8* is Java 8, tech:"Apache Tomcat@9.0*" Tomcat
+		// 9.0; a minimum is written "11+", so tech:Java@11+ finds those.
+		// A version without * is matched whole.
+		name, ver, hasVer := strings.Cut(val, "@")
+		pat := "%" + name + "%"
+		if strings.ContainsAny(name, "*") {
+			pat = strings.ReplaceAll(name, "*", "%")
 		}
-		return "EXISTS (SELECT 1 FROM technology t WHERE t.service_id=sv.id AND t.name ILIKE " + c.bind(pat) + ")"
+		q := "EXISTS (SELECT 1 FROM technology t WHERE t.service_id=sv.id AND t.name ILIKE " + c.bind(pat)
+		if hasVer && ver != "" {
+			vpat := ver
+			if strings.ContainsAny(ver, "*") {
+				vpat = strings.ReplaceAll(ver, "*", "%")
+			}
+			q += " AND t.version ILIKE " + c.bind(vpat)
+		}
+		return q + ")"
 	case "cookie":
 		// Cookie names fingerprint a product where the banner does not:
 		// cookie:webvpn* finds Cisco ASA WebVPN across the whole inventory.

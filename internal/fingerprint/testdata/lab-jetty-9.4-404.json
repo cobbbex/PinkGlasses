@@ -1,0 +1,30 @@
+{
+  "source": "lab jetty:9.4 (deploy/fplab)",
+  "expect": [
+    "Jetty"
+  ],
+  "response": {
+    "path": "/nonexistent-page.jsp",
+    "status": 404,
+    "headers": {
+      "Connection": [
+        "close"
+      ],
+      "Cache-Control": [
+        "must-revalidate,no-cache,no-store"
+      ],
+      "Content-Type": [
+        "text/html;charset=iso-8859-1"
+      ],
+      "Content-Length": [
+        "457"
+      ],
+      "Server": [
+        "Jetty(9.4.58.v20250814)"
+      ]
+    },
+    "title": "Error 404 Not Found",
+    "body": "<html>\n<head>\n<meta http-equiv=\"Content-Type\" content=\"text/html;charset=ISO-8859-1\"/>\n<title>Error 404 Not Found</title>\n</head>\n<body><h2>HTTP ERROR 404 Not Found</h2>\n<table>\n<tr><th>URI:</th><td>/nonexistent-page.jsp</td></tr>\n<tr><th>STATUS:</th><td>404</td></tr>\n<tr><th>MESSAGE:</th><td>Not Found</td></tr>\n<tr><th>SERVLET:</th><td>-</td></tr>\n</table>\n<hr/><a href=\"https://jetty.org/\">Powered by Jetty:// 9.4.58.v20250814</a><hr/>\n\n</body>\n</html>\n"
+  },
+  "version": "9.4.58.v20250814"
+}

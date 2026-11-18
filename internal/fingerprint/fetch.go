@@ -37,25 +37,35 @@ func (f Fetcher) Run(ctx context.Context, base string) (Result, error) {
 	res := Result{Responses: []Response{root}}
 	sets := [][]Match{Detect(root)}
 	done := map[string]bool{"/": true}
-	for _, path := range Probes(SameSitePath(base, root), sets[0], done) {
-		if ctx.Err() != nil {
-			break
-		}
-		done[path] = true
-		if f.Delay > 0 {
-			select {
-			case <-ctx.Done():
-			case <-time.After(f.Delay):
+	// Probes come in rounds: what one round's pages resemble can earn the
+	// next its own paths — a JSESSIONID earns the shared not-found page,
+	// Spring Boot's error there earns /actuator. All rounds together stay
+	// within MaxProbes.
+	asked := 0
+	next := Probes(SameSitePath(base, root), sets[0], done)
+	for len(next) > 0 && asked < MaxProbes && ctx.Err() == nil {
+		for _, path := range next {
+			if ctx.Err() != nil || asked >= MaxProbes {
+				break
 			}
+			done[path] = true
+			asked++
+			if f.Delay > 0 {
+				select {
+				case <-ctx.Done():
+				case <-time.After(f.Delay):
+				}
+			}
+			r, err := f.get(ctx, base, path)
+			if err != nil {
+				continue
+			}
+			res.Responses = append(res.Responses, r)
+			sets = append(sets, Detect(r))
 		}
-		r, err := f.get(ctx, base, path)
-		if err != nil {
-			continue
-		}
-		res.Responses = append(res.Responses, r)
-		sets = append(sets, Detect(r))
+		next = Probes("", Merge(sets...), done)
 	}
-	res.Matches = Settled(Merge(sets...))
+	res.Matches = Settled(InferJava(Merge(sets...)))
 	return res, nil
 }
 

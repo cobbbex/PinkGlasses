@@ -4,6 +4,7 @@
 #   docker compose -f deploy/fplab/docker-compose.yml --profile atlassian up -d
 #   docker compose -f deploy/fplab/docker-compose.yml --profile zammad up -d
 #   docker compose -f deploy/fplab/docker-compose.yml --profile mikrotik up -d
+#   docker compose -f deploy/fplab/docker-compose.yml --profile java up -d
 #   go run ./tools/fpcheck -lab http://127.0.0.1:28090
 #
 # The web services also join the stack's network (pinkglasses_default), so a
@@ -151,6 +152,59 @@ services:
     networks: [stack] # one network: the image hands its first interface to the VM
     cap_add: [NET_ADMIN]
     devices: ["/dev/net/tun", "/dev/kvm"]
+
+
+  # --- Java servers, 28100-28109 ---
+  # Each as its image ships: no application deployed, so the front page is
+  # the server's own 404 or welcome page — what an application with a custom
+  # front page still shows under /nonexistent-page.jsp. petclinic is a
+  # Spring Boot application with every actuator endpoint exposed.
+  tomcat9:
+    image: tomcat:9.0
+    profiles: [java]
+    ports: ["127.0.0.1:28100:8080"]
+    networks: [default, stack]
+  tomcat10:
+    image: tomcat:10.1
+    profiles: [java]
+    ports: ["127.0.0.1:28101:8080"]
+    networks: [default, stack]
+  jetty9:
+    image: jetty:9.4
+    profiles: [java]
+    ports: ["127.0.0.1:28102:8080"]
+    networks: [default, stack]
+  jetty12:
+    image: jetty:12
+    profiles: [java]
+    ports: ["127.0.0.1:28103:8080"]
+    networks: [default, stack]
+  wildfly:
+    image: quay.io/wildfly/wildfly:latest
+    profiles: [java]
+    command: ["/opt/jboss/wildfly/bin/standalone.sh", "-b", "0.0.0.0", "-bmanagement", "0.0.0.0"]
+    ports: ["127.0.0.1:28104:8080", "127.0.0.1:28109:9990"]
+    networks: [default, stack]
+  payara:
+    image: payara/server-full:latest
+    profiles: [java]
+    ports: ["127.0.0.1:28105:8080"]
+    networks: [default, stack]
+  glassfish:
+    image: ghcr.io/eclipse-ee4j/glassfish:latest
+    profiles: [java]
+    ports: ["127.0.0.1:28106:8080"]
+    networks: [default, stack]
+  openliberty:
+    image: openliberty/open-liberty:latest
+    profiles: [java]
+    ports: ["127.0.0.1:28107:9080"]
+    networks: [default, stack]
+  petclinic:
+    image: springio/petclinic:latest
+    profiles: [java]
+    ports: ["127.0.0.1:28108:8080"]
+    networks: [default, stack]
 
 networks:
   stack:

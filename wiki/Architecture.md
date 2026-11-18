@@ -1169,9 +1169,15 @@ A Shodan-like query bar, implemented as a **parser to SQL**, not a second datast
 port:443 product:nginx country:DE
 domain:*.corp.example.com AND port:22
 tech:"WordPress" AND cert.expires<30d
+tech:Java@8* AND port:443
 cookie:webvpn* AND port:443
 new:7d AND severity>=high
 ```
+
+`tech:Name@version` matches a technology and its own version on the same row
+(`version:` is the service's, from the port scan): `tech:"Apache Tomcat@9.0*"`.
+A version known only as a minimum is written with a trailing `+` — `tech:Java@11+`
+is Java 11 or later, inferred from the server release that needs it.
 
 `cookie:` searches the **names** of cookies a service set. Names are a strong
 fingerprint for appliances whose banners say little: `webvpn*` is Cisco ASA WebVPN,

@@ -12,8 +12,9 @@ import (
 
 // productObservations names the edge products breaches most often start from
 // — NetScaler, Confluence, Jira, Zammad, Zimbra, Exchange, Kerio Connect,
-// MikroTik's WebFig — on
-// one site, with a version where the site gives one away. It asks for the
+// MikroTik's WebFig, the Java application servers and Spring Boot, and the
+// Java under them — on one site, with a version where the site gives one
+// away. It asks for the
 // front page and at most fingerprint.MaxProbes fixed paths, and only paths of
 // a product the front page already resembles; a redirect is followed only
 // while it stays on the same name. The pages it read are also searched for

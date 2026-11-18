@@ -723,6 +723,10 @@ port and technology, in one click.
 the field has a value, so `product:*` is every port whose product is known. A bare `*`
 matches everything, which is how to read the whole inventory.
 
+`tech:Name@version` matches a technology at its own version: `tech:Java@8*`,
+`tech:"Apache Tomcat@9.0*"`. A trailing `+` is a minimum: `tech:Java@11+` is a server
+known to need Java 11 or later, where nothing stated the exact release.
+
 **Results are one row per site.** A port that serves several names is listed once per
 name, with the *Site* column saying which one the row is about, because a shared address
 answers differently per name; a row marked *by address* is what the port serves when

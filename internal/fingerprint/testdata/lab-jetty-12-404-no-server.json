@@ -1,0 +1,27 @@
+{
+  "source": "lab jetty:12, Server header removed as sendServerVersion=false does (deploy/fplab)",
+  "expect": [
+    "Jetty"
+  ],
+  "response": {
+    "path": "/nonexistent-page.jsp",
+    "status": 404,
+    "headers": {
+      "Cache-Control": [
+        "must-revalidate,no-cache,no-store"
+      ],
+      "Content-Type": [
+        "text/html;charset=iso-8859-1"
+      ],
+      "Content-Length": [
+        "434"
+      ],
+      "Connection": [
+        "close"
+      ]
+    },
+    "title": "Error 404 Not Found",
+    "body": "<html>\n<head>\n<meta http-equiv=\"Content-Type\" content=\"text/html;charset=ISO-8859-1\"/>\n<title>Error 404 Not Found</title>\n</head>\n<body>\n<h2>HTTP ERROR 404 Not Found</h2>\n<table>\n<tr><th>URI:</th><td>http://127.0.0.1:28103/nonexistent-page.jsp</td></tr>\n<tr><th>STATUS:</th><td>404</td></tr>\n<tr><th>MESSAGE:</th><td>Not Found</td></tr>\n</table>\n<hr/><a href=\"https://jetty.org/\">Powered by Jetty:// 12.1.15</a><hr/>\n\n</body>\n</html>\n"
+  },
+  "version": "12.1.15"
+}
